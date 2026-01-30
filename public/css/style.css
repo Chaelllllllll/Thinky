@@ -1,0 +1,1547 @@
+/**
+ * REVIEWER APP - MAIN STYLESHEET
+ * Light, cute pink theme with modern animations
+ */
+
+/* =====================================================
+   CUSTOM PROPERTIES (CSS VARIABLES)
+   ===================================================== */
+:root {
+    /* Pink Theme Colors */
+    --primary-pink: #ff9eb4;
+    --primary-pink-light: #ffb8ca;
+    --primary-pink-dark: #ff7a99;
+    --secondary-pink: #ffd4e0;
+    --accent-pink: #ff6b9d;
+    
+    /* Neutral Colors */
+    --white: #ffffff;
+    --off-white: #fef9fb;
+    --light-gray: #f8f4f6;
+    --medium-gray: #e6dce0;
+    --dark-gray: #8b7a82;
+    --text-dark: #4a3540;
+    
+    /* Accent Colors */
+    --success: #a8e6cf;
+    --warning: #ffd3b6;
+    --danger: #ffaaa5;
+    --info: #d4a5f5;
+    
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #ff9eb4 0%, #ffd4e0 100%);
+    --gradient-accent: linear-gradient(135deg, #ff6b9d 0%, #ff9eb4 100%);
+    --gradient-soft: linear-gradient(180deg, #fef9fb 0%, #ffffff 100%);
+    
+    /* Shadows */
+    --shadow-sm: 0 2px 8px rgba(255, 158, 180, 0.1);
+    --shadow-md: 0 4px 16px rgba(255, 158, 180, 0.15);
+    --shadow-lg: 0 8px 32px rgba(255, 158, 180, 0.2);
+    --shadow-xl: 0 16px 48px rgba(255, 158, 180, 0.25);
+    
+    /* Border Radius */
+    --radius-sm: 8px;
+    --radius-md: 12px;
+    --radius-lg: 16px;
+    --radius-xl: 24px;
+    --radius-full: 9999px;
+    
+    /* Transitions */
+    --transition-fast: 0.2s ease;
+    --transition-base: 0.3s ease;
+    --transition-slow: 0.5s ease;
+    
+    /* Spacing */
+    --spacing-xs: 4px;
+    --spacing-sm: 8px;
+    --spacing-md: 16px;
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+    --spacing-2xl: 48px;
+}
+
+/* =====================================================
+   GLOBAL STYLES
+   ===================================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    font-family: 'Quicksand', 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: var(--gradient-soft);
+    color: var(--text-dark);
+    line-height: 1.6;
+    overflow-x: hidden;
+}
+
+/* =====================================================
+   TYPOGRAPHY
+   ===================================================== */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    line-height: 1.2;
+    margin-bottom: var(--spacing-md);
+    color: var(--text-dark);
+}
+
+h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+}
+
+h2 {
+    font-size: 2rem;
+}
+
+h3 {
+    font-size: 1.5rem;
+}
+
+h4 {
+    font-size: 1.25rem;
+}
+
+p {
+    margin-bottom: var(--spacing-md);
+}
+
+/* =====================================================
+   BUTTONS
+   ===================================================== */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-sm);
+    padding: 12px 24px;
+    font-size: 1rem;
+    font-weight: 500;
+    border: none;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    text-decoration: none;
+    position: relative;
+    overflow: hidden;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transform: translate(-50%, -50%);
+    transition: width var(--transition-base), height var(--transition-base);
+}
+
+.btn:hover::before {
+    width: 300px;
+    height: 300px;
+}
+
+.btn-primary {
+    background: var(--gradient-primary);
+    color: var(--white);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-accent {
+    background: var(--gradient-accent);
+    color: var(--white);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-accent:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.btn-outline {
+    background: transparent;
+    color: var(--primary-pink);
+    border: 2px solid var(--primary-pink);
+}
+
+.btn-outline:hover {
+    background: var(--primary-pink);
+    color: var(--white);
+}
+
+.btn-light {
+    background: var(--white);
+    color: var(--primary-pink);
+    border: 1px solid var(--medium-gray);
+}
+
+.btn-light:hover {
+    background: var(--secondary-pink);
+    border-color: var(--primary-pink);
+}
+
+.btn-danger {
+    background: var(--danger);
+    color: var(--white);
+}
+
+.btn-sm {
+    padding: 8px 16px;
+    font-size: 0.875rem;
+}
+
+.btn-lg {
+    padding: 16px 32px;
+    font-size: 1.125rem;
+}
+
+/* =====================================================
+   CARDS
+   ===================================================== */
+.card {
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: var(--spacing-lg);
+    transition: all var(--transition-base);
+    border: 1px solid var(--medium-gray);
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: var(--shadow-md);
+}
+
+.card-header {
+    padding-bottom: var(--spacing-md);
+    margin-bottom: var(--spacing-md);
+    border-bottom: 2px solid var(--secondary-pink);
+}
+
+.card-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-dark);
+    margin: 0;
+}
+
+.card-body {
+    padding: var(--spacing-md) 0;
+}
+
+.card-footer {
+    padding-top: var(--spacing-md);
+    margin-top: var(--spacing-md);
+    border-top: 1px solid var(--medium-gray);
+}
+
+/* =====================================================
+   FORMS
+   ===================================================== */
+.form-group {
+    margin-bottom: var(--spacing-lg);
+}
+
+.form-label {
+    display: block;
+    margin-bottom: var(--spacing-sm);
+    font-weight: 500;
+    color: var(--text-dark);
+}
+
+.form-control {
+    width: 100%;
+    padding: 12px 16px;
+    font-size: 1rem;
+    border: 2px solid var(--medium-gray);
+    border-radius: var(--radius-md);
+    transition: all var(--transition-base);
+    background: var(--white);
+    font-family: inherit;
+}
+
+.form-control:focus {
+    outline: none;
+    border-color: var(--primary-pink);
+    box-shadow: 0 0 0 3px rgba(255, 158, 180, 0.1);
+}
+
+.form-control::placeholder {
+    color: var(--dark-gray);
+}
+
+textarea.form-control {
+    min-height: 120px;
+    resize: vertical;
+}
+
+/* =====================================================
+   ALERTS
+   ===================================================== */
+.alert {
+    padding: 16px 20px;
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.alert-success {
+    background: #e8f5e9;
+    color: #2e7d32;
+    border-left: 4px solid var(--success);
+}
+
+.alert-error {
+    background: #ffebee;
+    color: #c62828;
+    border-left: 4px solid var(--danger);
+}
+
+.alert-info {
+    background: #f3e5f5;
+    color: #6a1b9a;
+    border-left: 4px solid var(--info);
+}
+
+.alert-warning {
+    background: #fff3e0;
+    color: #e65100;
+    border-left: 4px solid var(--warning);
+}
+
+/* =====================================================
+   MODAL
+   ===================================================== */
+.modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(74, 53, 64, 0.7);
+    backdrop-filter: blur(4px);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
+
+/* =====================================================
+   FLASHCARD COMPONENT
+   ===================================================== */
+.flashcards-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+.flashcard {
+    width: 220px;
+    height: 140px;
+    perspective: 1000px;
+    cursor: pointer;
+}
+.flashcard-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.6s;
+    transform-style: preserve-3d;
+}
+.flashcard.flipped .flashcard-inner {
+    transform: rotateY(180deg);
+}
+.flashcard-face {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    border-radius: 10px;
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    justify-content: center;
+}
+.flashcard-front {
+    background: linear-gradient(180deg,#fff7fb,#fff);
+    border: 1px solid rgba(255,150,180,0.12);
+}
+.flashcard-back {
+    background: linear-gradient(180deg,#fff,#fff7fb);
+    border: 1px solid rgba(255,150,180,0.12);
+    transform: rotateY(180deg);
+}
+.flashcard-title {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.flashcard-text {
+    font-size: 0.95rem;
+    color: var(--dark-gray);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Flashcard viewer adjustments */
+/* Flashcard viewer adjustments */
+/* Use column flex layout so header/body/footer split and body can grow */
+#flashcardViewerModal .modal-content {
+    display: flex;
+    flex-direction: column;
+    max-width: 760px;
+    width: 90%;
+    max-height: 80vh;
+    height: 80vh; /* explicitly give viewer a fixed viewport height so body can flex */
+    overflow: hidden; /* let inner body scroll if needed */
+}
+#flashcardViewerModal .modal-header { flex: 0 0 auto; }
+#flashcardViewerModal .modal-body {
+    flex: 1 1 auto;
+    padding: 8px 18px; /* reduce vertical padding so card has more room */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 280px;
+}
+#flashcardViewerModal .modal-footer { flex: 0 0 auto; }
+
+#flashcardViewerModal #fcViewerCard {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Make the flashcard expand to fill the available viewer body */
+#flashcardViewerModal .flashcard {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+}
+
+#flashcardViewerModal .flashcard-inner {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    transition: transform 0.6s;
+}
+
+#flashcardViewerModal .flashcard-face {
+    padding: 20px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    width: 100%;
+    height: 100%;
+}
+
+#flashcardViewerModal .flashcard-text { white-space: normal; text-align: center; }
+
+/* Counter placed inside the card at the bottom center */
+#flashcardViewerModal .flashcard-counter {
+    position: absolute;
+    bottom: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.9);
+    color: var(--primary-pink-dark);
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+    z-index: 6;
+}
+
+
+.modal.show {
+    display: flex;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+.modal-content {
+    background: var(--white);
+    border-radius: var(--radius-xl);
+    max-width: 600px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-xl);
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    padding: var(--spacing-lg);
+    border-bottom: 2px solid var(--secondary-pink);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--dark-gray);
+    cursor: pointer;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+}
+
+.modal-close:hover {
+    background: var(--secondary-pink);
+    color: var(--primary-pink);
+}
+
+.modal-body {
+    padding: var(--spacing-lg);
+}
+
+.modal-footer {
+    padding: var(--spacing-lg);
+    border-top: 1px solid var(--medium-gray);
+    display: flex;
+    gap: var(--spacing-sm);
+    justify-content: flex-end;
+}
+
+/* Messenger-like modal styles (profile message modal) */
+.message-modal {
+    padding: 0;
+    background: linear-gradient(180deg, #fff 0%, #fff 100%);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.mm-header {
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:14px 16px;
+    border-bottom:1px solid var(--medium-gray);
+    background: linear-gradient(90deg, rgba(255,158,180,0.04), rgba(255,210,220,0.02));
+}
+.mm-user { display:flex; align-items:center; gap:12px; }
+.mm-user img { width:44px; height:44px; border-radius:999px; object-fit:cover; border:2px solid rgba(255,158,180,0.15); }
+.mm-user-info { line-height:1; }
+.mm-name { font-weight:700; color:var(--text-dark); }
+.mm-sub { font-size:0.85rem; color:var(--dark-gray); }
+.mm-actions .modal-close { background:none; border:none; font-size:20px; color:var(--dark-gray); cursor:pointer; }
+
+.mm-thread-wrap { padding:12px 16px; background: transparent; flex:1 1 auto; overflow:hidden; }
+.mm-thread { height:100%; max-height:60vh; overflow:auto; display:flex; flex-direction:column; gap:10px; padding-bottom:8px; }
+.mm-empty { text-align:center; color:var(--dark-gray); padding:34px 8px; }
+
+.mm-bubble { max-width:72%; padding:10px 12px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); line-height:1.3; font-size:0.95rem; }
+.mm-bubble .meta { font-size:0.8rem; color:var(--dark-gray); margin-bottom:6px; }
+.mm-bubble.left { align-self:flex-start; background: #fff; border:1px solid rgba(230,220,224,0.6); }
+.mm-bubble.right { align-self:flex-end; background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color:white; }
+.mm-bubble .time { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:8px; display:block; }
+
+.mm-input-area { display:flex; gap:10px; padding:12px; border-top:1px solid var(--medium-gray); align-items:flex-end; background: linear-gradient(180deg, rgba(255,255,255,0.98), #fff); }
+.mm-input { flex:1; resize:none; padding:10px 12px; border-radius:18px; border:1px solid var(--medium-gray); font-family:inherit; font-size:0.95rem; min-height:42px; }
+.mm-send { white-space:nowrap; padding:10px 14px; border-radius:18px; cursor:pointer; }
+
+/* Message render adjustments for profile message modal */
+.msg { display:flex; gap:12px; align-items:flex-end; }
+.msg-self { flex-direction: row-reverse; }
+.msg-avatar { width:44px; height:44px; border-radius:999px; object-fit:cover; border:2px solid rgba(255,158,180,0.15); }
+.msg-avatar { margin-right:12px; }
+.msg-self .msg-avatar { margin-left:12px; margin-right:8px; }
+.msg-body { display:flex; flex-direction:column; max-width: calc(100% - 72px); }
+.msg-bubble { padding:10px 14px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); line-height:1.3; font-size:0.95rem; word-break:break-word; }
+.msg-bubble.left { align-self:flex-start; background: #fff; border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
+.msg-bubble.right { align-self:flex-end; background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color:white; }
+.msg-time-below { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:6px; }
+.msg-self .msg-time-below { color: rgba(255,255,255,0.75); align-self: flex-end; }
+
+/* Prevent avatar overlapping the scrollbar by adding right padding to thread container */
+.mm-thread { padding-right: 20px; }
+
+/* Input and send button styling to match provided design */
+.mm-input { min-height:48px; border-radius:28px; padding:12px 16px; border:1px solid rgba(220,200,205,0.7); }
+#sendMessageBtn, .mm-send { width:48px; height:48px; border-radius:999px; background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color:#fff; border:none; display:inline-flex; align-items:center; justify-content:center; box-shadow: 0 6px 20px rgba(255,105,150,0.12); }
+#sendMessageBtn:hover, .mm-send:hover { transform: translateY(-2px); }
+#sendMessageBtn:active, .mm-send:active { transform: translateY(0); }
+#sendMessageBtn .icon, .mm-send .icon { pointer-events:none; }
+
+/* Message bubble variants */
+.mm-bubble.right .time { color: rgba(255,255,255,0.75); }
+
+@media (max-width:600px) {
+    .message-modal { width: 96%; max-width: 96%; }
+    .mm-bubble { max-width:86%; }
+    .mm-thread { max-height:56vh; }
+}
+
+/* Mobile-friendly modal adjustments for reviewer/viewer modals */
+@media (max-width: 480px) {
+    .modal {
+        align-items: flex-start; /* let modal content sit near top on small screens */
+        padding: 12px 8px;      /* small outer inset */
+    }
+
+    .modal-content {
+        width: calc(100% - 16px) !important;
+        max-width: calc(100% - 16px) !important;
+        height: 94vh !important;
+        max-height: 94vh !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+        margin-top: 12px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .modal-header {
+        padding: 10px 12px;
+    }
+
+    .modal-body {
+        padding: 10px 12px;
+        flex: 1 1 auto;
+        overflow: auto; /* allow body content to scroll */
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Ensure flashcard viewer body gives the card room to expand */
+    #flashcardViewerModal .modal-body { padding: 8px 10px; }
+
+    .modal-footer {
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: row;
+        gap: 8px;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+    }
+
+    /* Keep buttons an appropriate size in a row on mobile */
+    .modal-footer .btn {
+        width: auto;
+        flex: 1 1 auto;
+        min-width: 84px;
+        box-sizing: border-box;
+    }
+
+    /* Grouped actions layout: allow wrapping but keep buttons in a row */
+    .modal-footer > div {
+        width: auto;
+        display: flex;
+        gap: 8px;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
+
+    /* Reduce card rounding/padding so content uses space */
+    .flashcard-face {
+        border-radius: 10px;
+        padding: 14px;
+    }
+}
+
+/* Ensure modal footers with custom layout (used in index.html) are consistent across pages */
+.modal-footer.custom-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal-footer .right-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+/* =====================================================
+   BADGE
+   ===================================================== */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: var(--radius-full);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.badge-primary {
+    background: var(--secondary-pink);
+    color: var(--primary-pink-dark);
+}
+
+.badge-success {
+    background: var(--success);
+    color: #1b5e20;
+}
+
+.badge-danger {
+    background: var(--danger);
+    color: #b71c1c;
+}
+
+.badge-info {
+    background: var(--info);
+    color: #4a148c;
+}
+
+/* Developer badge: pink outlined variant */
+.badge-dev {
+    background: transparent;
+    color: var(--primary-pink-dark);
+    border: 1px solid var(--primary-pink);
+    padding: 6px 8px;
+    border-radius: 8px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+}
+
+.badge-dev i { margin-right: 6px; }
+
+/* =====================================================
+   SPINNER / LOADER
+   ===================================================== */
+.spinner {
+    display: inline-block;
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--secondary-pink);
+    border-top-color: var(--primary-pink);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.spinner-sm {
+    width: 20px;
+    height: 20px;
+    border-width: 2px;
+}
+
+/* =====================================================
+   NAVIGATION
+   ===================================================== */
+.navbar {
+    background: var(--white);
+    box-shadow: var(--shadow-sm);
+    padding: var(--spacing-md) 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.nav-brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    text-decoration: none;
+}
+
+.nav-link {
+    color: var(--text-dark);
+    text-decoration: none;
+    padding: 8px 16px;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.nav-link:hover {
+    background: var(--secondary-pink);
+    color: var(--primary-pink-dark);
+}
+
+/* =====================================================
+   Quill / Rendered Content fixes
+   Ensure lists and block content produced by Quill keep their
+   indentation when rendered inside modals and viewer areas.
+   This counteracts the global * { padding:0; margin:0 } reset.
+   ===================================================== */
+.ql-editor, .reviewer-content, #viewReviewerContent, .rendered-reviewer, #modalContent, .reviewer-preview {
+    color: var(--text-dark);
+    line-height: 1.6;
+    word-break: break-word;
+    white-space: pre-wrap;
+}
+
+/* Lists: restore left padding and margin so bullets/numbers indent */
+.ql-editor ul, .ql-editor ol,
+#viewReviewerContent ul, #viewReviewerContent ol,
+.reviewer-content ul, .reviewer-content ol,
+.rendered-reviewer ul, .rendered-reviewer ol,
+#modalContent ul, #modalContent ol,
+.reviewer-preview ul, .reviewer-preview ol {
+    margin: 0 0 1rem 0.95rem;
+    padding-left: 1.05rem;
+    list-style-position: outside;
+}
+
+/* Nested lists should indent further */
+.ql-editor ul ul, .ql-editor ol ol,
+#viewReviewerContent ul ul, #viewReviewerContent ol ol,
+.reviewer-content ul ul, .reviewer-content ol ol,
+.rendered-reviewer ul ul, .rendered-reviewer ol ol,
+#modalContent ul ul, #modalContent ol ol,
+.reviewer-preview ul ul, .reviewer-preview ol ol {
+    margin-left: 1.6rem;
+    padding-left: 0.6rem;
+}
+
+/* Ensure bullets are visible and not clipped by overflow or line-height issues */
+.ql-editor li, #viewReviewerContent li, .reviewer-content li, .rendered-reviewer li, #modalContent li, .reviewer-preview li {
+    display: list-item;
+    list-style-type: disc;
+}
+
+/* Headings inside rendered content match page typography */
+.ql-editor h1, .ql-editor h2, .ql-editor h3,
+#viewReviewerContent h1, #viewReviewerContent h2, #viewReviewerContent h3,
+.reviewer-content h1, .reviewer-content h2, .reviewer-content h3,
+.rendered-reviewer h1, .rendered-reviewer h2, .rendered-reviewer h3 {
+    margin-top: 0.6rem;
+    margin-bottom: 0.6rem;
+}
+
+/* Blockquote styling */
+.ql-editor blockquote, #viewReviewerContent blockquote, .reviewer-content blockquote, .rendered-reviewer blockquote {
+    border-left: 4px solid rgba(0,0,0,0.06);
+    padding-left: 12px;
+    color: var(--dark-gray);
+    margin: 0 0 1rem 0;
+}
+
+/* Preformatted code blocks inside content */
+.ql-editor pre, #viewReviewerContent pre, .reviewer-content pre, .rendered-reviewer pre {
+    background: #f7f5f7;
+    padding: 12px;
+    border-radius: 8px;
+    overflow: auto;
+}
+
+.nav-link.active {
+    background: var(--gradient-primary);
+    color: var(--white);
+}
+
+/* =====================================================
+   SIDEBAR
+   ===================================================== */
+.sidebar {
+    background: var(--white);
+    width: 280px;
+    height: 100vh;
+    position: fixed;
+    left: 0;
+    top: 0;
+    box-shadow: var(--shadow-md);
+    overflow-y: auto;
+    transition: transform var(--transition-base);
+    z-index: 200;
+}
+
+.sidebar-header {
+    padding: var(--spacing-lg);
+    background: var(--gradient-primary);
+    color: var(--white);
+}
+
+.sidebar-brand {
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-decoration: none;
+    color: var(--white);
+}
+
+.sidebar-nav {
+    padding: var(--spacing-md);
+}
+
+.sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    padding: 12px 16px;
+    color: var(--text-dark);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    transition: all var(--transition-fast);
+    margin-bottom: var(--spacing-xs);
+}
+
+.sidebar-link:hover {
+    background: var(--secondary-pink);
+    color: var(--primary-pink-dark);
+}
+
+.sidebar-link.active {
+    background: var(--gradient-primary);
+    color: var(--white);
+}
+
+.sidebar-toggle {
+    display: none;
+}
+
+/* =====================================================
+   MAIN CONTENT AREA
+   ===================================================== */
+.main-content {
+    margin-left: 280px;
+    padding: var(--spacing-xl);
+    min-height: 100vh;
+    transition: margin-left var(--transition-base);
+}
+
+/* =====================================================
+   CHAT STYLES
+   ===================================================== */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 600px;
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+    overflow: hidden;
+}
+
+.chat-header {
+    padding: var(--spacing-md);
+    background: var(--gradient-primary);
+    color: var(--white);
+    font-weight: 600;
+}
+
+.chat-messages {
+    flex: 1;
+    padding: var(--spacing-md);
+    overflow-y: auto;
+    background: var(--light-gray);
+}
+
+/* Align general chat messages left/right similar to private modal */
+.chat-message { display:flex; gap:12px; align-items:flex-end; margin-bottom: var(--spacing-md); }
+.chat-message .msg-avatar { width:36px; height:36px; border-radius:999px; object-fit:cover; border:2px solid rgba(255,158,180,0.12); }
+.chat-message .msg-body { display:flex; flex-direction:column; max-width: calc(100% - 64px); }
+.chat-message.msg-self { flex-direction: row-reverse; }
+.chat-message.msg-self .msg-avatar { margin-left:12px; margin-right:8px; }
+.chat-message .msg-avatar { margin-right:12px; }
+.chat-message .msg-bubble { padding:12px 16px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); word-break:break-word; }
+.chat-message .msg-bubble.left { background: #fff; border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
+.chat-message .msg-bubble.right { background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color: #fff; }
+.chat-message .msg-time-below { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:6px; }
+.chat-message.msg-self .msg-time-below { color: rgba(255,255,255,0.75); align-self:flex-end; }
+
+/* Prevent avatar overlapping scrollbar */
+.chat-messages { padding-right: 20px; }
+
+.chat-message {
+    margin-bottom: var(--spacing-md);
+    animation: fadeIn 0.3s ease;
+}
+
+.chat-message-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-xs);
+}
+
+.chat-username {
+    font-weight: 600;
+    color: var(--primary-pink-dark);
+}
+
+.chat-timestamp {
+    font-size: 0.75rem;
+    color: var(--dark-gray);
+}
+
+.chat-message-body {
+    background: var(--white);
+    padding: 12px 16px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    word-wrap: break-word;
+}
+
+.chat-input-container {
+    padding: var(--spacing-md);
+    background: var(--white);
+    border-top: 1px solid var(--medium-gray);
+    display: flex;
+    gap: var(--spacing-sm);
+}
+
+.chat-input {
+    flex: 1;
+    padding: 12px 16px;
+    border: 2px solid var(--medium-gray);
+    border-radius: var(--radius-full);
+    font-family: inherit;
+    transition: all var(--transition-fast);
+}
+
+.chat-input:focus {
+    outline: none;
+    border-color: var(--primary-pink);
+}
+
+/* =====================================================
+   RICH TEXT EDITOR
+   ===================================================== */
+.editor-toolbar {
+    background: var(--light-gray);
+    padding: var(--spacing-sm);
+    border: 1px solid var(--medium-gray);
+    border-bottom: none;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    display: flex;
+    gap: var(--spacing-xs);
+    flex-wrap: wrap;
+}
+
+.editor-btn {
+    padding: 8px 12px;
+    background: var(--white);
+    border: 1px solid var(--medium-gray);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 0.875rem;
+}
+
+.editor-btn:hover {
+    background: var(--secondary-pink);
+    border-color: var(--primary-pink);
+}
+
+.editor-btn.active {
+    background: var(--primary-pink);
+    color: var(--white);
+    border-color: var(--primary-pink);
+}
+
+.editor-content {
+    min-height: 300px;
+    padding: 16px;
+    border: 1px solid var(--medium-gray);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    background: var(--white);
+    outline: none;
+}
+
+.editor-content:focus {
+    border-color: var(--primary-pink);
+}
+
+/* =====================================================
+   UTILITIES
+   ===================================================== */
+.text-center {
+    text-align: center;
+}
+
+/* =====================================================
+   SITE ALERT / TOASTS - bottom-right reusable
+   ===================================================== */
+.site-alert-container {
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 2000;
+    max-width: calc(100% - 40px);
+}
+.site-alert {
+    transform: translateY(12px) scale(0.98);
+    opacity: 0;
+    transition: all 240ms ease;
+    min-width: 200px;
+    max-width: 360px;
+    box-shadow: var(--shadow-md);
+    border-radius: 8px;
+    overflow: hidden;
+}
+.site-alert.show { transform: translateY(0) scale(1); opacity: 1; }
+.site-alert .site-alert-content { padding: 10px 14px; font-weight: 600; }
+.site-alert-success { background: #e6ffef; color: #0b7a3f; border: 1px solid #b8f2d1; }
+.site-alert-error { background: #fff0f2; color: #a1123b; border: 1px solid #ffcad4; }
+.site-alert-info { background: #f0f6ff; color: #08306b; border: 1px solid #cfe3ff; }
+
+/* =====================================================
+   REVIEWERS (shared)
+   Moved from index.html to global stylesheet so other pages
+   can reuse the same styles (user profile page, etc.)
+===================================================== */
+.reviewers-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 24px;
+    margin-top: 24px;
+}
+
+.reviewer-card {
+    background: var(--white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: 24px;
+    transition: all var(--transition-base);
+    cursor: pointer;
+    border: 1px solid var(--medium-gray);
+}
+
+.reviewer-card:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-lg);
+}
+
+.reviewer-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-dark);
+}
+
+.reviewer-meta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+    font-size: 0.875rem;
+    color: var(--dark-gray);
+}
+
+.reviewer-meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.reviewer-preview {
+    color: var(--text-dark);
+    font-size: 0.9rem;
+    line-height: 1.6;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
+
+/* Card-level actions (bottom-right) */
+.reviewer-card { position: relative; padding-bottom: 56px; }
+.reviewer-card .card-actions {
+    position: absolute;
+    right: 16px;
+    bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.card-heart-btn {
+    background: transparent;
+    border: 2px solid var(--medium-gray);
+    border-radius: 999px;
+    padding: 6px 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--dark-gray);
+    cursor: pointer;
+}
+.card-heart-btn.hearted {
+    background: rgba(255, 158, 180, 0.08);
+    border-color: var(--primary-pink);
+    color: var(--primary-pink);
+}
+.card-heart-count { font-weight:600; min-width:18px; text-align:left; }
+
+/* Modal heart button (shared) */
+.heart-btn {
+    background: transparent;
+    border: 2px solid var(--medium-gray);
+    border-radius: 999px;
+    padding: 0 12px;
+    height: 32px;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--dark-gray);
+    cursor: pointer;
+}
+.heart-btn.hearted {
+    background: rgba(255, 158, 180, 0.08);
+    border-color: var(--primary-pink);
+    color: var(--primary-pink);
+}
+
+/* User profile header */
+.user-header {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    padding: 12px 0 8px 0;
+}
+
+.user-header .avatar-lg {
+    width: 96px;
+    height: 96px;
+    border-radius: 9999px;
+    object-fit: cover;
+    border: 2px solid rgba(0,0,0,0.06);
+}
+
+/* Small back button overlaying avatar in user profile */
+#profileBackSmall {
+    position: absolute;
+    left: -12px;
+    top: -12px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    height: 36px;
+    line-height: 18px;
+}
+
+/* Message button in profile header (replaces Back) */
+#messageBtn {
+    min-width: 84px;
+}
+
+/* Profile message modal - conversation thread styles */
+#messageModal .modal-content { max-width: 640px; }
+.message-thread { max-height: 320px; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:10px; }
+.msg { display:flex; gap:10px; align-items:flex-start; }
+.msg .msg-avatar { width:36px; height:36px; border-radius:999px; object-fit:cover; }
+.msg .msg-bubble { max-width:78%; padding:10px 12px; border-radius:12px; background: #fff3f6; color:var(--text-dark); box-shadow: var(--shadow-sm); }
+.msg .msg-meta { font-size:0.85rem; color:var(--dark-gray); margin-bottom:6px; }
+.msg .msg-time { font-size:0.75rem; color:var(--dark-gray); margin-left:8px; }
+.msg-self { flex-direction:row-reverse; }
+.msg-self .msg-bubble { background: linear-gradient(135deg,#ffdfe7,#fff); border:1px solid rgba(255,158,180,0.35); }
+.msg-author { font-weight:700; font-size:0.9rem; color:var(--primary-pink-dark); }
+.msg-text { white-space:pre-wrap; word-break:break-word; }
+
+/* scrollbar style for message thread */
+.message-thread::-webkit-scrollbar { width:10px; }
+.message-thread::-webkit-scrollbar-thumb { background: linear-gradient(180deg,var(--primary-pink),var(--secondary-pink)); border-radius:8px; }
+
+
+@media (max-width: 768px) {
+    .user-header {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        gap: 12px;
+    }
+}
+
+/* User card and search */
+.user-card { padding: 12px 20px; }
+
+.user-search { display:flex; justify-content:flex-end; }
+.user-search input.form-control { width: 420px; }
+.user-search button.btn { white-space: nowrap; }
+
+@media (max-width: 768px) {
+    .user-search { justify-content:center; }
+    .user-search div { width:100%; max-width:480px; display:flex; gap:8px; }
+    .user-search input.form-control { width:100%; }
+    .user-search button.btn { width:120px; }
+}
+
+/* H2 + search row for user page */
+.user-h2-search h2 { font-size:1.25rem; }
+.user-h2-search { align-items:center; }
+@media (max-width: 768px) {
+    .user-h2-search { flex-direction:column; align-items:flex-start; gap:8px; }
+    .user-h2-search .user-search { width:100%; }
+}
+
+.text-right {
+    text-align: right;
+}
+
+.d-flex {
+    display: flex;
+}
+
+.justify-content-between {
+    justify-content: space-between;
+}
+
+.justify-content-center {
+    justify-content: center;
+}
+
+.align-items-center {
+    align-items: center;
+}
+
+.gap-sm {
+    gap: var(--spacing-sm);
+}
+
+.gap-md {
+    gap: var(--spacing-md);
+}
+
+.gap-lg {
+    gap: var(--spacing-lg);
+}
+
+.mt-1 {
+    margin-top: var(--spacing-sm);
+}
+
+.mt-2 {
+    margin-top: var(--spacing-md);
+}
+
+.mt-3 {
+    margin-top: var(--spacing-lg);
+}
+
+.mb-1 {
+    margin-bottom: var(--spacing-sm);
+}
+
+.mb-2 {
+    margin-bottom: var(--spacing-md);
+}
+
+.mb-3 {
+    margin-bottom: var(--spacing-lg);
+}
+
+.p-1 {
+    padding: var(--spacing-sm);
+}
+
+.p-2 {
+    padding: var(--spacing-md);
+}
+
+.p-3 {
+    padding: var(--spacing-lg);
+}
+
+.w-100 {
+    width: 100%;
+}
+
+.hidden {
+    display: none;
+}
+
+/* =====================================================
+   RESPONSIVE DESIGN
+   ===================================================== */
+@media (max-width: 768px) {
+    .sidebar {
+        transform: translateX(-100%);
+    }
+
+    .sidebar.show {
+        transform: translateX(0);
+    }
+
+    .sidebar-toggle {
+        display: block;
+        position: fixed;
+        top: var(--spacing-md);
+        left: var(--spacing-md);
+        z-index: 300;
+        background: var(--gradient-primary);
+        color: var(--white);
+        border: none;
+        width: 48px;
+        height: 48px;
+        border-radius: 50%;
+        box-shadow: var(--shadow-md);
+        cursor: pointer;
+        transition: all var(--transition-base);
+    }
+
+    .sidebar-toggle:hover {
+        transform: scale(1.1);
+    }
+
+    .main-content {
+        margin-left: 0;
+        padding: var(--spacing-md);
+    }
+
+    h1 {
+        font-size: 2rem;
+    }
+
+    h2 {
+        font-size: 1.5rem;
+    }
+
+    .modal-content {
+        width: 95%;
+    }
+
+    /* Stack navbar items on smaller screens */
+    .navbar .d-flex {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+
+    .nav-brand {
+        font-size: 1.2rem;
+    }
+}
+
+/* Additional small-screen tweaks */
+@media (max-width: 600px) {
+    .hero h1 {
+        font-size: 2rem;
+        line-height: 1.1;
+    }
+
+    .nav-brand {
+        font-size: 1.1rem;
+    }
+
+    .search-bar {
+        padding: 0 8px;
+    }
+}
+
+/* =====================================================
+   SCROLLBAR STYLING
+   ===================================================== */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--light-gray);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--primary-pink);
+    border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--primary-pink-dark);
+}
+
+/* =====================================================
+   ANIMATIONS
+   ===================================================== */
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+.float-animation {
+    animation: float 3s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.pulse-animation {
+    animation: pulse 2s ease-in-out infinite;
+}

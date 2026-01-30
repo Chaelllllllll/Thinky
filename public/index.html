@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Thinky</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+    
+    <script src="/js/alerts.js"></script>
+    <script src="/js/flashcards.js"></script>
+    
+    <style>
+        .hero {
+            background: linear-gradient(135deg, #ff9eb4 0%, #ffd4e0 100%);
+            padding: 80px 0;
+            text-align: center;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        }
+
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: rotate 30s linear infinite;
+        }
+
+        @keyframes rotate {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .hero-content {
+            position: relative;
+            z-index: 1;
+        }
+
+        .hero h1 {
+            font-size: 3.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: white;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            margin-bottom: 2rem;
+            opacity: 0.95;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        .search-bar {
+            max-width: 600px;
+            margin: 0 auto 40px;
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 16px 50px 16px 20px;
+            border: 2px solid var(--medium-gray);
+            border-radius: var(--radius-full);
+            font-size: 1rem;
+            transition: all var(--transition-base);
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--primary-pink);
+            box-shadow: 0 0 0 3px rgba(255, 158, 180, 0.1);
+        }
+
+        .search-icon {
+            position: absolute;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--dark-gray);
+        }
+
+        .reviewers-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 24px;
+            margin-top: 40px;
+        }
+
+        .reviewer-card {
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            padding: 24px;
+            transition: all var(--transition-base);
+            cursor: pointer;
+            border: 1px solid var(--medium-gray);
+        }
+
+        .reviewer-card:hover {
+            transform: translateY(-8px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .reviewer-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+            color: var(--text-dark);
+        }
+
+        .reviewer-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 16px;
+            font-size: 0.875rem;
+            color: var(--dark-gray);
+        }
+
+        .reviewer-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .reviewer-preview {
+            color: var(--text-dark);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+        /* Ensure preview doesn't overlap action buttons */
+        .reviewer-card {
+            position: relative;
+            padding-bottom: 56px; /* reserve space for action area */
+        }
+
+        .card-actions {
+            position: absolute;
+            right: 16px;
+            bottom: 16px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .card-heart-btn {
+            background: transparent;
+            border: 1px solid var(--medium-gray);
+            padding: 6px 10px;
+            border-radius: 999px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--dark-gray);
+            cursor: pointer;
+        }
+
+        .card-heart-btn.hearted {
+            background: rgba(255, 158, 180, 0.08);
+            border-color: var(--primary-pink);
+            color: var(--primary-pink);
+        }
+
+        /* Stats removed — styles intentionally omitted */
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+        }
+
+        .empty-state i {
+            font-size: 4rem;
+            color: var(--primary-pink);
+            margin-bottom: 16px;
+        }
+
+        .empty-state h3 {
+            color: var(--text-dark);
+            margin-bottom: 8px;
+        }
+
+        .empty-state p {
+            color: var(--dark-gray);
+        }
+
+        footer {
+            background: var(--white);
+            padding: 40px 0;
+            margin-top: 80px;
+            border-top: 2px solid var(--secondary-pink);
+            text-align: center;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 60px 20px;
+        }
+
+        /* Mobile: show only school icon (logo) and hide full school name */
+        @media (max-width: 600px) {
+            #modalSchool .school-name { display: none; }
+            #modalSchool { cursor: help; }
+            #modalSchool .bi-building { font-size: 1.05rem; }
+        }
+
+        /* Heart (favorite) button styles */
+        .heart-btn {
+            background: transparent;
+            border: 2px solid var(--medium-gray);
+            border-radius: 999px;
+            padding: 8px 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--dark-gray);
+            cursor: pointer;
+        }
+
+        .heart-btn.hearted {
+            background: rgba(255, 158, 180, 0.08);
+            border-color: var(--primary-pink);
+            color: var(--primary-pink);
+        }
+
+        .modal-footer.custom-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .modal-footer .right-actions {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+        }
+        /* Mobile navbar toggle */
+        .nav-toggle {
+            display: none;
+            background: transparent;
+            border: none;
+            font-size: 1.25rem;
+            color: var(--dark-gray);
+            cursor: pointer;
+        }
+
+        /* ensure container is static so toggle positions relative to .navbar (sticky) */
+        .navbar .container { position: static; }
+
+        @media (max-width: 768px) {
+            .nav-toggle { display: block; }
+            /* place hamburger at right center of the header */
+            .nav-toggle { position: absolute; right: 20px; top: var(--spacing-md); transform: none; z-index: 250; }
+            .navbar #navActions { display: none; }
+            .navbar.open #navActions {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+                width: 100%;
+                margin-top: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar" id="mainNav">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <a href="/" class="nav-brand">
+                    <i class="bi bi-journal-text"></i> Thinky
+                </a>
+                <button id="navToggle" class="nav-toggle" aria-expanded="false" aria-label="Toggle navigation"><i class="bi bi-list"></i></button>
+                <div id="navActions" class="d-flex gap-md align-items-center">
+                    <a href="/login" class="nav-link">Login</a>
+                    <a href="/register" class="btn btn-primary btn-sm">Get Started</a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <div class="hero">
+        <div class="hero-content">
+            <div class="container">
+                <h1 class="float-animation">Welcome to Thinky</h1>
+                <p>Discover, share, and learn!</p>
+                <a href="/register" class="btn btn-light btn-lg">Start Learning Today</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="container" style="margin-top: -40px; position: relative; z-index: 2;">
+        <!-- Search Bar -->
+        <div class="search-bar">
+            <input 
+                type="text" 
+                id="searchInput" 
+                class="search-input" 
+                placeholder="Search reviewers by title or subject..."
+            >
+            <i class="bi bi-search search-icon"></i>
+        </div>
+
+        <!-- Filters removed -->
+
+        <!-- Loading State -->
+        <div id="loadingState" class="loading">
+            <div class="spinner"></div>
+            <p style="margin-top: 16px; color: var(--dark-gray);">Loading reviewers...</p>
+        </div>
+
+        <!-- Reviewers Grid -->
+        <div id="reviewersGrid" class="reviewers-grid" style="display: none;"></div>
+
+        <!-- Empty State -->
+        <div id="emptyState" class="empty-state" style="display: none;">
+            <i class="bi bi-inbox"></i>
+            <h3>No reviewers found</h3>
+            <p>Be the first to share your study notes! Sign up to get started.</p>
+            <a href="/register" class="btn btn-primary mt-2">Create Account</a>
+        </div>
+    </div>
+
+    <!-- Stats section removed -->
+
+    <!-- Reviewer Detail Modal -->
+    <div id="reviewerModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <h3 class="modal-title" id="modalTitle" style="margin:0;"></h3>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div id="modalDate" style="color:var(--dark-gray);font-size:0.95rem;margin-right:12px;"></div>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="reviewer-meta mb-3" id="modalMeta"></div>
+                <div id="modalContent" style="line-height: 1.8;"></div>
+                <div id="modalFlashcard" style="margin-top:16px;"></div>
+            </div>
+            <div class="modal-footer custom-footer">
+                <div>
+                    <button id="heartBtn" class="heart-btn" title="React">
+                        <i id="heartIcon" class="bi bi-heart"></i>
+                        <span id="heartCount" style="font-weight:600;margin-left:6px;">0</span>
+                    </button>
+                </div>
+                <div class="right-actions">
+                    <button class="btn btn-outline" id="savePdfBtn" onclick="saveAsPdf()">Save as PDF</button>
+                    <button class="btn btn-light" onclick="openFlashcardsForModal()">Open Flashcards</button>
+                    <button class="btn btn-danger" style="display:inline-flex;align-items:center;gap:8px;" onclick="openReportModal(document.getElementById('reviewerModal').dataset.currentReviewerId)"><i class="bi bi-exclamation-triangle-fill"></i></button>
+                    <button class="btn btn-light" onclick="closeModal()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer>
+        <div class="container">
+            <p style="color: var(--dark-gray); margin: 0;">
+                Made with Love by <a href="https://www.facebook.com/profile.php?id=61579285053347" target="_blank"style="color: var(--primary-pink); text-decoration: none;">Chael</a>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Paging state for public reviewers on the index page
+        window._publicReviewersPaging = {
+            offset: 0,
+            limit: 10,
+            loading: false,
+            finished: false,
+            count: null,
+            search: ''
+        };
+
+        // Load reviewers on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadReviewersInitial();
+
+            // Add event listeners
+            const searchEl = document.getElementById('searchInput');
+            if (searchEl) {
+                let t;
+                searchEl.addEventListener('input', (e) => {
+                    clearTimeout(t);
+                    t = setTimeout(() => { applySearch(e.target.value.trim()); }, 300);
+                });
+            }
+
+            // Ensure heart button click is wired (robust for dynamic modal usage)
+            const hb = document.getElementById('heartBtn');
+            if (hb) {
+                hb.addEventListener('click', (ev) => { ev.stopPropagation(); try { toggleHeartCurrent(); } catch (e) {} });
+            }
+
+            // Delegated handler for card-level heart buttons (works for guests and logged-in users)
+            document.addEventListener('click', async (ev) => {
+                const btn = ev.target.closest && ev.target.closest('.card-heart-btn');
+                if (!btn) return;
+                ev.stopPropagation();
+                const id = btn.dataset && btn.dataset.reviewerId;
+                if (!id) return;
+                btn.disabled = true;
+                try {
+                    const resp = await fetch(`/api/reviewers/${id}/reactions`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reaction: 'heart' })
+                    });
+                    let data = null;
+                    try { data = await resp.json(); } catch (e) { data = null; }
+                    if (resp.status === 401) {
+                        return window.location.href = '/login';
+                    } else if (resp.status === 403) {
+                        window.showAlert && window.showAlert('error', 'You cannot react to your own reviewer', 3000);
+                        if (data && typeof data.count !== 'undefined') updateCardHeart(btn, data.count, data.reacted);
+                    } else if (data && typeof data.count !== 'undefined') {
+                        updateCardHeart(btn, data.count, data.reacted);
+                    } else {
+                        const cntEl = btn.querySelector('.card-heart-count');
+                        const cur = Number(cntEl?.textContent || 0) || 0;
+                        const willReact = !btn.classList.contains('hearted');
+                        updateCardHeart(btn, willReact ? cur+1 : Math.max(0, cur-1), willReact);
+                    }
+                } catch (err) {
+                    console.error('Card reaction error', err);
+                } finally {
+                    btn.disabled = false;
+                }
+            });
+        });
+
+        async function loadReviewersInitial() {
+            // Reset paging
+            window._publicReviewersPaging.offset = 0;
+            window._publicReviewersPaging.finished = false;
+            window._publicReviewersPaging.count = null;
+            window._publicReviewersPaging.loading = false;
+
+            const grid = document.getElementById('reviewersGrid');
+            grid.innerHTML = '';
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('reviewersGrid').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
+
+            await loadMorePublicReviewers();
+
+            // Attach infinite scroll on the grid container
+            const container = document.getElementById('reviewersGrid');
+            container.style.maxHeight = 'auto';
+            window.removeEventListener('scroll', _publicReviewersScrollHandler);
+            window.addEventListener('scroll', _publicReviewersScrollHandler);
+        }
+
+        function _publicReviewersScrollHandler() {
+            const container = document.getElementById('reviewersGrid');
+            if (!container || window._publicReviewersPaging.loading || window._publicReviewersPaging.finished) return;
+            const nearBottom = (window.innerHeight + window.scrollY) >= (document.body.offsetHeight - 200);
+            if (nearBottom) loadMorePublicReviewers();
+        }
+
+        async function applySearch(term) {
+            window._publicReviewersPaging.search = term;
+            // Reset and load first page for search
+            window._publicReviewersPaging.offset = 0;
+            window._publicReviewersPaging.finished = false;
+            window._publicReviewersPaging.count = null;
+            document.getElementById('reviewersGrid').innerHTML = '';
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('emptyState').style.display = 'none';
+            await loadMorePublicReviewers();
+        }
+
+        // Load next page of public reviewers (appends to grid)
+        async function loadMorePublicReviewers() {
+            const paging = window._publicReviewersPaging;
+            if (paging.loading || paging.finished) return;
+            paging.loading = true;
+
+            const params = new URLSearchParams();
+            params.set('limit', paging.limit);
+            params.set('offset', paging.offset);
+            if (paging.search) params.set('search', paging.search);
+
+            try {
+                const resp = await fetch(`/api/reviewers/public-guest?${params.toString()}`);
+                if (!resp.ok) {
+                    if (resp.status === 401) {
+                        document.getElementById('loadingState').style.display = 'none';
+                        document.getElementById('emptyState').style.display = 'block';
+                        paging.finished = true;
+                        return;
+                    }
+                    throw new Error('Failed to load reviewers');
+                }
+
+                const data = await resp.json();
+                const reviewers = data.reviewers || [];
+                paging.count = data.count || paging.count;
+
+                // Hide loader on first page
+                document.getElementById('loadingState').style.display = 'none';
+
+                if (reviewers.length === 0 && paging.offset === 0) {
+                    document.getElementById('emptyState').style.display = 'block';
+                    document.getElementById('reviewersGrid').style.display = 'none';
+                    paging.finished = true;
+                    return;
+                }
+
+                // Append reviewers
+                displayReviewers(reviewers, true);
+
+                paging.offset += reviewers.length;
+                if (reviewers.length < paging.limit || (paging.count !== null && paging.offset >= paging.count)) {
+                    paging.finished = true;
+                }
+            } catch (err) {
+                console.error('Error loading reviewers:', err);
+                if (paging.offset === 0) {
+                    document.getElementById('loadingState').style.display = 'none';
+                    document.getElementById('emptyState').style.display = 'block';
+                }
+            } finally {
+                paging.loading = false;
+            }
+        }
+
+        /* Filters removed; populateFilters no longer required */
+
+        // Auto-detect session and update UI accordingly
+        async function detectSession() {
+            try {
+                const resp = await fetch('/api/auth/me', { credentials: 'include' });
+                if (!resp.ok) return; // not logged in
+                const { user } = await resp.json();
+
+                // Update nav: replace Login/Register with Dashboard + Logout
+                const navActions = document.querySelector('.navbar .d-flex.gap-md');
+                if (navActions) {
+                    const avatar = `<img src="${user.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:28px;height:28px;border-radius:999px;object-fit:cover;margin-right:8px;">`;
+                    navActions.innerHTML = `
+                        <a href="/profile" class="nav-link">${avatar}Profile</a>
+                        <a href="/dashboard" class="nav-link">Dashboard</a>
+                        <button id="logoutBtn" class="btn btn-outline btn-sm">Logout</button>
+                    `;
+                    document.getElementById('logoutBtn').addEventListener('click', async () => {
+                        await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+                        window.location.reload();
+                    });
+                }
+
+                // Update hero CTA(s)
+                document.querySelectorAll('a[href="/register"]').forEach(a => {
+                    a.href = '/dashboard';
+                    a.textContent = a.classList.contains('btn-primary') ? 'Go to Dashboard' : 'Go to Dashboard';
+                });
+
+                // Update empty state CTA
+                const emptyCTA = document.querySelector('#emptyState a.btn');
+                if (emptyCTA) {
+                    emptyCTA.href = '/dashboard';
+                    emptyCTA.textContent = 'Go to Dashboard';
+                }
+            } catch (err) {
+                // ignore - user not logged in or network error
+            }
+        }
+
+        detectSession();
+
+        /* Stats removed; updateStats no longer required */
+
+        function displayReviewers(reviewers, append = false) {
+            const grid = document.getElementById('reviewersGrid');
+            document.getElementById('loadingState').style.display = 'none';
+
+            if (!append) {
+                grid.innerHTML = '';
+            }
+
+            if (!reviewers || reviewers.length === 0) {
+                // If this was an append call and no items, simply return
+                if (append) return;
+                grid.style.display = 'none';
+                document.getElementById('emptyState').style.display = 'block';
+                return;
+            }
+
+            grid.style.display = 'grid';
+            document.getElementById('emptyState').style.display = 'none';
+
+                reviewers.forEach(reviewer => {
+                const card = document.createElement('div');
+                card.className = 'reviewer-card';
+                card.onclick = () => showReviewerDetail(reviewer);
+
+                const contentPreview = stripHtml(reviewer.content).substring(0, 150) + '...';
+                
+                card.innerHTML = `
+                    <div class="reviewer-title">${escapeHtml(reviewer.title)}</div>
+                    <div class="reviewer-meta" style="display:flex;align-items:center;gap:12px;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            ${reviewer.users ? `<a href="/user.html?user=${reviewer.user_id}" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:inherit;"><img src="${reviewer.users.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:28px;height:28px;border-radius:999px;object-fit:cover;"> <span>${escapeHtml(reviewer.users?.username || 'Anonymous')}</span></a>` : '<i class="bi bi-person"></i><span> Anonymous</span>'}
+                        </div>
+                        <div class="reviewer-meta-item" style="color:var(--dark-gray);">
+                            <span style="opacity:0.6;">-</span>
+                            <i class="bi bi-book"></i>
+                            <span>${escapeHtml(reviewer.subjects?.name || 'Unknown')}</span>
+                        </div>
+                    </div>
+                    <div class="reviewer-preview">${escapeHtml(contentPreview)}</div>
+                    <div class="card-actions">
+                        <button class="card-heart-btn" data-reviewer-id="${reviewer.id}" title="React">
+                            <i class="bi bi-heart"></i>
+                            <span class="card-heart-count">0</span>
+                        </button>
+                    </div>
+                `;
+
+                // store user id on the card for easy updates when profile changes
+                try { card.dataset.userId = reviewer.user_id || ''; } catch (e) {}
+                grid.appendChild(card);
+
+                // Load initial reaction counts for guests and users
+                (async () => {
+                    try {
+                        const r = await fetch(`/api/reviewers/${reviewer.id}/reactions`);
+                        let data = null;
+                        try { data = await r.json(); } catch (err) { /* ignore parse error */ }
+                        const btn = card.querySelector('.card-heart-btn');
+                        if (btn && data && typeof data.count !== 'undefined') updateCardHeart(btn, data.count, data.reacted);
+                    } catch (e) {
+                        console.warn('Failed to load reactions for reviewer', reviewer.id, e);
+                    }
+                })();
+            });
+        }
+
+        // Listen for profile updates to refresh reviewer cards if necessary
+        window.addEventListener('userProfileUpdated', (e) => {
+            try {
+                const updated = e.detail && e.detail.user;
+                if (!updated) return;
+                const cards = document.querySelectorAll('.reviewer-card');
+                cards.forEach(c => {
+                    if (!c.dataset.userId) return;
+                    if (c.dataset.userId === String(updated.id)) {
+                        // Update avatar and username in the card
+                        const img = c.querySelector('img');
+                        if (img) img.src = updated.profile_picture_url || '/images/default-avatar.svg';
+                        const nameSpan = c.querySelector('.reviewer-meta div span') || c.querySelector('.reviewer-meta span');
+                        if (nameSpan) nameSpan.textContent = updated.username || nameSpan.textContent;
+                    }
+                });
+            } catch (err) {
+                // ignore
+            }
+        });
+
+        // filterReviewers removed; search is handled by server via applySearch()
+
+        async function showReviewerDetail(reviewer) {
+            try {
+                const resp = await fetch('/api/auth/me', { credentials: 'include' });
+                if (!resp.ok) {
+                    // Not authenticated — redirect to login without prompting.
+                    window.location.href = '/login';
+                    return;
+                }
+                // capture current user to decide whether to show report button
+                const meBody = await resp.json().catch(()=>null);
+                const currentUserId = meBody && meBody.user ? meBody.user.id : null;
+
+                document.getElementById('modalTitle').textContent = reviewer.title;
+
+                // Build a left/right meta row: left = subject + user, right = date + school
+                const subjectName = escapeHtml(reviewer.subjects?.name || 'Unknown');
+                const userName = escapeHtml(reviewer.users?.username || 'Anonymous');
+                const createdDate = new Date(reviewer.created_at).toLocaleDateString();
+
+                // Put the date in the header (right side)
+                const modalDateEl = document.getElementById('modalDate');
+                if (modalDateEl) modalDateEl.innerHTML = `<i class="bi bi-calendar"></i> <span>${createdDate}</span>`;
+
+                document.getElementById('modalMeta').innerHTML = `
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:nowrap;width:100%;">
+                        <div style="display:flex;gap:12px;align-items:center;">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                ${reviewer.users ? `<a href="/user.html?user=${reviewer.user_id}" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:inherit;"><img src="${reviewer.users.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:32px;height:32px;border-radius:999px;object-fit:cover"></a>` : '<i class="bi bi-person"></i>'}
+                                <div style="display:flex;flex-direction:column;">
+                                    <div style="font-weight:600;"><a href="/user.html?user=${reviewer.user_id || ''}" style="text-decoration:none;color:inherit;">${userName}</a></div>
+                                    <div style="font-size:0.85rem;color:var(--dark-gray);">${subjectName}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div id="modalMetaRight" style="margin-left:auto;display:flex;gap:12px;align-items:center;">
+                            <div id="modalSchool" class="reviewer-meta-item"></div>
+                        </div>
+                    </div>`;
+
+                // If subject references a school UUID, try to load its name and place it on the right
+                const schoolId = reviewer.subjects?.school;
+                if (schoolId) {
+                    (async () => {
+                        try {
+                            const sresp = await fetch('/api/schools', { credentials: 'include' });
+                            if (sresp.ok) {
+                                const sdata = await sresp.json();
+                                const found = (sdata.schools || []).find(s => s.id === schoolId);
+                                if (found) {
+                                    const el = document.getElementById('modalSchool');
+                                    if (el) {
+                                        el.innerHTML = `\n                                        <i class="bi bi-building"></i>\n                                        <span class="school-name">${escapeHtml(found.name)}</span>`;
+                                        // Add native tooltip for hover/long-press
+                                        el.title = found.name;
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                            // ignore failures to load schools
+                        }
+                    })();
+                }
+
+                // Save current reviewer id for footer actions
+                const reviewerModalEl = document.getElementById('reviewerModal');
+                reviewerModalEl.dataset.currentReviewerId = reviewer.id || '';
+                reviewerModalEl.dataset.currentReviewerOwner = reviewer.user_id || '';
+
+                // Hide report button for owner
+                try {
+                    const reportBtn = reviewerModalEl.querySelector('.right-actions .btn-danger');
+                    if (reportBtn) {
+                        if (!currentUserId || String(currentUserId) === String(reviewer.user_id)) {
+                            reportBtn.style.display = 'none';
+                        } else {
+                            reportBtn.style.display = 'inline-flex';
+                        }
+                    }
+                } catch (e) {}
+
+                document.getElementById('modalContent').innerHTML = reviewer.content;
+                document.getElementById('reviewerModal').classList.add('show');
+
+                // Load reaction state and render heart button
+                try {
+                    const rresp = await fetch(`/api/reviewers/${reviewer.id}/reactions`, { credentials: 'include' });
+                    if (rresp.ok) {
+                        const rdata = await rresp.json();
+                        renderHeartButton(reviewer.id, rdata.count, rdata.reacted);
+                    } else {
+                        renderHeartButton(reviewer.id, 0, false);
+                    }
+                } catch (e) {
+                    renderHeartButton(reviewer.id, 0, false);
+                }
+                // Load and render flashcard (best-effort)
+                (async () => {
+                    try {
+                        const flashEl = document.getElementById('modalFlashcard');
+                        if (!flashEl) return;
+                        flashEl.innerHTML = '';
+                        // Try endpoint specific to reviewer
+                        let fc = null;
+                        try {
+                            const r = await fetch(`/api/reviewers/${reviewer.id}/flashcard`, { credentials: 'include' });
+                            if (r.ok) fc = await r.json();
+                        } catch (e) {}
+                        if (!fc) {
+                            try {
+                                const r2 = await fetch(`/api/flashcards?reviewer_id=${encodeURIComponent(reviewer.id)}`);
+                                if (r2.ok) {
+                                    const d = await r2.json();
+                                    if (Array.isArray(d) && d.length) fc = d[0];
+                                    else if (d && Array.isArray(d.flashcards) && d.flashcards.length) fc = d.flashcards[0];
+                                }
+                            } catch (e) {}
+                        }
+                        if (!fc) return;
+                        const front = fc.front || fc.meaning || '';
+                        const back = fc.back || fc.content || '';
+                        flashEl.innerHTML = `
+                            <div class="flashcard-box" style="background:#fff7fb;border:1px solid rgba(255,150,180,0.12);padding:12px;border-radius:10px;">
+                                <div style="font-weight:600;margin-bottom:6px;">Flashcard</div>
+                                <div style="font-size:0.95rem;color:var(--dark-gray);margin-bottom:8px;"><strong>Front:</strong> ${escapeHtml(front)}</div>
+                                <div style="font-size:0.95rem;color:var(--dark-gray);"><strong>Back:</strong> ${back ? escapeHtml(stripHtml(back).substring(0,1000)) : '(no back provided)'} </div>
+                            </div>`;
+                    } catch (e) {
+                        console.warn('Failed to load flashcard', e);
+                    }
+                })();
+            } catch (err) {
+                // On error verifying session, redirect to login silently.
+                window.location.href = '/login';
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('reviewerModal').classList.remove('show');
+        }
+
+        function stripHtml(html) {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+            return tmp.textContent || tmp.innerText || '';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Close modal on background click
+        document.getElementById('reviewerModal').addEventListener('click', (e) => {
+            if (e.target.id === 'reviewerModal') {
+                closeModal();
+            }
+        });
+
+        // --- Favorites (heart) and PDF export ---
+
+        function renderHeartButton(id, count = 0, reacted = false) {
+            const btn = document.getElementById('heartBtn');
+            const icon = document.getElementById('heartIcon');
+            const countEl = document.getElementById('heartCount');
+            if (!btn || !icon || !countEl) return;
+            if (reacted) {
+                btn.classList.add('hearted');
+                icon.className = 'bi bi-heart-fill';
+            } else {
+                btn.classList.remove('hearted');
+                icon.className = 'bi bi-heart';
+            }
+            countEl.textContent = Number(count) || 0;
+        }
+
+        // Update a card-level heart button (used in reviewers grid)
+        function updateCardHeart(btn, count = 0, reacted = false) {
+            if (!btn) return;
+            const icon = btn.querySelector('i');
+            const cntEl = btn.querySelector('.card-heart-count');
+            if (reacted) {
+                btn.classList.add('hearted');
+                if (icon) icon.className = 'bi bi-heart-fill';
+            } else {
+                btn.classList.remove('hearted');
+                if (icon) icon.className = 'bi bi-heart';
+            }
+            if (cntEl) cntEl.textContent = Number(count) || 0;
+        }
+
+        async function toggleHeartCurrent() {
+            const modal = document.getElementById('reviewerModal');
+            const id = modal?.dataset?.currentReviewerId;
+            if (!id) return;
+            const btn = document.getElementById('heartBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.classList.add('pending');
+            }
+            try {
+                const resp = await fetch(`/api/reviewers/${id}/reactions`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reaction: 'heart' })
+                });
+                let data;
+                if (!resp.ok) {
+                    if (resp.status === 401) return window.location.href = '/login';
+                    try { data = await resp.json(); } catch (e) { data = null; }
+                    console.warn('Reaction request returned non-OK', resp.status, data);
+                } else {
+                    data = await resp.json();
+                }
+                if (resp.status === 403) {
+                    // show owner-alert badge when server forbids reacting to own post
+                    try {
+                        const errData = data || (await resp.json());
+                        window.showAlert && window.showAlert('error', 'You cannot react to your own reviewer', 3000);
+                        if (errData && typeof errData.count !== 'undefined') renderHeartButton(id, errData.count, errData.reacted);
+                    } catch (e) {
+                        window.showAlert && window.showAlert('error', 'You cannot react to your own reviewer', 3000);
+                    }
+                } else if (data && (typeof data.count !== 'undefined')) {
+                    renderHeartButton(id, data.count, data.reacted);
+                } else {
+                    // fallback: toggle UI locally (no authoritative count)
+                    const current = Number(document.getElementById('heartCount')?.textContent || 0) || 0;
+                    const reactedNow = !document.getElementById('heartBtn')?.classList.contains('hearted');
+                    renderHeartButton(id, reactedNow ? current + 1 : Math.max(0, current - 1), reactedNow);
+                }
+            } catch (e) {
+                console.error('Toggle heart error', e);
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.classList.remove('pending');
+                }
+            }
+        }
+
+        function saveAsPdf() {
+            // Create a print window containing title and content with current styles
+            const title = document.getElementById('modalTitle')?.textContent || '';
+            const contentHtml = document.getElementById('modalContent')?.innerHTML || '';
+
+            const printWin = window.open('', '_blank');
+            if (!printWin) return alert('Unable to open print window');
+
+            // Collect relevant style tags and stylesheet links
+            let styles = '';
+            // inline <style> blocks
+            document.querySelectorAll('style').forEach(s => { styles += s.outerHTML; });
+            // link stylesheets
+            document.querySelectorAll('link[rel="stylesheet"]').forEach(l => { styles += l.outerHTML; });
+
+            const html = `
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <title>${escapeHtml(title)}</title>
+                    ${styles}
+                    <style>
+                        /* Simplify modal appearance for print */
+                        body { background: white; color: #333; }
+                        .print-container { max-width: 900px; margin: 20px auto; font-family: inherit; }
+                        .print-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 12px; }
+                        .print-content { line-height: 1.6; }
+                        /* Hide any buttons or interactive UI */
+                        button, .btn { display: none !important; }
+                    </style>
+                </head>
+                <body>
+                    <div class="print-container">
+                        <div class="print-title">${escapeHtml(title)}</div>
+                        <div class="print-content">${contentHtml}</div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            printWin.document.open();
+            printWin.document.write(html);
+            printWin.document.close();
+            // Give browser time to load styles then print
+            setTimeout(() => { printWin.focus(); printWin.print(); }, 500);
+        }
+
+        // Mobile nav toggle: keep nav actions hidden on small screens until hamburger tapped
+        (function(){
+            const nav = document.getElementById('mainNav');
+            const toggle = document.getElementById('navToggle');
+            const actions = document.getElementById('navActions');
+            if (!toggle || !nav) return;
+            toggle.addEventListener('click', (e) => {
+                const isOpen = nav.classList.toggle('open');
+                toggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                // keep toggle pinned to top-right; do not move vertically
+                toggle.style.top = getComputedStyle(document.documentElement).getPropertyValue('--spacing-md') || '12px';
+                toggle.style.transform = 'none';
+            });
+            // close when a nav action link is clicked (mobile)
+            if (actions) {
+                actions.querySelectorAll('a').forEach(a => a.addEventListener('click', () => {
+                    nav.classList.remove('open');
+                    toggle.setAttribute('aria-expanded', 'false');
+                    // ensure toggle stays pinned to top-right and does not move
+                    toggle.style.top = getComputedStyle(document.documentElement).getPropertyValue('--spacing-md') || '12px';
+                    toggle.style.transform = 'none';
+                }));
+            }
+            // ensure nav closes when resizing to large screens
+            window.addEventListener('resize', () => {
+                if (window.innerWidth > 768) {
+                    nav.classList.remove('open');
+                    toggle.setAttribute('aria-expanded', 'false');
+                }
+            });
+        })();
+    </script>
+    <script src="/js/moderation.js"></script>
+</body>
+</html>

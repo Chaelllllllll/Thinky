@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>User Profile - Thinky</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        /* Mobile improvements for user profile */
+        .avatar-lg { width:96px; height:96px; border-radius:999px; object-fit:cover; border:6px solid rgba(255,210,220,0.7); background:linear-gradient(90deg,#ffdfe7,#fff); }
+        #profileBackSmall {
+            position: absolute;
+            left: 20px;
+            top: 20px;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            z-index: 60;
+            background: var(--white);
+            border: 1px solid rgba(0,0,0,0.04);
+            box-shadow: var(--shadow-sm);
+            color: var(--primary-pink-dark);
+        }
+
+        /* ensure user-card is positioned so absolute children can be placed reliably */
+        .user-card { position: relative; }
+
+        @media (max-width: 600px) {
+            .container { padding: 12px !important; }
+            .user-card { max-width: 100%; margin: 0 auto; }
+            .user-card > div { padding: 16px; }
+            .user-header { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+            .user-header > div[style] { order: 2; }
+            /* Back button pinned to top-left corner of the card — padded and circular */
+            #profileBackSmall { 
+                position: absolute; 
+                left: 30px; 
+                top: 20px; 
+                width: 36px;
+                height: 36px;
+                padding: 0;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 999px; 
+                z-index: 60; 
+                background: var(--white);
+                border: 1px solid rgba(0,0,0,0.04);
+                box-shadow: var(--shadow-sm);
+                color: var(--primary-pink-dark);
+            }
+            #userAvatar { margin: 0; }
+            /* Force display name and handle to be block-level and centered */
+            #userDisplayName { display: block; font-size: 1.25rem; text-align: center; }
+            #userHandle { display: block; margin-top: 6px; color: var(--dark-gray); font-size: 0.95rem; text-align: center; }
+            /* Force display name and handle to stack on mobile */
+            .user-header > div:nth-child(2) h1 { display: block; width: 100%; }
+            .user-header > div:nth-child(2) #userHandle { display: block; width: 100%; }
+
+            /* Stronger override: ensure the name and handle are vertically stacked and centered */
+            .user-header > div:nth-child(2) {
+                display: flex !important;
+                flex-direction: column !important;
+                align-items: center !important;
+                text-align: center !important;
+                gap: 6px !important;
+            }
+            .user-header > div:nth-child(2) #userDisplayName {
+                display: block !important;
+                width: 100% !important;
+                margin: 0 !important;
+                line-height: 1.1 !important;
+            }
+            .user-header > div:nth-child(2) #userHandle {
+                display: block !important;
+                width: 100% !important;
+                margin-top: 6px !important;
+                color: var(--dark-gray) !important;
+                font-size: 0.95rem !important;
+            }
+            /* Message button should be full width on mobile */
+            #messageBtn { align-self: stretch; width: 100% !important; padding: 8px 18px; max-width: 100%; }
+            /* Ensure the button's wrapper doesn't keep it pinned right */
+            .user-header > div[style] { margin-left: 0 !important; width: 100%; display: flex; justify-content: center; }
+            .user-h2-search { flex-direction: column; align-items: flex-start; gap: 8px; }
+            .user-search { width: 100%; max-width: 100%; }
+            .reviewers-grid { grid-template-columns: 1fr; gap: 12px; }
+            .mm-header .mm-name { font-size: 1rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" style="padding:40px;">
+        <div class="user-card" style="max-width:1000px;margin:0 auto;">
+            <div style="background:white;padding:24px;border-radius:12px;box-shadow:var(--shadow-sm);">
+                <header class="user-header">
+                    <div style="display:inline-block;">
+                        <button id="profileBackSmall" class="btn btn-light" title="Back">&lt;</button>
+                        <img id="userAvatar" src="/images/default-avatar.svg" alt="avatar" class="avatar-lg">
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <h1 id="userDisplayName" style="margin:0;font-size:1.5rem;">User</h1>
+                        <div id="userHandle">@<span id="userUsername">username</span></div>
+                    </div>
+                    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+                        <button id="messageBtn" class="btn btn-primary btn-sm">Message</button>
+                    </div>
+                </header>
+
+                <hr style="margin:16px 0;">
+                <div class="user-h2-search" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                    <h2 style="margin:0 0 12px 0;">Reviewers</h2>
+                    <div class="user-search" style="min-width:240px;max-width:520px;">
+                        <input id="userSearch" class="form-control" placeholder="Search this user's reviewers...">
+                    </div>
+                </div>
+                <div id="userReviewers" class="reviewers-grid" style="margin-top:12px;"></div>
+                <div id="userLoading" style="text-align:center;padding:12px;display:none;">Loading...</div>
+                <div id="userLoadMoreWrap" style="text-align:center;padding:12px;display:none;"><button id="userLoadMore" class="btn btn-light">Load more</button></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reviewer Detail Modal (same as index.html) -->
+    <div id="reviewerModal" class="modal">
+        <div class="modal-content" style="max-width: 800px;">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <h3 class="modal-title" id="modalTitle" style="margin:0;"></h3>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div id="modalDate" style="color:var(--dark-gray);font-size:0.95rem;margin-right:12px;"></div>
+                    <button class="modal-close" onclick="closeModal()">&times;</button>
+                </div>
+            </div>
+            <div class="modal-body">
+                <div class="reviewer-meta mb-3" id="modalMeta"></div>
+                <div id="modalContent" style="line-height: 1.8;"></div>
+            </div>
+            <div class="modal-footer custom-footer">
+                <div>
+                    <button id="heartBtn" class="heart-btn" title="React">
+                        <i id="heartIcon" class="bi bi-heart"></i>
+                        <span id="heartCount" style="font-weight:600;margin-left:6px;">0</span>
+                    </button>
+                </div>
+                <div class="right-actions">
+                    <button class="btn btn-outline" id="savePdfBtn" onclick="saveAsPdf()">Save as PDF</button>
+                    <button class="btn btn-light" onclick="openFlashcardsForModal()">Open Flashcards</button>
+                    <button class="btn btn-light" onclick="closeModal()">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Message modal for private chat (Messenger-like UI) -->
+    <div id="messageModal" class="modal">
+        <div class="modal-content message-modal" style="max-width:720px; width:95%;">
+            <div class="mm-header">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <button id="mmBack" class="btn btn-light" onclick="closeMessageModal()" aria-label="Back" style="border-radius:999px;padding:6px 10px;">&lt;</button>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;">
+                    <div id="messageRecipientName" class="mm-name">User</div>
+                    <div id="mmSubtitle" class="mm-sub">Private message</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <img id="mmAvatar" src="/images/default-avatar.svg" alt="avatar" style="width:40px;height:40px;border-radius:999px;object-fit:cover;border:2px solid rgba(255,158,180,0.15);"/>
+                </div>
+            </div>
+            <div class="mm-thread-wrap">
+                <div id="messageThread" class="mm-thread" aria-live="polite">
+                    <div class="mm-empty">Loading messages…</div>
+                </div>
+            </div>
+            <div class="mm-input-area">
+                <textarea id="messageText" class="mm-input" placeholder="Write a response..." rows="2" maxlength="1000"></textarea>
+                <button id="sendMessageBtn" class="mm-send" aria-label="Send message"><i class="bi bi-send-fill" style="font-size:18px;color:#fff"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/alerts.js"></script>
+    <script src="/js/flashcards.js"></script>
+    <script src="/js/user.js"></script>
+    <script src="/js/modalAlerts.js"></script>
+    <script src="/js/moderation.js"></script>
+</body>
+</html>

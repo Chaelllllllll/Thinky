@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Thinky</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <!-- Quill Rich Text Editor -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
+    
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            background: var(--light-gray);
+        }
+
+        .dashboard-header {
+            background: var(--gradient-primary);
+            color: white;
+            padding: 32px;
+            margin-bottom: 32px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+        }
+
+        .welcome-text {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 24px;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            border-left: 4px solid var(--primary-pink);
+            transition: all var(--transition-base);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-md);
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--primary-pink);
+        }
+
+        .stat-label {
+            color: var(--dark-gray);
+            font-size: 0.9rem;
+            margin-top: 4px;
+        }
+
+        .subjects-section {
+            margin-bottom: 40px;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-dark);
+        }
+
+        .subjects-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .subject-card {
+            background: linear-gradient(180deg, #ffffff 0%, #fff8fb 100%);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 6px 18px rgba(25,20,40,0.06);
+            border: 1px solid rgba(200,200,200,0.25);
+            transition: transform 200ms ease, box-shadow 200ms ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .subject-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 10px 30px rgba(25,20,40,0.08);
+            border-color: rgba(255,158,180,0.25);
+        }
+
+        .subject-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-dark);
+            margin-bottom: 8px;
+        }
+
+        .subject-description {
+            color: var(--dark-gray);
+            font-size: 0.9rem;
+            margin-bottom: 16px;
+        }
+
+        .subject-meta {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 0.875rem;
+            color: var(--dark-gray);
+            margin-bottom: 16px;
+        }
+
+        .subject-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .subject-actions { 
+            display: flex; 
+            gap: 8px; 
+            align-items: center; 
+            justify-content: flex-end;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .subject-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .reviewers-list {
+            margin-top: 20px;
+        }
+
+        .reviewer-item {
+            background: var(--light-gray);
+            padding: 16px;
+            border-radius: var(--radius-md);
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all var(--transition-fast);
+        }
+
+        .reviewer-item:hover {
+            background: var(--secondary-pink);
+        }
+
+        .reviewer-name {
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+
+        .reviewer-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: white;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+        }
+
+        /* Modal: reviewers list */
+        .reviewers-list-modal .reviewer-row {
+            display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid rgba(0,0,0,0.04);
+        }
+
+        .reviewers-list-modal .reviewer-title { font-weight:600; }
+
+        .empty-state i {
+            font-size: 4rem;
+            color: var(--primary-pink);
+            margin-bottom: 16px;
+        }
+
+        .quill-editor {
+            background: white;
+            min-height: 300px;
+        }
+
+        .ql-toolbar {
+            border-radius: var(--radius-md) var(--radius-md) 0 0 !important;
+        }
+
+        .ql-container {
+            border-radius: 0 0 var(--radius-md) var(--radius-md) !important;
+            min-height: 300px;
+        }
+        /* Keep the editor toolbar visible when the reviewer modal body scrolls */
+        #reviewerModal .modal-body {
+            max-height: 60vh;
+            overflow: auto;
+            position: relative;
+        }
+
+        #reviewerModal .ql-toolbar {
+            position: sticky !important;
+            top: 0;
+            z-index: 20;
+            background: white;
+            border-bottom: 1px solid rgba(0,0,0,0.04);
+        }
+
+        /* Ensure the editor container does not force the modal to jump */
+        #reviewerModal .ql-container {
+            min-height: 240px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2 class="sidebar-brand">Thinky</h2>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/" class="sidebar-link">
+                <i class="bi bi-house"></i>
+                <span>Home</span>
+            </a>
+            <a href="/dashboard" class="sidebar-link active">
+                <i class="bi bi-grid"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="/chat" class="sidebar-link">
+                <i class="bi bi-chat-dots"></i>
+                <span>Chat</span>
+            </a>
+            <a href="#" class="sidebar-link" onclick="openSettingsModal(); return false;">
+                <i class="bi bi-gear"></i>
+                <span>Settings</span>
+            </a>
+            <div style="margin-top: auto; padding-top: 24px;">
+                <button onclick="logout()" class="sidebar-link w-100" style="border: none; background: none; text-align: left;">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Mobile Toggle -->
+    <button class="sidebar-toggle" onclick="toggleSidebar()">
+        <i class="bi bi-list"></i>
+    </button>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Dashboard Header -->
+        <div class="dashboard-header">
+            <h1 class="welcome-text" style="color: white;">Welcome back, <span id="username">Student</span>!</h1>
+            <p>Manage your subjects and reviewers</p>
+        </div>
+
+        <!-- Stats Cards removed per request -->
+
+        <!-- Subjects Section -->
+        <div class="subjects-section">
+            <div class="section-header">
+                <h2 class="section-title">My Subjects</h2>
+                <button class="btn btn-primary" onclick="openSubjectModal()">
+                    <i class="bi bi-plus-circle"></i> Add Subject
+                </button>
+            </div>
+
+            <div id="loadingSubjects" class="text-center" style="padding: 40px;">
+                <div class="spinner"></div>
+                <p style="margin-top: 16px; color: var(--dark-gray);">Loading subjects...</p>
+            </div>
+
+            <div id="subjectsGrid" class="subjects-grid" style="display: none;"></div>
+
+            <div id="emptySubjects" class="empty-state" style="display: none;">
+                <i class="bi bi-folder-plus"></i>
+                <h3>No subjects yet</h3>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subject Modal -->
+    <div id="subjectModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title" id="subjectModalTitle">Add Subject</h3>
+                <button class="modal-close" onclick="closeSubjectModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="subjectForm">
+                    <div class="form-group">
+                        <label for="subjectName" class="form-label">Subject Name</label>
+                        <input 
+                            type="text" 
+                            id="subjectName" 
+                            class="form-control" 
+                            placeholder="e.g., Mathematics, Physics, History"
+                            required
+                        >
+                    </div>
+                        <div class="form-group">
+                            <label for="subjectSchool" class="form-label">School</label>
+                            <select id="subjectSchool" class="form-control" required>
+                                <option value="">Select a school</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="subjectDescription" class="form-label">Description</label>
+                            <textarea 
+                                id="subjectDescription" 
+                                class="form-control" 
+                                placeholder="Brief description of this subject"
+                                rows="3"
+                                required
+                            ></textarea>
+                        </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeSubjectModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveSubject()" id="saveSubjectBtn">
+                    <span id="saveSubjectText">Save Subject</span>
+                    <span id="saveSubjectSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reviewer Modal -->
+    <div id="reviewerModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="reviewerModalTitle">Add Reviewer</h3>
+                <button class="modal-close" onclick="closeReviewerModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="reviewerForm">
+                    <input type="hidden" id="reviewerSubjectId">
+                    <div class="form-group">
+                        <label for="reviewerTitle" class="form-label">Title</label>
+                        <input 
+                            type="text" 
+                            id="reviewerTitle" 
+                            class="form-control" 
+                            placeholder="e.g., Chapter 1: Introduction"
+                            required
+                        >
+                    </div>
+                    <div class="form-group">
+                        <label for="reviewerContent" class="form-label">Content</label>
+                        <div id="editor"></div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Flashcards</label>
+                        <div id="flashcardsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+                        <div style="margin-top:6px;">
+                            <button type="button" id="addFlashcardBtn" class="btn btn-outline btn-sm">Add Flashcard</button>
+                        </div>
+                        <template id="flashcardTemplate">
+                            <div class="flashcard-row" style="display:flex;gap:8px;align-items:center;">
+                                <input type="hidden" class="flashcard-id" value="">
+                                <input type="text" class="form-control flash-front" placeholder="Term" style="flex:1;">
+                                <input type="text" class="form-control flash-back" placeholder="Meaning" style="flex:1;">
+                                <button type="button" class="btn btn-light remove-flashcard">Remove</button>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">
+                            <input type="checkbox" id="isPublic" checked style="margin-right: 8px;">
+                            Make this reviewer public (visible to all students)
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeReviewerModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveReviewer()" id="saveReviewerBtn">
+                    <span id="saveReviewerText">Save Reviewer</span>
+                    <span id="saveReviewerSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Reviewer Modal -->
+    <div id="viewReviewerModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="viewReviewerTitle"></h3>
+                <button class="modal-close" onclick="closeViewReviewerModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="viewReviewerContent"></div>
+                <div id="viewReviewerFlashcard" style="margin-top:12px;"></div>
+            </div>
+            <div class="modal-footer">
+                        <button class="btn btn-light" onclick="openFlashcardsForModal()">Open Flashcards</button>
+                        <button class="btn btn-danger" style="display:inline-flex;align-items:center;gap:8px;" onclick="openReportModal(document.getElementById('viewReviewerModal').dataset.currentReviewerId)"><i class="bi bi-exclamation-triangle-fill"></i> Report</button>
+                        <button class="btn btn-light" onclick="closeViewReviewerModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reviewers List Modal (per subject) -->
+    <div id="reviewersListModal" class="modal reviewers-list-modal">
+        <div class="modal-content" style="max-width: 720px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="reviewersListTitle">Reviewers</h3>
+                <button class="modal-close" onclick="closeReviewersListModal()">&times;</button>
+            </div>
+                    <div class="modal-body">
+                        <div style="margin-bottom:12px;">
+                            <input id="reviewersListSearch" class="form-control" placeholder="Search reviewers..." style="width:100%;padding:10px;border:1px solid var(--medium-gray);border-radius:8px;">
+                        </div>
+                        <div id="reviewersListContainer" class="reviewers-list-scroll" style="overflow:auto;max-height:60vh;padding:4px 0;">
+                            <!-- Rendered dynamically -->
+                        </div>
+                    </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeReviewersListModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quill Editor -->
+    <script src="https://cdn.quilljs.com/1.3.6/quill.js"></script>
+    
+    <!-- Settings modal script requires DOM elements below -->
+    <!-- Settings Modal -->
+    <div id="settingsModal" class="modal">
+        <div class="modal-content" style="max-width:640px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Profile Settings</h3>
+                <button class="modal-close" onclick="closeSettingsModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="settingsForm">
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:12px;margin-bottom:12px;">
+                        <div style="position:relative;">
+                            <input type="file" id="avatar" accept="image/*" style="display:none;">
+                            <img id="avatarPreview" src="/images/default-avatar.svg" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:120px;height:120px;border-radius:999px;object-fit:cover;display:block;border:4px solid rgba(0,0,0,0.04);box-shadow:0 6px 18px rgba(25,20,40,0.06);cursor:pointer;">
+                            <div id="avatarPlaceholder" style="width:120px;height:120px;border-radius:999px;background:linear-gradient(135deg,#ff9eb4,#ffd4e0);display:none;align-items:center;justify-content:center;color:white;font-weight:700;font-size:28px;">JD</div>
+                            <div style="position:absolute;right:0;bottom:0;background:white;border-radius:999px;padding:6px;border:1px solid rgba(0,0,0,0.06);">
+                                <i class="bi bi-camera" style="color:var(--primary-pink);"></i>
+                            </div>
+                        </div>
+                        <div style="font-size:0.95rem;color:var(--dark-gray);">Click the picture to upload a new profile image</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="displayName">Display Name</label>
+                        <input id="displayName" class="form-control" placeholder="Your display name">
+                    </div>
+                    <div class="form-group" style="margin-top:12px;">
+                        <label for="settingsUsername">Username</label>
+                        <input id="settingsUsername" class="form-control" placeholder="username">
+                    </div>
+                    <div style="margin-top:12px;color:var(--dark-gray);font-size:0.9rem;">Profile pictures are uploaded to secure storage and served via a public URL.</div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeSettingsModal()">Cancel</button>
+                <button id="saveProfileBtn" class="btn btn-primary">Save changes</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/alerts.js"></script>
+    <script src="/js/flashcards.js"></script>
+    <script src="/js/dashboard.js"></script>
+    <script src="/js/settings.js"></script>
+    <script src="/js/modalAlerts.js"></script>
+    <script src="/js/moderation.js"></script>
+</body>
+</html>

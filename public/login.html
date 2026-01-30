@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Thinky</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <script src="/js/modalAlerts.js"></script>
+    <style>
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff9eb4 0%, #ffd4e0 50%, #ffffff 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .auth-container::before {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
+            border-radius: 50%;
+            top: -250px;
+            right: -250px;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .auth-container::after {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255, 107, 157, 0.1) 0%, transparent 70%);
+            border-radius: 50%;
+            bottom: -200px;
+            left: -200px;
+            animation: float 8s ease-in-out infinite reverse;
+        }
+
+        .auth-card {
+            background: white;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-xl);
+            padding: 48px;
+            max-width: 450px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+            animation: slideUp 0.5s ease;
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .auth-logo {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+
+        .auth-title {
+            font-size: 2rem;
+            font-weight: 700;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .auth-subtitle {
+            color: var(--dark-gray);
+            font-size: 0.95rem;
+        }
+
+        .auth-divider {
+            text-align: center;
+            margin: 24px 0;
+            position: relative;
+        }
+
+        .auth-divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--medium-gray);
+        }
+
+        .auth-divider span {
+            background: white;
+            padding: 0 16px;
+            position: relative;
+            color: var(--dark-gray);
+            font-size: 0.875rem;
+        }
+
+        .input-with-icon { position: relative; }
+
+        .input-with-icon .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: var(--dark-gray);
+            transition: color var(--transition-fast);
+            z-index: 5;
+            font-size: 1.05rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+        }
+
+        .password-toggle:hover {
+            color: var(--primary-pink);
+        }
+
+        .form-group {
+            position: relative;
+        }
+        /* Ensure password input has space for the eye icon */
+        #password.form-control {
+            padding-right: 56px;
+        }
+
+        @media (max-width: 480px) {
+            .auth-card {
+                padding: 32px 24px;
+            }
+
+            .auth-title {
+                font-size: 1.75rem;
+            }
+        }
+        /* When modal is open, prevent clicks to the page underneath */
+        body.modal-open .auth-container,
+        body.modal-open .auth-card {
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h1 class="auth-title">Welcome Back!</h1>
+                <p class="auth-subtitle">Log in to access your reviewers.</p>
+            </div>
+
+            <div id="alertContainer"></div>
+
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="email" class="form-label">Email Address</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        class="form-control" 
+                        placeholder="e.g: chael@gmail.com"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-with-icon">
+                        <input 
+                            type="password" 
+                            id="password" 
+                            class="form-control" 
+                            placeholder="Enter your password"
+                            required
+                            autocomplete="current-password"
+                        >
+                        <i class="bi bi-eye password-toggle" id="togglePassword" aria-hidden="true"></i>
+                    </div>
+                </div>
+
+                <!-- Forgot password modal placeholder (moved below form to avoid nested forms) -->
+
+                <div class="text-right" style="margin-top:8px;margin-bottom:8px;">
+                    <a href="#" id="forgotLink" class="nav-link" style="font-size:0.95rem;color:var(--primary-pink);">Forgot password?</a>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 btn-lg" id="submitBtn">
+                    <span id="btnText">Log In</span>
+                    <span id="btnSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                </button>
+            </form>
+
+            <!-- Forgot password modal (placed outside the login form to avoid nested forms) -->
+            <div id="forgotModalOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:1050;pointer-events:auto"></div>
+            <div id="forgotModal" role="dialog" aria-modal="true" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1060;max-width:420px;width:90%;box-shadow:0 12px 30px rgba(0,0,0,0.12);border-radius:10px;background:#fff;padding:18px;pointer-events:auto">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+                    <h4 style="margin:0">Reset your password</h4>
+                    <button id="forgotClose" aria-label="Close" style="background:none;border:0;font-size:20px;color:#999;cursor:pointer">×</button>
+                </div>
+                <div id="forgotStatus"></div>
+                <form id="forgotForm">
+                    <div class="form-group">
+                        <label for="forgotEmail">Email address</label>
+                        <input id="forgotEmail" type="email" class="form-control" required placeholder="you@example.com">
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:8px">
+                        <button type="button" id="forgotSubmit" class="btn btn-primary" style="flex:1">Send reset link</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="auth-divider">
+                <span>Don't have an account?</span>
+            </div>
+
+            <a href="/register" class="btn btn-outline w-100">
+                Create Account
+            </a>
+
+            <div class="text-center mt-3">
+                <a href="/" class="nav-link" style="display: inline-block; color: var(--primary-pink);">
+                    <i class="bi bi-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Password toggle
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const passwordInput = document.getElementById('password');
+            const type = passwordInput.type === 'password' ? 'text' : 'password';
+            passwordInput.type = type;
+            this.classList.toggle('bi-eye');
+            this.classList.toggle('bi-eye-slash');
+        });
+
+        // Form submission
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            // Show loading state
+            document.getElementById('btnText').textContent = 'Logging in...';
+            document.getElementById('btnSpinner').style.display = 'inline-block';
+            document.getElementById('submitBtn').disabled = true;
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    showAlert('Login successful! Redirecting...', 'success');
+                    
+                    // Redirect based on role
+                    setTimeout(() => {
+                        if (data.user.role === 'admin') {
+                            window.location.href = '/admin';
+                        } else {
+                            window.location.href = '/dashboard';
+                        }
+                    }, 1000);
+                } else {
+                    showAlert(data.error || 'Login failed', 'error');
+                    resetButton();
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showAlert('An error occurred. Please try again.', 'error');
+                resetButton();
+            }
+        });
+
+        function resetButton() {
+            document.getElementById('btnText').textContent = 'Log In';
+            document.getElementById('btnSpinner').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+        }
+
+        // Forgot password modal
+        const forgotLinkEl = document.getElementById('forgotLink');
+        const modal = document.getElementById('forgotModal');
+        const modalOverlay = document.getElementById('forgotModalOverlay');
+        const modalClose = document.getElementById('forgotClose');
+        const forgotForm = document.getElementById('forgotForm');
+        const forgotEmail = document.getElementById('forgotEmail');
+        const forgotStatus = document.getElementById('forgotStatus');
+
+        function openForgotModal() {
+            forgotStatus.textContent = '';
+            forgotEmail.value = document.getElementById('email').value || '';
+            modalOverlay.style.display = 'block';
+            modal.style.display = 'block';
+            document.body.classList.add('modal-open');
+            forgotEmail.focus();
+        }
+
+        function closeForgotModal() {
+            modalOverlay.style.display = 'none';
+            modal.style.display = 'none';
+            document.body.classList.remove('modal-open');
+        }
+
+        forgotLinkEl.addEventListener('click', (e) => { e.preventDefault(); openForgotModal(); });
+        modalClose.addEventListener('click', closeForgotModal);
+        modalOverlay.addEventListener('click', closeForgotModal);
+
+        // Use click handler on the button to avoid form submit interfering with underlying page
+        const forgotBtn = document.getElementById('forgotSubmit');
+        forgotBtn.type = 'button';
+        forgotBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const email = forgotEmail.value.trim();
+            if (!email) { forgotStatus.textContent = 'Please enter an email address.'; forgotStatus.className='alert alert-error'; return; }
+            const btn = forgotBtn;
+            btn.disabled = true; btn.textContent = 'Sending...';
+            try {
+                const resp = await fetch('/api/auth/forgot-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+                const data = await resp.json().catch(()=>({}));
+                if (resp.ok || resp.status === 202) {
+                    forgotStatus.textContent = data.message || 'If an account exists, a reset link has been sent.';
+                    forgotStatus.className = 'alert alert-success';
+                    setTimeout(closeForgotModal, 1400);
+                } else {
+                    forgotStatus.textContent = data.error || 'Unable to process request.';
+                    forgotStatus.className = 'alert alert-error';
+                }
+            } catch (err) {
+                console.error('Forgot password', err);
+                forgotStatus.textContent = 'Server error. Try again later.';
+                forgotStatus.className = 'alert alert-error';
+            } finally {
+                btn.disabled = false; btn.textContent = 'Send reset link';
+            }
+        });
+
+        function showAlert(message, type) {
+            const title = type === 'success' ? 'Success' : (type === 'error' ? 'Error' : 'Notice');
+            if (window.showModal) {
+                window.showModal(message, title);
+            } else {
+                // fallback to simple inline alert container
+                const alertContainer = document.getElementById('alertContainer');
+                const alert = document.createElement('div');
+                alert.className = `alert alert-${type}`;
+                alert.innerHTML = `
+                    <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+                    <span>${message}</span>
+                `;
+                alertContainer.innerHTML = '';
+                alertContainer.appendChild(alert);
+                if (type === 'success') {
+                    setTimeout(() => { alert.remove(); }, 3000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign Up - Thinky</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+    
+    <style>
+        .auth-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: linear-gradient(135deg, #ffd4e0 0%, #ff9eb4 50%, #ff6b9d 100%);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .auth-container::before {
+            content: '';
+            position: absolute;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.2) 0%, transparent 70%);
+            border-radius: 50%;
+            top: -250px;
+            left: -250px;
+            animation: float 6s ease-in-out infinite;
+        }
+
+        .auth-container::after {
+            content: '';
+            position: absolute;
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, rgba(255, 212, 224, 0.3) 0%, transparent 70%);
+            border-radius: 50%;
+            bottom: -200px;
+            right: -200px;
+            animation: float 8s ease-in-out infinite reverse;
+        }
+
+        .auth-card {
+            background: white;
+            border-radius: var(--radius-xl);
+            box-shadow: var(--shadow-xl);
+            padding: 48px;
+            max-width: 450px;
+            width: 100%;
+            position: relative;
+            z-index: 1;
+            animation: slideUp 0.5s ease;
+        }
+
+        .auth-header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .auth-logo {
+            font-size: 3rem;
+            margin-bottom: 16px;
+        }
+
+        .auth-title {
+            font-size: 2rem;
+            font-weight: 700;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+        }
+
+        .auth-subtitle {
+            color: var(--dark-gray);
+            font-size: 0.95rem;
+        }
+
+        .auth-divider {
+            text-align: center;
+            margin: 24px 0;
+            position: relative;
+        }
+
+        .auth-divider::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: var(--medium-gray);
+        }
+
+        .auth-divider span {
+            background: white;
+            padding: 0 16px;
+            position: relative;
+            color: var(--dark-gray);
+            font-size: 0.875rem;
+        }
+
+        .input-with-icon { position: relative; }
+
+        .input-with-icon .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: var(--dark-gray);
+            transition: color var(--transition-fast);
+            z-index: 5;
+            font-size: 1.05rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+        }
+
+        .password-toggle:hover {
+            color: var(--primary-pink);
+        }
+
+        .form-group {
+            position: relative;
+        }
+        /* Ensure password input has space for the eye icon */
+        #password.form-control { padding-right: 56px; }
+
+        .password-strength {
+            margin-top: 8px;
+            font-size: 0.875rem;
+        }
+
+        .strength-bar {
+            height: 4px;
+            background: var(--medium-gray);
+            border-radius: var(--radius-full);
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .strength-fill {
+            height: 100%;
+            transition: all var(--transition-base);
+            border-radius: var(--radius-full);
+        }
+
+        .strength-weak {
+            width: 33%;
+            background: var(--danger);
+        }
+
+        .strength-medium {
+            width: 66%;
+            background: var(--warning);
+        }
+
+        .strength-strong {
+            width: 100%;
+            background: var(--success);
+        }
+
+        /* Verification sent box */
+        .verify-sent-box {
+            background: linear-gradient(90deg, rgba(255,158,180,0.06), rgba(255,212,224,0.04));
+            border: 1px solid rgba(255,158,180,0.18);
+            padding: 14px 18px; /* extra right padding to make room for the button */
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow: visible;
+        }
+        .verify-sent-body { flex:1 }
+        .verify-sent-body strong { display:block; margin-bottom:6px; color:var(--text-dark); }
+        .resend-btn { border-radius:999px; padding:8px 14px; border:1px solid rgba(255,158,180,0.25); background:#fff; color:var(--primary-pink); font-weight:600; flex-shrink:0 }
+
+        @media (max-width: 480px) {
+            .auth-card {
+                padding: 32px 24px;
+            }
+
+            .auth-title {
+                font-size: 1.75rem;
+            }
+        }
+
+        /* Verification-sent box (inserted above username) */
+        .verify-sent-box {
+            background: linear-gradient(180deg, #ffffff, #fff9fb);
+            border: 1px solid rgba(255, 158, 180, 0.35);
+            box-shadow: 0 6px 18px rgba(25,20,40,0.04);
+            padding: 14px 18px; /* keep consistent right padding */
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            overflow: visible;
+        }
+
+        .verify-sent-box .verify-text {
+            font-size: 0.95rem;
+            color: #222;
+            line-height: 1.25;
+        }
+
+        .verify-sent-box .verify-sub {
+            display:block;
+            font-size: 0.86rem;
+            color: var(--dark-gray);
+            margin-top:6px;
+        }
+
+        .verify-sent-box .resend-btn {
+            background: #fff;
+            border: 1px solid rgba(255,158,180,0.35);
+            color: var(--primary-pink);
+            padding: 8px 12px;
+            border-radius: 999px;
+            font-weight:600;
+            cursor:pointer;
+            white-space:nowrap;
+            flex-shrink:0;
+            margin-left: 12px;
+        }
+
+        @media (max-width:480px){
+            .verify-sent-box{flex-direction:column;align-items:stretch;padding:12px;border-radius:10px}
+            .verify-sent-box .verify-sent-body{width:100%}
+            .verify-sent-box .verify-sent-body { overflow-wrap: anywhere; word-break: break-word; }
+            .verify-sent-box .resend-btn{width:100%;align-self:stretch;margin-top:12px}
+            .verify-sent-box .verify-text, .verify-sent-box .verify-sub { white-space: normal; }
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <h1 class="auth-title">Create Account</h1>
+            </div>
+
+            <div id="alertContainer"></div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label for="username" class="form-label">Username</label>
+                    <input 
+                        type="text" 
+                        id="username" 
+                        class="form-control" 
+                        placeholder="e.g: chael"
+                        required
+                        autocomplete="username"
+                        minlength="3"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="email" class="form-label">Email Address</label>
+                    <input 
+                        type="email" 
+                        id="email" 
+                        class="form-control" 
+                        placeholder="e,g: chael@gmail.com"
+                        required
+                        autocomplete="email"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password" class="form-label">Password</label>
+                    <div class="input-with-icon">
+                        <input 
+                            type="password" 
+                            id="password" 
+                            class="form-control" 
+                            placeholder="Create a strong password"
+                            required
+                            autocomplete="new-password"
+                            minlength="6"
+                        >
+                        <i class="bi bi-eye password-toggle" id="togglePassword"></i>
+                    </div>
+                    <div class="password-strength" id="passwordStrength" style="display: none; margin-top:8px;">
+                        <div class="strength-bar">
+                            <div class="strength-fill" id="strengthFill"></div>
+                        </div>
+                        <small id="strengthText" style="color: var(--dark-gray);"></small>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100 btn-lg mt-2" id="submitBtn">
+                    <span id="btnText">Create Account</span>
+                    <span id="btnSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                </button>
+            </form>
+
+            <div class="auth-divider">
+                <span>Already have an account?</span>
+            </div>
+
+            <a href="/login" class="btn btn-outline w-100">
+                Log In
+            </a>
+
+            <div class="text-center mt-3">
+                <a href="/" class="nav-link" style="display: inline-block; color: var(--primary-pink);">
+                    <i class="bi bi-arrow-left"></i> Back to Home
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Password toggle
+        document.getElementById('togglePassword').addEventListener('click', function() {
+            const passwordInput = document.getElementById('password');
+            const type = passwordInput.type === 'password' ? 'text' : 'password';
+            passwordInput.type = type;
+            this.classList.toggle('bi-eye');
+            this.classList.toggle('bi-eye-slash');
+        });
+
+        // Password strength checker
+        let passwordStrengthLevel = 'weak';
+        document.getElementById('password').addEventListener('input', function() {
+            const password = this.value;
+            const strengthContainer = document.getElementById('passwordStrength');
+            const strengthFill = document.getElementById('strengthFill');
+            const strengthText = document.getElementById('strengthText');
+
+            if (password.length === 0) {
+                strengthContainer.style.display = 'none';
+                return;
+            }
+
+            strengthContainer.style.display = 'block';
+
+            let strength = 0;
+            if (password.length >= 8) strength++;
+            if (password.length >= 10) strength++;
+            if (/[a-z]/.test(password) && /[A-Z]/.test(password)) strength++;
+            if (/\d/.test(password)) strength++;
+            if (/[^a-zA-Z\d]/.test(password)) strength++;
+
+            strengthFill.className = 'strength-fill';
+            
+            if (strength <= 2) {
+                strengthFill.classList.add('strength-weak');
+                strengthText.textContent = 'Weak password';
+                strengthText.style.color = '#c62828';
+                passwordStrengthLevel = 'weak';
+            } else if (strength <= 3) {
+                strengthFill.classList.add('strength-medium');
+                strengthText.textContent = 'Medium password';
+                strengthText.style.color = '#e65100';
+                passwordStrengthLevel = 'medium';
+            } else {
+                strengthFill.classList.add('strength-strong');
+                strengthText.textContent = 'Strong password';
+                strengthText.style.color = '#2e7d32';
+                passwordStrengthLevel = 'strong';
+            }
+        });
+
+        // Form submission -> start verification flow
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const username = document.getElementById('username').value.trim();
+            const email = document.getElementById('email').value.trim();
+            const password = document.getElementById('password').value;
+
+            if (passwordStrengthLevel === 'weak') {
+                showAlert('Password is too weak. Use a longer password with numbers and symbols.', 'error');
+                return;
+            }
+
+            setLoading(true, 'Sending verification...');
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ username, email, password })
+                });
+
+                const data = await response.json().catch(() => ({}));
+
+                if (response.ok) {
+                    // Server stored a verification token and attempted delivery.
+                    showAlert(data.message || 'Verification link sent. Check your email.', 'success');
+                    showVerificationSentUI({ email });
+                } else if (response.status === 202) {
+                    showAlert(data.message || 'Verification link stored. Delivery failed.', 'warning');
+                    showVerificationSentUI({ email });
+                } else {
+                    showAlert(data.error || 'Registration failed', 'error');
+                    setLoading(false);
+                }
+            } catch (err) {
+                console.error('Registration error:', err);
+                showAlert('An error occurred. Please try again.', 'error');
+                setLoading(false);
+            }
+        });
+
+        function setLoading(isLoading, text) {
+            document.getElementById('btnText').textContent = isLoading ? (text || 'Please wait...') : 'Create Account';
+            document.getElementById('btnSpinner').style.display = isLoading ? 'inline-block' : 'none';
+            document.getElementById('submitBtn').disabled = isLoading;
+        }
+
+        function showVerificationSentUI({ email }) {
+            setLoading(false);
+            const existing = document.getElementById('verifyBox');
+            if (existing) existing.remove();
+
+            const box = document.createElement('div');
+            box.id = 'verifyBox';
+            box.style.marginTop = '12px';
+            box.style.marginBottom = '4px';
+            box.innerHTML = `
+                <div class="verify-sent-box">
+                    <div class="verify-sent-body">
+                        <strong>Verification email sent</strong>
+                        <div style="font-size:0.92rem;color:var(--dark-gray);margin-top:6px;">Check your email <span style="font-weight:600;color:var(--text-dark)">(${escapeHtml(email)})</span> and click the verification link to activate your account.</div>
+                        <div style="margin-top:12px;">
+                            <button id="resendBtn" class="resend-btn">Resend</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // insert BEFORE the username form group (so it's above username input)
+            const usernameInput = document.getElementById('username');
+            let usernameGroup = usernameInput && usernameInput.closest ? usernameInput.closest('.form-group') : null;
+            if (!usernameGroup) {
+                let el = usernameInput;
+                while (el && !el.classList.contains('form-group')) el = el.parentElement;
+                usernameGroup = el;
+            }
+            if (usernameGroup && usernameGroup.parentNode) {
+                usernameGroup.parentNode.insertBefore(box, usernameGroup);
+            } else {
+                // fallback: insert at top of form
+                const form = document.getElementById('registerForm');
+                form.insertBefore(box, form.firstChild);
+            }
+
+            const resendBtn = document.getElementById('resendBtn');
+            resendBtn.addEventListener('click', async () => {
+                // prevent double clicks and show progress
+                resendBtn.disabled = true;
+                resendBtn.textContent = 'Resending...';
+                try {
+                    const r = await fetch('/api/auth/resend-verification', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email })
+                    });
+                    const d = await r.json().catch(() => ({}));
+                    if (r.ok) showAlert(d.message || 'Verification email resent', 'success');
+                    else if (r.status === 202) showAlert(d.message || 'Verification stored but email send failed', 'warning');
+                    else showAlert(d.error || 'Failed to resend verification email', 'error');
+                } catch (e) {
+                    console.error('Resend error', e);
+                    showAlert('Failed to resend verification email', 'error');
+                } finally {
+                    resendBtn.disabled = false;
+                    resendBtn.textContent = 'Resend';
+                }
+            });
+        }
+
+        function escapeHtml(s) {
+            return (s || '').replace(/[&<>"']/g, function (c) { return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]; });
+        }
+
+        function resetButton() {
+            document.getElementById('btnText').textContent = 'Create Account';
+            document.getElementById('btnSpinner').style.display = 'none';
+            document.getElementById('submitBtn').disabled = false;
+        }
+
+        function showAlert(message, type) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.innerHTML = `
+                <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
+                <span>${message}</span>
+            `;
+            alertContainer.innerHTML = '';
+            alertContainer.appendChild(alert);
+
+            if (type === 'success') {
+                setTimeout(() => {
+                    alert.remove();
+                }, 3000);
+            }
+        }
+    </script>
+</body>
+</html>
