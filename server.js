@@ -2340,7 +2340,13 @@ app.use((err, req, res, next) => {
 // START SERVER
 // =====================================================
 
-app.listen(PORT, () => {
-    console.log(`🚀 Reviewer App running on http://localhost:${PORT}`);
-    console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
-});
+// If this file is run directly, start a standalone server (for local dev).
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`🚀 Reviewer App running on http://localhost:${PORT}`);
+        console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+    });
+}
+
+// Export the app for serverless wrappers or tests
+module.exports = app;

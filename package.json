@@ -31,6 +31,15 @@
     "pg": "^8.17.2",
     "nodemailer": "^6.9.4"
   },
+  "dependenciesMeta": {
+    "serverless-http": { "optional": true }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "optionalDependencies": {
+    "serverless-http": "^3.0.0"
+  },
   "devDependencies": {
     "nodemon": "^3.0.2"
   }
