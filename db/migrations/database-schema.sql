@@ -19,6 +19,10 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+-- New fields for user profile
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS display_name VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS profile_picture_url TEXT;
 
 -- Create index on email for faster lookups
 CREATE INDEX idx_users_email ON users(email);
@@ -83,6 +87,40 @@ CREATE INDEX idx_messages_created_at ON messages(created_at DESC);
 CREATE INDEX idx_messages_recipient_id ON messages(recipient_id);
 
 -- =====================================================
+-- EMAIL VERIFICATIONS TABLE
+-- Stores one-time verification codes sent to emails for account verification
+-- =====================================================
+CREATE TABLE IF NOT EXISTS email_verifications (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL,
+    token VARCHAR(128) NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    used BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_email_verifications_email ON email_verifications(email);
+CREATE UNIQUE INDEX idx_email_verifications_token ON email_verifications(token);
+
+-- =====================================================
+-- PASSWORD RESETS TABLE
+-- Stores password reset tokens sent to emails
+-- =====================================================
+CREATE TABLE IF NOT EXISTS password_resets (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL,
+    token VARCHAR(128) NOT NULL,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    used BOOLEAN DEFAULT FALSE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX idx_password_resets_email ON password_resets(email);
+CREATE UNIQUE INDEX idx_password_resets_token ON password_resets(token);
+
+-- =====================================================
 -- ONLINE USERS TABLE
 -- =====================================================
 CREATE TABLE IF NOT EXISTS online_users (
@@ -106,6 +144,7 @@ ALTER TABLE subjects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reviewers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE online_users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE email_verifications ENABLE ROW LEVEL SECURITY;
 
 -- Users table policies
 CREATE POLICY "Users can view all users" ON users
