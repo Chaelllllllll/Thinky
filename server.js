@@ -33,6 +33,26 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Determine whether critical environment variables are present.
+let serverReady = true;
+const missingEnv = [];
+if (!process.env.SUPABASE_URL) missingEnv.push('SUPABASE_URL');
+if (!process.env.SUPABASE_ANON_KEY) missingEnv.push('SUPABASE_ANON_KEY');
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) missingEnv.push('SUPABASE_SERVICE_ROLE_KEY');
+if (!process.env.SESSION_SECRET) missingEnv.push('SESSION_SECRET');
+if (missingEnv.length) {
+    console.error('Missing critical environment variables:', missingEnv.join(', '));
+    serverReady = false;
+}
+
+// If not ready, return a simple JSON 500 for API routes to avoid crashing.
+app.use('/api', (req, res, next) => {
+    if (!serverReady) {
+        return res.status(500).json({ error: 'Server misconfigured', missing: missingEnv });
+    }
+    next();
+});
+
 // =====================================================
 // MIDDLEWARE CONFIGURATION
 // =====================================================
