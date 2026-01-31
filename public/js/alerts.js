@@ -35,4 +35,35 @@
     }
 
     window.showAlert = showAlert;
+    // Show a chat-style notification using the alert/toast system.
+    // `opts` = { avatar, username, message, chatType }
+    function showChatNotification(opts = {}, timeout = 6000) {
+        if (!opts || !opts.username || !opts.message) return null;
+
+        const avatar = opts.avatar || '/images/default-avatar.svg';
+        const username = escapeHtmlForAlert(opts.username);
+        const text = escapeHtmlForAlert(opts.message);
+        const chatType = opts.chatType || 'general';
+
+        const messageHtml = `
+            <div class="chat-notif">
+                <div class="chat-notif-top">
+                    <img src="${avatar}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" class="chat-notif-avatar"/>
+                    <div class="chat-notif-user">${username}</div>
+                </div>
+                <div class="chat-notif-body">${text}</div>
+                <div class="chat-notif-type">${chatType === 'private' ? 'Personal' : 'General'}</div>
+            </div>
+        `;
+
+        return showAlert('info', messageHtml, timeout);
+    }
+
+    // minimal sanitizer for alert content
+    function escapeHtmlForAlert(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    window.showChatNotification = showChatNotification;
 })();

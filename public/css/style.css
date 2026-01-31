@@ -337,6 +337,40 @@ textarea.form-control {
     border-left: 4px solid var(--warning);
 }
 
+/* Site alert container (toasts) */
+.site-alert-container {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+}
+.site-alert {
+    pointer-events: auto;
+    background: var(--white);
+    border-radius: 12px;
+    box-shadow: var(--shadow-lg);
+    overflow: hidden;
+    transform: translateY(10px);
+    opacity: 0;
+    transition: transform 0.25s var(--transition-fast), opacity 0.25s var(--transition-fast);
+    width: 340px;
+}
+.site-alert.show { transform: translateY(0); opacity: 1; }
+.site-alert-info { border-left: 4px solid var(--info); }
+.site-alert-content { padding: 12px; }
+
+/* Chat notification styles */
+.chat-notif { display: flex; flex-direction: column; gap: 8px; }
+.chat-notif-top { display:flex; align-items:center; gap:10px; }
+.chat-notif-avatar { width:40px; height:40px; border-radius:50%; object-fit:cover; }
+.chat-notif-user { font-weight:700; color:var(--text-dark); }
+.chat-notif-body { color:var(--dark-gray); font-size:0.95rem; max-height:3.6rem; overflow:hidden; text-overflow:ellipsis; }
+.chat-notif-type { font-size:0.8rem; color:var(--primary-pink); text-transform:uppercase; font-weight:600; }
+
 /* =====================================================
    MODAL
    ===================================================== */

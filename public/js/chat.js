@@ -203,8 +203,40 @@ async function loadMessages(silent = false) {
 
         // Only update if there are new messages (or show empty state)
         if (JSON.stringify(fetched) !== JSON.stringify(messages)) {
+            // detect new messages (simple heuristic using id if present, otherwise created_at+user+text)
+            const newMessages = fetched.filter(f => {
+                return !messages.some(m => {
+                    if (m && f && m.id && f.id) return String(m.id) === String(f.id);
+                    return m && f && m.created_at === f.created_at && String(m.user_id) === String(f.user_id) && m.message === f.message;
+                });
+            });
+
+            // update state then display
             messages = fetched;
             displayMessages(silent);
+
+            // Notify about new messages when on dashboard/index/profile/user pages
+            try {
+                const path = (window.location.pathname || '').toLowerCase();
+                const notifyPages = ['/dashboard.html', '/index.html', '/', '/profile.html', '/user.html'];
+                const onNotifyPage = notifyPages.some(p => path === p || path.endsWith(p) || (p === '/' && path === '/'));
+
+                if (onNotifyPage && typeof window.showChatNotification === 'function' && currentUser) {
+                    newMessages.forEach(msg => {
+                        // skip notifications for messages sent by the current user
+                        if (currentUser && String(msg.user_id) === String(currentUser.id)) return;
+
+                        const avatarUrl = (msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg';
+                        const username = msg.username || msg.display_name || 'User';
+                        const body = msg.message || '';
+                        const chatType = msg.chat_type || (msg.recipient_id ? 'private' : 'general');
+
+                        try {
+                            window.showChatNotification({ avatar: avatarUrl, username, message: body, chatType });
+                        } catch (e) { /* ignore */ }
+                    });
+                }
+            } catch (e) { /* ignore */ }
         } else if (messages.length === 0) {
             // Ensure empty state is shown when there are zero messages
             displayMessages(silent);
