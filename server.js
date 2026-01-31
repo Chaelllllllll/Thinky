@@ -119,6 +119,8 @@ app.use('/api', (req, res, next) => {
         if (req.path === '/_status') return next();
         return res.status(500).json({ error: 'Server misconfigured', missing: missingEnv });
     }
+    // Prevent caching of API responses to avoid 304/Not Modified responses
+    try { res.set('Cache-Control', 'no-store'); } catch (e) { /* ignore */ }
     next();
 });
 
@@ -2497,14 +2499,15 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                 .order('created_at', { ascending: false })
                 .limit(limit);
 
-            if (error) {
-                console.error('Get messages error:', error);
-                return res.status(500).json({ error: 'Failed to fetch messages' });
-            }
+                if (error) {
+                    console.error('Get messages error:', error);
+                    return res.status(500).json({ error: 'Failed to fetch messages' });
+                }
 
-            return res.json({ messages: messages.reverse() });
+                try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (e) {}
+                return res.json({ messages: messages.reverse() });
         } else {
-            const { data: messages, error } = await supabaseAdmin
+                const { data: messages, error } = await supabaseAdmin
                 .from('messages')
                 .select('*, users:user_id (username, profile_picture_url)')
                 .eq('chat_type', chatType)
@@ -2516,6 +2519,7 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                 return res.status(500).json({ error: 'Failed to fetch messages' });
             }
 
+            try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (e) {}
             return res.json({ messages: messages.reverse() });
         }
 
@@ -2560,6 +2564,7 @@ app.post('/api/messages', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to send message' });
         }
 
+        try { console.debug('New message inserted:', newMessage && newMessage.id ? { id: newMessage.id, user_id: newMessage.user_id, chat_type: newMessage.chat_type } : newMessage); } catch (e) {}
         res.json({ message: newMessage });
     } catch (error) {
         console.error('Send message error:', error);
