@@ -943,6 +943,7 @@ app.post('/api/auth/reset', authLimiter, async (req, res) => {
 
 // Login
 app.post('/api/auth/login', authLimiter, async (req, res) => {
+    console.info('[req] POST /api/auth/login from', req.ip, 'headers:', { origin: req.get('origin') });
     try {
         const { email, password } = req.body;
 
@@ -1280,6 +1281,7 @@ app.get('/api/reviewers/public', requireAuth, async (req, res) => {
 
 // Public endpoint: get public reviewers for anonymous users (no auth required)
 app.get('/api/reviewers/public-guest', async (req, res) => {
+    console.info('[req] GET /api/reviewers/public-guest from', req.ip, 'query:', req.query);
     try {
         const { search, student } = req.query;
 
