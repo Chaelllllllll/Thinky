@@ -79,6 +79,21 @@ app.get('/api/_status', (req, res) => {
     });
 });
 
+// Environment check (safe): do not return secret values, only presence and lengths
+app.get('/api/_env_check', (req, res) => {
+    const check = {
+        SUPABASE_URL: !!process.env.SUPABASE_URL,
+        SUPABASE_URL_length: process.env.SUPABASE_URL ? process.env.SUPABASE_URL.length : 0,
+        SUPABASE_ANON_KEY: !!process.env.SUPABASE_ANON_KEY,
+        SUPABASE_ANON_KEY_length: process.env.SUPABASE_ANON_KEY ? process.env.SUPABASE_ANON_KEY.length : 0,
+        SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+        SUPABASE_SERVICE_ROLE_KEY_length: process.env.SUPABASE_SERVICE_ROLE_KEY ? process.env.SUPABASE_SERVICE_ROLE_KEY.length : 0,
+        SESSION_SECRET: !!process.env.SESSION_SECRET,
+        NODE_ENV: process.env.NODE_ENV || 'development'
+    };
+    res.json(check);
+});
+
 // Debug Supabase reachability: runs a quick query with a 5s timeout
 app.get('/api/_debug_supabase', async (req, res) => {
     try {
