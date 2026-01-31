@@ -10,7 +10,7 @@
         return c;
     }
 
-    function buildModal({title='', message='', html=false, buttons=[{label:'OK', value:true, className:'btn-primary'}], onClose=null}){
+    function buildModal({title='', message='', html=false, buttons=[{label:'OK', value:true, className:'btn-primary'}], onClose=null, small=false}){
         const container = ensureContainer();
         const overlay = document.createElement('div');
         overlay.className = 'modal modal-helper-overlay';
@@ -27,25 +27,36 @@
 
         const box = document.createElement('div');
         box.className = 'modal-content modal-helper-box';
-        box.style.maxWidth = '560px';
-        box.style.width = '90%';
+        // If caller requested small OR viewport is narrow, force compact modal
+        const isSmall = !!small || (typeof window !== 'undefined' && window.innerWidth <= 480);
+        if (isSmall) box.classList.add('modal-helper-small');
+        box.style.maxWidth = isSmall ? '320px' : '560px';
+        box.style.width = isSmall ? '92%' : '90%';
         box.style.background = '#fff';
-        box.style.borderRadius = '8px';
+        box.style.borderRadius = isSmall ? '12px' : '8px';
         box.style.boxShadow = '0 12px 40px rgba(0,0,0,0.25)';
         box.style.overflow = 'hidden';
+        if (isSmall) {
+            // place near top on small screens for better ergonomics
+            overlay.style.alignItems = 'flex-start';
+            overlay.style.paddingTop = '8vh';
+        }
 
         const header = document.createElement('div');
+        header.className = 'modal-helper-header';
         header.style.padding = '16px 18px';
         header.style.borderBottom = '1px solid #eee';
         header.style.fontWeight = 700;
         header.textContent = title || '';
 
         const body = document.createElement('div');
+        body.className = 'modal-helper-body';
         body.style.padding = '18px';
         if(html) body.innerHTML = message || '';
         else body.textContent = message || '';
 
         const footer = document.createElement('div');
+        footer.className = 'modal-helper-footer';
         footer.style.padding = '12px 16px';
         footer.style.borderTop = '1px solid #eee';
         footer.style.textAlign = 'right';
@@ -86,7 +97,7 @@
 
     window.showModal = function(message, title='Notice', opts={}){
         return new Promise(resolve => {
-            buildModal({title, message, html: opts.html||false, buttons:[{label:opts.okText||'OK', value:true, className: opts.okClass||'btn-primary'}], onClose: ()=>resolve(true)});
+            buildModal({title, message, html: opts.html||false, buttons:[{label:opts.okText||'OK', value:true, className: opts.okClass||'btn-primary'}], onClose: ()=>resolve(true), small: !!opts.small});
         });
     };
 
@@ -122,20 +133,25 @@
 
             const box = document.createElement('div');
             box.className = 'modal-content modal-helper-box';
-            box.style.maxWidth = '560px';
-            box.style.width = '90%';
+            // auto-switch to compact layout on narrow viewports
+            const isSmallPrompt = (typeof window !== 'undefined' && window.innerWidth <= 480);
+            if (isSmallPrompt) box.classList.add('modal-helper-small');
+            box.style.maxWidth = isSmallPrompt ? '320px' : '560px';
+            box.style.width = isSmallPrompt ? '92%' : '90%';
             box.style.background = '#fff';
             box.style.borderRadius = '8px';
             box.style.boxShadow = '0 12px 40px rgba(0,0,0,0.25)';
             box.style.overflow = 'hidden';
 
             const header = document.createElement('div');
+            header.className = 'modal-helper-header';
             header.style.padding = '16px 18px';
             header.style.borderBottom = '1px solid #eee';
             header.style.fontWeight = 700;
             header.textContent = title || '';
 
             const body = document.createElement('div');
+            body.className = 'modal-helper-body';
             body.style.padding = '18px';
 
             const p = document.createElement('div');
@@ -155,6 +171,7 @@
             body.appendChild(input);
 
             const footer = document.createElement('div');
+            footer.className = 'modal-helper-footer';
             footer.style.padding = '12px 16px';
             footer.style.borderTop = '1px solid #eee';
             footer.style.textAlign = 'right';

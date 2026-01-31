@@ -2261,6 +2261,54 @@ app.post('/api/messages', requireAuth, async (req, res) => {
     }
 });
 
+// Unread counts since client-provided timestamps
+app.get('/api/messages/unread', requireAuth, async (req, res) => {
+    try {
+        // Client should send ISO timestamps for last seen times
+        const lastSeenGeneral = req.query.lastSeenGeneral || null;
+        const lastSeenPrivate = req.query.lastSeenPrivate || null;
+
+        // Default to epoch (count everything) if client didn't provide timestamps.
+        // Clients are expected to set sensible defaults (usually now on load).
+        const generalSince = lastSeenGeneral ? lastSeenGeneral : '1970-01-01T00:00:00Z';
+        const privateSince = lastSeenPrivate ? lastSeenPrivate : '1970-01-01T00:00:00Z';
+
+        // Count new general messages from others
+        const generalResp = await supabaseAdmin
+            .from('messages')
+            .select('*', { head: true, count: 'exact' })
+            .eq('chat_type', 'general')
+            .neq('user_id', req.session.userId)
+            .gt('created_at', generalSince);
+
+        if (generalResp.error) {
+            console.error('Unread general count error:', generalResp.error);
+            return res.status(500).json({ error: 'Failed to compute unread general count' });
+        }
+
+        // Count new private messages addressed to this user
+        const privateResp = await supabaseAdmin
+            .from('messages')
+            .select('*', { head: true, count: 'exact' })
+            .eq('chat_type', 'private')
+            .eq('recipient_id', req.session.userId)
+            .gt('created_at', privateSince);
+
+        if (privateResp.error) {
+            console.error('Unread private count error:', privateResp.error);
+            return res.status(500).json({ error: 'Failed to compute unread private count' });
+        }
+
+        const generalCount = generalResp.count || 0;
+        const privateCount = privateResp.count || 0;
+
+        res.json({ general: generalCount, private: privateCount });
+    } catch (err) {
+        console.error('Unread counts error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Get online users
 app.get('/api/online-users', requireAuth, async (req, res) => {
     try {

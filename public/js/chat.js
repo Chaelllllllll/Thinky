@@ -55,6 +55,9 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateOnlineStatus, 30000);
     updateOnlineStatus();
 
+    // Start polling for unread counts
+    startUnreadPolling();
+
     // Enter key to send message
     document.getElementById('messageInput').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -64,6 +67,61 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ensure input/send state reflects current chat selection
     updateChatInputState();
 });
+
+// ------- Unread badge helpers -------
+const LAST_SEEN_GENERAL_KEY = 'chat_last_seen_general';
+const LAST_SEEN_PRIVATE_KEY = 'chat_last_seen_private';
+let unreadPollInterval = null;
+
+function getLastSeen(key) {
+    // Default to now so existing messages are not treated as unread on first load
+    return localStorage.getItem(key) || new Date().toISOString();
+}
+
+function setLastSeen(key, iso) {
+    try { localStorage.setItem(key, iso); } catch (e) { /* ignore */ }
+}
+
+function updateUnreadBadges(counts) {
+    const g = counts && counts.general ? parseInt(counts.general, 10) : 0;
+    const p = counts && counts.private ? parseInt(counts.private, 10) : 0;
+
+    const gEl = document.getElementById('generalUnreadBadge');
+    const pEl = document.getElementById('personalUnreadBadge');
+
+    if (gEl) {
+        if (g > 0) { gEl.style.display = 'inline-block'; gEl.textContent = g > 99 ? '99+' : String(g); }
+        else { gEl.style.display = 'none'; }
+    }
+    if (pEl) {
+        if (p > 0) { pEl.style.display = 'inline-block'; pEl.textContent = p > 99 ? '99+' : String(p); }
+        else { pEl.style.display = 'none'; }
+    }
+}
+
+async function pollUnreadCounts() {
+    if (!currentUser) return;
+    try {
+        const lastSeenGeneral = encodeURIComponent(getLastSeen(LAST_SEEN_GENERAL_KEY));
+        const lastSeenPrivate = encodeURIComponent(getLastSeen(LAST_SEEN_PRIVATE_KEY));
+        const resp = await fetch(`/api/messages/unread?lastSeenGeneral=${lastSeenGeneral}&lastSeenPrivate=${lastSeenPrivate}`, { credentials: 'include' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        updateUnreadBadges(data);
+    } catch (e) {
+        // ignore polling errors
+    }
+}
+
+function startUnreadPolling() {
+    if (unreadPollInterval) clearInterval(unreadPollInterval);
+    // Ensure keys exist (default to now)
+    setLastSeen(LAST_SEEN_GENERAL_KEY, getLastSeen(LAST_SEEN_GENERAL_KEY));
+    setLastSeen(LAST_SEEN_PRIVATE_KEY, getLastSeen(LAST_SEEN_PRIVATE_KEY));
+    pollUnreadCounts();
+    unreadPollInterval = setInterval(pollUnreadCounts, 5000);
+}
+
 
 function updateChatInputState() {
     const input = document.getElementById('messageInput');
@@ -177,16 +235,18 @@ function displayMessages(preserveScroll = false) {
     container.innerHTML = messages.map(msg => {
         const isSelf = currentUser && String(msg.user_id) === String(currentUser.id);
         const avatarUrl = (msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg';
-        const avatar = `<img src="${avatarUrl}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" class="msg-avatar"/>`;
         const who = escapeHtml(msg.username || 'User');
+        const avatarImg = `<img src="${avatarUrl}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" class="msg-avatar"/>`;
+        const profileLink = `/user.html?user=${encodeURIComponent(msg.user_id)}`;
+        const avatar = `<a href="${profileLink}" class="msg-avatar-link" title="${who}">${avatarImg}</a>`;
         const time = formatTime(msg.created_at);
 
         return `
         <div class="chat-message ${isSelf ? 'msg-self' : ''}">
             ${avatar}
             <div class="msg-body">
+                <div class="msg-header"><span class="msg-author">${who}</span></div>
                 <div class="msg-bubble ${isSelf ? 'right' : 'left'}">
-                    <div class="msg-meta"><span class="msg-author">${who}</span></div>
                     <div class="msg-text">${escapeHtml(msg.message)}</div>
                 </div>
                 <div class="msg-time-below">${time}</div>
@@ -199,6 +259,19 @@ function displayMessages(preserveScroll = false) {
     if (!preserveScroll || wasScrolledToBottom) {
         container.scrollTop = container.scrollHeight;
     }
+
+    // Mark messages as seen for the current view
+    try {
+        const now = new Date().toISOString();
+        if (currentChatType === 'general') {
+            setLastSeen(LAST_SEEN_GENERAL_KEY, now);
+        } else if (currentChatType === 'private') {
+            // Mark private aggregate as seen when viewing a private thread
+            setLastSeen(LAST_SEEN_PRIVATE_KEY, now);
+        }
+        // Refresh badges after marking
+        pollUnreadCounts();
+    } catch (e) { /* ignore */ }
 }
 
 async function sendMessage() {
@@ -337,6 +410,9 @@ async function startPrivateChat(userId, username) {
     `;
     loadMessages();
     updateChatInputState();
+
+    // mark private as seen when opening the conversation
+    try { setLastSeen(LAST_SEEN_PRIVATE_KEY, new Date().toISOString()); pollUnreadCounts(); } catch (e) {}
 }
 
 function closePrivateChat() {
@@ -401,6 +477,17 @@ function switchChat(type) {
     `;
     loadMessages();
     updateChatInputState();
+
+    // If switching to general or personal, mark that tab as seen to clear badges
+    try {
+        const now = new Date().toISOString();
+        if (currentChatType === 'general') {
+            setLastSeen(LAST_SEEN_GENERAL_KEY, now);
+        } else if (currentChatType === 'private') {
+            setLastSeen(LAST_SEEN_PRIVATE_KEY, now);
+        }
+        pollUnreadCounts();
+    } catch (e) { /* ignore */ }
 }
 
 async function updateOnlineStatus() {
@@ -441,18 +528,25 @@ function toggleSidebar() {
 }
 
 async function logout() {
-    if (!confirm('Are you sure you want to logout?')) {
-        return;
-    }
-
     try {
-        await fetch('/api/auth/logout', {
+        const ok = await window.showConfirm('Are you sure you want to logout?', 'Confirm');
+        if (!ok) return;
+
+        const resp = await fetch('/api/auth/logout', {
             method: 'POST',
             credentials: 'include'
         });
+
+        if (!resp.ok) {
+            console.error('Logout failed:', resp.statusText || resp.status);
+            await window.showModal('Failed to log out. Please try again.', 'Error', { small: true });
+            return;
+        }
+
         window.location.href = '/login';
     } catch (error) {
         console.error('Logout error:', error);
+        try { await window.showModal('An error occurred while logging out. Redirecting to login.', 'Error', { small: true }); } catch (e) {}
         window.location.href = '/login';
     }
 }

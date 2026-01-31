@@ -73,6 +73,31 @@ async function loadCurrentUser() {
     }
 }
 
+// Global logout helper for pages that include admin.js (and similar admin UI)
+window.logout = async function() {
+    try {
+        const ok = await window.showConfirm('Are you sure you want to logout?', 'Confirm');
+        if (!ok) return;
+
+        const resp = await fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        });
+
+        if (!resp.ok) {
+            console.error('Logout failed:', resp.statusText || resp.status);
+            await window.showModal('Failed to log out. Please try again.', 'Error', { small: true });
+            return;
+        }
+
+        window.location.href = '/login';
+    } catch (error) {
+        console.error('Logout error:', error);
+        try { await window.showModal('An error occurred while logging out. Redirecting to login.', 'Error', { small: true }); } catch (e) {}
+        window.location.href = '/login';
+    }
+};
+
 async function loadAnalytics() {
     try {
         const response = await fetch('/api/admin/analytics', { credentials: 'include' });

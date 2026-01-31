@@ -628,6 +628,55 @@ textarea.form-control {
 .mm-input { min-height:48px; border-radius:28px; padding:12px 16px; border:1px solid rgba(220,200,205,0.7); }
 #sendMessageBtn, .mm-send { width:48px; height:48px; border-radius:999px; background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color:#fff; border:none; display:inline-flex; align-items:center; justify-content:center; box-shadow: 0 6px 20px rgba(255,105,150,0.12); }
 #sendMessageBtn:hover, .mm-send:hover { transform: translateY(-2px); }
+
+/* Modal helper sizing tweaks for mobile */
+.modal-helper-box {
+    max-height: 80vh !important;
+    overflow: auto !important;
+}
+.modal-helper-box > div { /* header/body/footer */
+    padding: 12px !important;
+}
+.modal-helper-box .btn { padding: 8px 12px !important; font-size: 0.95rem !important; }
+
+@media (max-width: 600px) {
+    .modal-helper-box { max-width: 360px !important; width: 92% !important; border-radius: 12px !important; max-height: 70vh !important; }
+    .modal-helper-box { font-size: 0.9rem !important; }
+    .modal-helper-header { padding: 10px 12px !important; font-size: 1rem !important; }
+    .modal-helper-body { padding: 10px 12px !important; }
+    .modal-helper-footer { padding: 8px 10px !important; }
+    .modal-helper-box .btn { padding: 8px 10px !important; font-size: 0.9rem !important; }
+}
+
+/* Additional smaller breakpoint for very small devices */
+@media (max-width: 380px) {
+    .modal-helper-box { max-width: 320px !important; width: 94% !important; }
+    .modal-helper-header { font-size: 0.95rem !important; }
+    .modal-helper-body { font-size: 0.92rem !important; }
+}
+
+/* Force stricter sizing for helper modals to avoid full-height appearance */
+.modal-helper-box {
+    width: auto !important;
+    max-width: 480px !important;
+    max-height: 60vh !important;
+    box-sizing: border-box !important;
+}
+.modal-helper-body {
+    max-height: calc(60vh - 120px) !important;
+    overflow: auto !important;
+}
+
+/* Compact small modal variant (like a lightweight alert) */
+.modal-helper-small {
+    max-width: 320px !important;
+    width: 88% !important;
+    border-radius: 10px !important;
+}
+.modal-helper-small .modal-helper-header { padding: 10px 12px !important; font-size: 1rem !important; }
+.modal-helper-small .modal-helper-body { padding: 8px 12px !important; font-size: 0.95rem !important; }
+.modal-helper-small .modal-helper-footer { padding: 8px 12px !important; }
+.modal-helper-small .btn { padding: 6px 10px !important; font-size: 0.9rem !important; }
 #sendMessageBtn:active, .mm-send:active { transform: translateY(0); }
 #sendMessageBtn .icon, .mm-send .icon { pointer-events:none; }
 
@@ -1002,21 +1051,52 @@ textarea.form-control {
     background: var(--light-gray);
 }
 
-/* Align general chat messages left/right similar to private modal */
-.chat-message { display:flex; gap:12px; align-items:flex-end; margin-bottom: var(--spacing-md); }
+.chat-message { display:flex; gap:8px; align-items:center; margin-bottom: var(--spacing-md); }
 .chat-message .msg-avatar { width:36px; height:36px; border-radius:999px; object-fit:cover; border:2px solid rgba(255,158,180,0.12); }
-.chat-message .msg-body { display:flex; flex-direction:column; max-width: calc(100% - 64px); }
+.chat-message .msg-body { display:flex; flex-direction:column; justify-content:center; align-items:flex-start; max-width: calc(100% - 56px); }
 .chat-message.msg-self { flex-direction: row-reverse; }
-.chat-message.msg-self .msg-avatar { margin-left:12px; margin-right:8px; }
-.chat-message .msg-avatar { margin-right:12px; }
+.chat-message.msg-self .msg-avatar { margin-left:8px; margin-right:0; }
+.chat-message.msg-self .msg-body { align-items:flex-end; }
+.chat-message .msg-header { text-align:left; }
+.chat-message.msg-self .msg-header { text-align:right; }
+
+/* Ensure bubbles align nicely inside the column */
+.chat-message .msg-bubble.left { align-self: flex-start; }
+.chat-message .msg-bubble.right { align-self: flex-end; }
+.chat-message .msg-avatar { margin-right:0; }
+
+/* Make avatar link inline and remove default link decoration */
+.msg-avatar-link { display:inline-flex; align-items:center; text-decoration:none; }
+.msg-avatar-link .msg-avatar { display:block; }
 .chat-message .msg-bubble { padding:12px 16px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); word-break:break-word; }
 .chat-message .msg-bubble.left { background: #fff; border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
 .chat-message .msg-bubble.right { background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color: #fff; }
 .chat-message .msg-time-below { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:6px; }
-.chat-message.msg-self .msg-time-below { color: rgba(255,255,255,0.75); align-self:flex-end; }
+.chat-message.msg-self .msg-time-below { color: var(--dark-gray); align-self:flex-end; }
+
+/* Username header above the chat bubble */
+.chat-message .msg-header { margin-bottom:6px; }
+.chat-message .msg-header .msg-author { font-weight:700; font-size:0.95rem; color:var(--primary-pink-dark); }
 
 /* Prevent avatar overlapping scrollbar */
 .chat-messages { padding-right: 20px; }
+
+/* Unread badge for chat tabs */
+.chat-unread-badge {
+    display: inline-block;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 8px;
+    vertical-align: middle;
+    text-align: center;
+}
 
 .chat-message {
     margin-bottom: var(--spacing-md);
@@ -1544,4 +1624,37 @@ textarea.form-control {
 
 .pulse-animation {
     animation: pulse 2s ease-in-out infinite;
+}
+
+/* Strong mobile overrides to force helper modals to look like compact alerts */
+@media (max-width: 480px) {
+    .modal-helper-box, .modal-content.modal-helper-box {
+        width: min(92vw, 320px) !important;
+        max-width: 320px !important;
+        height: auto !important;
+        max-height: 80vh !important;
+        margin: 10vh auto !important;
+        border-radius: 12px !important;
+        overflow: visible !important;
+        box-shadow: 0 12px 32px rgba(0,0,0,0.18) !important;
+    }
+
+    .modal-helper-body {
+        max-height: calc(80vh - 120px) !important;
+        overflow: auto !important;
+        -webkit-overflow-scrolling: touch;
+        padding: 10px !important;
+    }
+
+    .modal-helper-header { padding: 10px 12px !important; font-size: 1rem !important; }
+    .modal-helper-footer { padding: 8px 10px !important; text-align: center !important; }
+
+    /* Ensure the overlay places the modal near the top for easy reach */
+    .modal { align-items: flex-start !important; padding-top: 8vh !important; }
+
+    /* Make OK button compact and centered */
+    .modal-helper-box .btn { padding: 8px 12px !important; font-size: 0.95rem !important; }
+
+    /* If a modal-helper-small class exists, tighten it further */
+    .modal-helper-small { width: min(86vw, 280px) !important; max-width: 280px !important; }
 }
