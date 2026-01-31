@@ -47,6 +47,17 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// Helper to add an upstream timeout to any promise (e.g., Supabase requests)
+async function withTimeout(promise, ms = 8000) {
+    let timer;
+    return await Promise.race([
+        promise,
+        new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error('upstream_timeout')), ms);
+        })
+    ]).finally(() => clearTimeout(timer));
+}
+
 // Determine whether critical environment variables are present.
 let serverReady = true;
 const missingEnv = [];
@@ -58,6 +69,14 @@ if (missingEnv.length) {
     console.error('Missing critical environment variables:', missingEnv.join(', '));
     serverReady = false;
 }
+
+// Lightweight startup diagnostics (no secrets logged)
+console.info('Startup check:', {
+    serverReady,
+    NODE_ENV: process.env.NODE_ENV || 'development',
+    PRODUCTION_URL_present: !!process.env.PRODUCTION_URL,
+    SUPABASE_URL_present: !!process.env.SUPABASE_URL,
+});
 
 // If not ready, return a simple JSON 500 for API routes to avoid crashing.
 app.use('/api', (req, res, next) => {
@@ -585,7 +604,14 @@ async function requireAuthWithBanCheck(req, res, next) {
     try {
         if (!req.session || !req.session.userId) return res.status(401).json({ error: 'Authentication required' });
 
-        const { data: user, error } = await supabaseAdmin.from('users').select('banned_until').eq('id', req.session.userId).single();
+        let userQuery;
+        try {
+            userQuery = await withTimeout(supabaseAdmin.from('users').select('banned_until').eq('id', req.session.userId).single(), 8000);
+        } catch (e) {
+            console.error('Supabase timeout in ban check:', e && e.message ? e.message : e);
+            return res.status(504).json({ error: 'Upstream timeout' });
+        }
+        const { data: user, error } = userQuery;
         if (!error && user && user.banned_until) {
             const until = new Date(user.banned_until);
             const now = new Date();
@@ -1060,12 +1086,22 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
 // Get current user
 app.get('/api/auth/me', requireAuth, async (req, res) => {
     try {
-        const { data: user, error } = await supabase
-            .from('users')
-            .select('id, email, username, role, display_name, profile_picture_url, created_at, is_dev')
-            .eq('id', req.session.userId)
-            .single();
+        let meQuery;
+        try {
+            meQuery = await withTimeout(
+                supabase
+                    .from('users')
+                    .select('id, email, username, role, display_name, profile_picture_url, created_at, is_dev')
+                    .eq('id', req.session.userId)
+                    .single(),
+                8000
+            );
+        } catch (e) {
+            console.error('Supabase timeout fetching /api/auth/me:', e && e.message ? e.message : e);
+            return res.status(504).json({ error: 'Upstream timeout' });
+        }
 
+        const { data: user, error } = meQuery;
         if (error || !user) {
             return res.status(404).json({ error: 'User not found' });
         }
@@ -1325,8 +1361,15 @@ app.get('/api/reviewers/public-guest', async (req, res) => {
 
         query = query.order('created_at', { ascending: false }).range(start, end);
 
-        const { data: reviewers, count, error } = await query;
+        let result;
+        try {
+            result = await withTimeout(query, 8000);
+        } catch (e) {
+            console.error('Supabase timeout fetching public reviewers (guest):', e && e.message ? e.message : e);
+            return res.status(504).json({ error: 'Upstream timeout' });
+        }
 
+        const { data: reviewers, count, error } = result;
         if (error) {
             console.error('Get public reviewers (guest) error:', error);
             return res.status(500).json({ error: 'Failed to fetch reviewers' });
