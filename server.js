@@ -203,12 +203,48 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Stricter rate limit for auth routes
+// Stricter rate limit for auth routes — return JSON so clients parsing JSON won't fail
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5,
-    message: 'Too many authentication attempts, please try again later.'
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res /*, next */) => {
+        res.status(429).json({ error: 'Too many authentication attempts, please try again later.' });
+    }
 });
+
+// Per-user login attempt tracking to enforce cooldowns (in-memory).
+// Configurable via environment variables. This is an in-memory guard
+// and will not be shared across multiple server instances.
+const loginAttempts = new Map();
+const PER_USER_MAX_ATTEMPTS = parseInt(process.env.PER_USER_MAX_ATTEMPTS || '5', 10);
+const PER_USER_LOCK_MS = parseInt(process.env.PER_USER_LOCK_MS || String(15 * 60 * 1000), 10); // default 15 minutes
+
+function recordFailedLoginAttempt(id) {
+    try {
+        const now = Date.now();
+        const rec = loginAttempts.get(id) || { count: 0, first: now, lockUntil: null };
+        // reset first if window has passed (optional simple sliding window behaviour)
+        if (rec.first && now - rec.first > PER_USER_LOCK_MS) {
+            rec.count = 0;
+            rec.first = now;
+            rec.lockUntil = null;
+        }
+        rec.count = (rec.count || 0) + 1;
+        if (rec.count >= PER_USER_MAX_ATTEMPTS) {
+            rec.lockUntil = now + PER_USER_LOCK_MS;
+        }
+        loginAttempts.set(id, rec);
+        return rec;
+    } catch (e) {
+        return null;
+    }
+}
+
+function clearLoginAttempts(id) {
+    try { loginAttempts.delete(id); } catch (e) { /* ignore */ }
+}
 
 // Body parsing middleware
 app.use(express.json());
@@ -1232,6 +1268,15 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Email and password are required' });
         }
 
+        // Per-user cooldown check
+        const ident = String(email).toLowerCase();
+        const attemptRec = loginAttempts.get(ident);
+        if (attemptRec && attemptRec.lockUntil && Date.now() < attemptRec.lockUntil) {
+            const retrySecs = Math.ceil((attemptRec.lockUntil - Date.now()) / 1000);
+            const retryMins = Math.ceil(retrySecs / 60);
+            return res.status(429).json({ error: `Too many login attempts. Try again in ${retryMins} minute(s).` });
+        }
+
         // Get user
         const { data: user, error } = await supabase
             .from('users')
@@ -1240,6 +1285,8 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             .single();
 
         if (error || !user) {
+            // Record failed attempt to slow down brute-force/guessing even when user not found
+            recordFailedLoginAttempt(ident);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
@@ -1251,8 +1298,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         // Verify password
         const validPassword = await bcrypt.compare(password, user.password_hash);
         if (!validPassword) {
+            recordFailedLoginAttempt(ident);
             return res.status(401).json({ error: 'Invalid credentials' });
         }
+
+        // Successful login — clear any recorded failed attempts for this identifier
+        clearLoginAttempts(ident);
 
         // Prevent login if user is banned (banned_until in the future)
         try {
