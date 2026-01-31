@@ -37,7 +37,7 @@
     "serverless-http": { "optional": true }
   },
   "engines": {
-    "node": "18.x"
+    "node": "24.x"
   },
   "optionalDependencies": {
     "serverless-http": "^3.0.0"
