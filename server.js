@@ -189,10 +189,27 @@ app.use(helmet({
 
 // Normalize production origin (strip trailing slash) and configure CORS
 const productionOrigin = process.env.PRODUCTION_URL ? process.env.PRODUCTION_URL.replace(/\/$/, '') : null;
+// Configure CORS. In production only allow the configured production origin
+// and reflect it in the response so `Access-Control-Allow-Origin` exactly
+// matches the request origin when credentials are used.
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' && productionOrigin
-        ? productionOrigin
-        : 'http://localhost:3000',
+    origin: function (incomingOrigin, callback) {
+        // Allow non-browser requests (no origin) and localhost in development
+        if (!incomingOrigin) return callback(null, true);
+
+        if (process.env.NODE_ENV === 'production' && productionOrigin) {
+            if (incomingOrigin === productionOrigin) return callback(null, true);
+            // Not allowed
+            return callback(new Error('Not allowed by CORS'));
+        }
+
+        // Development: allow localhost:3000
+        const devOrigin = 'http://localhost:3000';
+        if (incomingOrigin === devOrigin) return callback(null, true);
+
+        // Default deny
+        return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true
 }));
 
