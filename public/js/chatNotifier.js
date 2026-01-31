@@ -1,8 +1,9 @@
 // Lightweight notifier for pages without the full chat UI.
 // Shows toasts for new messages using window.showChatNotification.
 (async function(){
+    console.log('chatNotifier: init');
     if (typeof window.showChatNotification !== 'function') {
-        console.debug('chatNotifier: showChatNotification not available on this page');
+        console.log('chatNotifier: showChatNotification not available on this page');
         return; // alerts system not available
     }
 
@@ -19,6 +20,8 @@
     currentUser = await loadCurrentUser();
 
     // Try realtime via Supabase
+    let _realtimeOk = false;
+    let _subscribed = false;
     async function tryRealtime() {
         const env = (window && window.ENV) ? window.ENV : window;
         const url = env.SUPABASE_URL || env.SUPABASE_URL || window.SUPABASE_URL || null;
@@ -34,11 +37,11 @@
             } catch (e) { return false; }
         }
 
-        try {
+            try {
             const client = window.supabase.createClient(url, key);
             const channel = client.channel('public:messages-notifier')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
-                    console.debug('chatNotifier: realtime INSERT payload received', payload && payload.new ? { id: payload.new.id, user_id: payload.new.user_id, message: (payload.new.message || '').slice(0,60) } : payload);
+                    console.log('chatNotifier: realtime INSERT payload received', payload && payload.new ? { id: payload.new.id, user_id: payload.new.user_id, message: (payload.new.message || '').slice(0,60) } : payload);
                     try {
                         const n = payload && payload.new ? payload.new : null;
                         if (!n) return;
@@ -48,17 +51,21 @@
                         const username = n.username || n.display_name || ('User ' + String(n.user_id));
                         const text = n.message || '';
                         const chatType = n.chat_type || (n.recipient_id ? 'private' : 'general');
-                        console.debug('chatNotifier: emitting toast for realtime message', { username, chatType, textPreview: text.slice(0,60) });
+                        console.log('chatNotifier: emitting toast for realtime message', { username, chatType, textPreview: text.slice(0,60) });
                         window.showChatNotification({ avatar, username, message: text, chatType }, 6000);
                     } catch (e) { /* ignore */ }
                 })
                 .subscribe((status) => {
-                    console.debug('chatNotifier: subscription status ->', status);
+                    console.log('chatNotifier: subscription status ->', status);
+                    _subscribed = (status === 'SUBSCRIBED' || (status && status.status === 'SUBSCRIBED'));
                 });
-            console.debug('chatNotifier: realtime subscription attempted');
+            console.log('chatNotifier: realtime subscription attempted');
+            _realtimeOk = true;
             return true;
         } catch (e) {
-            console.debug('chatNotifier: realtime init failed', e && e.message ? e.message : e);
+            console.log('chatNotifier: realtime init failed', e && e.message ? e.message : e);
+            _realtimeOk = false;
+            _subscribed = false;
             return false;
         }
     }
@@ -77,21 +84,21 @@
                 const lg = encodeURIComponent(lastGeneral);
                 const lp = encodeURIComponent(lastPrivate);
                 const unreadUrl = `/api/messages/unread?lastSeenGeneral=${lg}&lastSeenPrivate=${lp}`;
-                console.debug('chatNotifier: polling unread URL', unreadUrl);
+                console.log('chatNotifier: polling unread URL', unreadUrl);
                 const resp = await fetch(unreadUrl, { credentials: 'include', cache: 'no-store' });
-                if (!resp.ok) { console.debug('chatNotifier: unread fetch not ok', resp.status, resp.statusText); return; }
+                if (!resp.ok) { console.log('chatNotifier: unread fetch not ok', resp.status, resp.statusText); return; }
                 data = await resp.json();
             }
 
-            console.debug('chatNotifier: poll result', data);
+            console.log('chatNotifier: poll result', data);
 
             // Support two possible shapes: { general, private } OR { messages: [...] }
             if (data && Array.isArray(data.messages)) {
                 const msgs = data.messages || [];
-                for (let i = msgs.length-1; i>=0; i--) {
+                    for (let i = msgs.length-1; i>=0; i--) {
                     const m = msgs[i];
                     if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
-                    console.debug('chatNotifier: poll -> notifying from messages array', { id: m.id, preview: (m.message||'').slice(0,60) });
+                    console.log('chatNotifier: poll -> notifying from messages array', { id: m.id, preview: (m.message||'').slice(0,60) });
                     window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general' }, 6000);
                 }
                 // update last seen timestamps to now after notifying
@@ -109,29 +116,29 @@
                     const d = await r.json();
                     const msgs = d && d.messages ? d.messages : [];
                     if (msgs.length === 0) {
-                        console.debug('chatNotifier: unread indicated new general messages but fetch returned none; trying /api/_last_message');
+                        console.log('chatNotifier: unread indicated new general messages but fetch returned none; trying /api/_last_message');
                         try {
                             const lastResp = await fetch('/api/_last_message', { credentials: 'include', cache: 'no-store' });
                             if (lastResp.ok) {
                                 const lastData = await lastResp.json();
                                 const m = lastData && lastData.message ? lastData.message : null;
                                 if (m && !(currentUser && String(m.user_id) === String(currentUser.id))) {
-                                    console.debug('chatNotifier: notifying from debug last_message', { id: m.id, preview: (m.message||'').slice(0,60) });
+                                    console.log('chatNotifier: notifying from debug last_message', { id: m.id, preview: (m.message||'').slice(0,60) });
                                     window.showChatNotification({ avatar: (m.profile_picture_url || '/images/default-avatar.svg'), username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general' }, 6000);
                                 }
                             }
-                        } catch (e) { console.debug('chatNotifier: /api/_last_message fetch error', e && e.message); }
+                        } catch (e) { console.log('chatNotifier: /api/_last_message fetch error', e && e.message); }
                     } else {
                         for (let i = msgs.length-1; i>=0; i--) {
                             const m = msgs[i];
                             if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
-                            console.debug('chatNotifier: polling -> notifying general message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
+                            console.log('chatNotifier: polling -> notifying general message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
                             window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'general' }, 6000);
                         }
                     }
                     lastGeneral = new Date().toISOString();
                 } else {
-                    console.debug('chatNotifier: fetch general messages failed', r.status, r.statusText);
+                    console.log('chatNotifier: fetch general messages failed', r.status, r.statusText);
                 }
             }
             if (p > 0) {
@@ -143,16 +150,37 @@
                     for (let i = msgs.length-1; i>=0; i--) {
                         const m = msgs[i];
                         if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
-                        console.debug('chatNotifier: polling -> notifying private message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
+                        console.log('chatNotifier: polling -> notifying private message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
                         window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'private' }, 6000);
                     }
                     lastPrivate = new Date().toISOString();
                 }
             }
-        } catch (e) { console.debug('chatNotifier: poll() error', e && (e.message || e)); }
+        } catch (e) { console.log('chatNotifier: poll() error', e && (e.message || e)); }
     }
 
     const realtimeOk = await tryRealtime();
+    window._chatNotifier = window._chatNotifier || {};
+    window._chatNotifier.realtimeOk = realtimeOk;
+    window._chatNotifier.subscribed = _subscribed;
+
+    // Expose a debug helper to manually trigger a poll or print state
+    window.debugChatNotifier = async function(action) {
+        console.log('debugChatNotifier:', { action });
+        if (!action || action === 'state') {
+            console.log('chatNotifier state', { currentUser, realtimeOk: window._chatNotifier.realtimeOk, subscribed: _subscribed, lastGeneral, lastPrivate });
+            return;
+        }
+        if (action === 'poll') {
+            try { await poll(); } catch (e) { console.log('debugChatNotifier poll error', e && e.message); }
+            return;
+        }
+        if (action === 'realtime') {
+            try { const ok = await tryRealtime(); window._chatNotifier.realtimeOk = ok; console.log('debugChatNotifier realtime ok', ok); } catch(e) { console.log('debugChatNotifier realtime error', e && e.message); }
+            return;
+        }
+    };
+
     if (!realtimeOk) {
         // start polling with adaptive interval to reduce server load
         let baseInterval = 10000; // 10s when visible
@@ -173,7 +201,7 @@
                     // poll() already logs errors; increase backoff
                     errorBackoff = Math.min(6, errorBackoff + 1);
                     const backoffMs = Math.min(60000, (document.hidden ? hiddenInterval : baseInterval) * Math.pow(2, errorBackoff));
-                    console.debug('chatNotifier: scheduling backoff next poll', backoffMs);
+                    console.log('chatNotifier: scheduling backoff next poll', backoffMs);
                     scheduleNext(backoffMs);
                 }
             }, delay);
@@ -185,7 +213,7 @@
         // Adjust timer when visibility changes
         document.addEventListener('visibilitychange', () => {
             const next = document.hidden ? hiddenInterval : baseInterval;
-            console.debug('chatNotifier: visibilitychange, next poll in', next);
+            console.log('chatNotifier: visibilitychange, next poll in', next);
             scheduleNext(next);
         });
     }

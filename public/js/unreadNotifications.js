@@ -36,15 +36,15 @@
             // Explicitly avoid cached responses
             const resp = await fetch(url, { credentials: 'include', cache: 'no-store' });
             if (!resp.ok) {
-                console.debug('unreadNotifications: unread fetch not ok', resp.status, resp.statusText);
+                console.log('unreadNotifications: unread fetch not ok', resp.status, resp.statusText);
                 return null;
             }
             const data = await resp.json();
-            console.debug('unreadNotifications: pollSharedUnread result', data);
+            console.log('unreadNotifications: pollSharedUnread result', data);
             updateBadges(data);
             return data;
         } catch (e) {
-            console.debug('unreadNotifications: pollSharedUnread error', e && (e.message || e));
+            console.log('unreadNotifications: pollSharedUnread error', e && (e.message || e));
             return null;
         }
     }
