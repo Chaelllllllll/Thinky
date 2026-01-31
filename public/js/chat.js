@@ -55,8 +55,12 @@ document.addEventListener('DOMContentLoaded', () => {
     setInterval(updateOnlineStatus, 30000);
     updateOnlineStatus();
 
-    // Start polling for unread counts
-    startUnreadPolling();
+    // Start polling for unread counts — prefer shared polling if available
+    if (typeof window.startSharedUnreadPolling === 'function') {
+        window.startSharedUnreadPolling();
+    } else {
+        startUnreadPolling();
+    }
 
     // Enter key to send message
     document.getElementById('messageInput').addEventListener('keypress', (e) => {
