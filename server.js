@@ -53,6 +53,15 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
+// Lightweight status endpoint (non-secret) to help debug missing env vars in production
+app.get('/api/_status', (req, res) => {
+    res.json({
+        serverReady,
+        missing: missingEnv,
+        nodeEnv: process.env.NODE_ENV || 'development',
+        productionUrlPresent: !!process.env.PRODUCTION_URL
+    });
+});
 // =====================================================
 // MIDDLEWARE CONFIGURATION
 // =====================================================
