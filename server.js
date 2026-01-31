@@ -3,16 +3,17 @@
  * Full-featured reviewer web application with Node.js, Bootstrap, and Supabase
  */
 
-require('dotenv').config();
-const express = require('express');
-const session = require('express-session');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const cookieParser = require('cookie-parser');
-const cors = require('cors');
-const path = require('path');
-const { createClient } = require('@supabase/supabase-js');
-const bcryptLib = require('bcryptjs');
+import 'dotenv/config';
+import express from 'express';
+import session from 'express-session';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import cookieParser from 'cookie-parser';
+import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { createClient } from '@supabase/supabase-js';
+import bcryptLib from 'bcryptjs';
 
 // Promise-based wrapper around bcryptjs to keep async/await usage
 const bcrypt = {
@@ -23,9 +24,12 @@ const bcrypt = {
         bcryptLib.compare(password, hash, (err, res) => err ? reject(err) : resolve(res));
     })
 };
-const multer = require('multer');
-const nodemailer = require('nodemailer');
-const crypto = require('crypto');
+import multer from 'multer';
+import nodemailer from 'nodemailer';
+import crypto from 'crypto';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app = express();
@@ -2404,7 +2408,7 @@ app.use((err, req, res, next) => {
 // =====================================================
 
 // If this file is run directly, start a standalone server (for local dev).
-if (require.main === module) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
     app.listen(PORT, () => {
         console.log(`🚀 Reviewer App running on http://localhost:${PORT}`);
         console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
@@ -2412,4 +2416,4 @@ if (require.main === module) {
 }
 
 // Export the app for serverless wrappers or tests
-module.exports = app;
+export default app;

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Full-featured Reviewer Web Application with Node.js, Bootstrap, and Supabase",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js"
@@ -36,7 +37,7 @@
     "serverless-http": { "optional": true }
   },
   "engines": {
-    "node": ">=18"
+    "node": "18.x"
   },
   "optionalDependencies": {
     "serverless-http": "^3.0.0"

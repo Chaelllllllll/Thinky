@@ -1,35 +1,41 @@
-const path = require('path');
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Ensure the working directory is the project root so server.js static paths work
 process.chdir(path.join(__dirname, '..'));
 
 let serverless = null;
+let app = null;
+let importError = null;
+
 try {
-	serverless = require('serverless-http');
+	const mod = await import('serverless-http');
+	serverless = mod && (mod.default || mod);
 } catch (err) {
 	console.error('serverless-http is not installed:', err && err.message ? err.message : err);
 }
 
-// Import the Express app and capture any require error for debugging
-let app = null;
-let requireError = null;
 try {
-	app = require('../server');
+	const srv = await import('../server.js');
+	app = srv && (srv.default || srv);
 } catch (err) {
-	requireError = err && err.message ? err.message : String(err);
-	console.error('Failed to require server app:', requireError);
+	importError = err && err.message ? err.message : String(err);
+	console.error('Failed to import server app:', importError);
 }
 
 if (!serverless || !app) {
 	// Export a minimal handler that returns 500 explaining the issue
-	module.exports = async (req, res) => {
+	export default async (req, res) => {
 		res.statusCode = 500;
 		res.setHeader('Content-Type', 'application/json');
 		const detail = serverless ? 'app_load_failed' : 'serverless_http_missing';
 		const payload = { error: 'Server misconfiguration', detail };
-		if (requireError) payload.requireError = requireError;
+		if (importError) payload.importError = importError;
 		res.end(JSON.stringify(payload));
 	};
 } else {
-	module.exports = serverless(app);
+	export default serverless(app);
 }
