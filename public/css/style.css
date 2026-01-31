@@ -734,6 +734,27 @@ textarea.form-control {
     .mm-thread { max-height:56vh; }
 }
 
+/* Ensure message modal input area (send) stays visible on small screens */
+.message-modal.modal-helper-box {
+    display: flex;
+    flex-direction: column;
+}
+.message-modal .mm-thread-wrap {
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+.message-modal .mm-thread {
+    overflow: auto;
+    max-height: 60vh;
+    padding-bottom: 12px; /* give room for sticky input */
+}
+.message-modal .mm-input-area {
+    position: sticky;
+    bottom: 0;
+    z-index: 40;
+    background: linear-gradient(180deg, rgba(255,255,255,0.0), rgba(255,255,255,0.98));
+}
+
 /* Mobile-friendly modal adjustments for reviewer/viewer modals */
 @media (max-width: 480px) {
     .modal {
