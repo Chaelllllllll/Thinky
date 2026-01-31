@@ -2,6 +2,7 @@
 // Shows toasts for new messages using window.showChatNotification.
 (async function(){
     if (typeof window.showChatNotification !== 'function') {
+        console.debug('chatNotifier: showChatNotification not available on this page');
         return; // alerts system not available
     }
 
@@ -77,30 +78,65 @@
                 const lp = encodeURIComponent(lastPrivate);
                 const unreadUrl = `/api/messages/unread?lastSeenGeneral=${lg}&lastSeenPrivate=${lp}`;
                 console.debug('chatNotifier: polling unread URL', unreadUrl);
-                const resp = await fetch(unreadUrl, { credentials: 'include' });
+                const resp = await fetch(unreadUrl, { credentials: 'include', cache: 'no-store' });
                 if (!resp.ok) { console.debug('chatNotifier: unread fetch not ok', resp.status, resp.statusText); return; }
                 data = await resp.json();
             }
+
+            console.debug('chatNotifier: poll result', data);
+
+            // Support two possible shapes: { general, private } OR { messages: [...] }
+            if (data && Array.isArray(data.messages)) {
+                const msgs = data.messages || [];
+                for (let i = msgs.length-1; i>=0; i--) {
+                    const m = msgs[i];
+                    if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
+                    console.debug('chatNotifier: poll -> notifying from messages array', { id: m.id, preview: (m.message||'').slice(0,60) });
+                    window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general' }, 6000);
+                }
+                // update last seen timestamps to now after notifying
+                lastGeneral = new Date().toISOString();
+                lastPrivate = new Date().toISOString();
+                return;
+            }
+
             const g = data && data.general ? parseInt(data.general,10) : 0;
             const p = data && data.private ? parseInt(data.private,10) : 0;
             if (g > 0) {
-                // fetch latest general messages and notify
-                const r = await fetch('/api/messages/general?limit=3', { credentials: 'include' });
+                // fetch latest general messages and notify (cache-busting + no-store)
+                const r = await fetch('/api/messages/general?limit=3&_=' + Date.now(), { credentials: 'include', cache: 'no-store' });
                 if (r.ok) {
                     const d = await r.json();
                     const msgs = d && d.messages ? d.messages : [];
-                    for (let i = msgs.length-1; i>=0; i--) {
-                        const m = msgs[i];
-                        if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
-                        console.debug('chatNotifier: polling -> notifying general message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
-                        window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'general' }, 6000);
+                    if (msgs.length === 0) {
+                        console.debug('chatNotifier: unread indicated new general messages but fetch returned none; trying /api/_last_message');
+                        try {
+                            const lastResp = await fetch('/api/_last_message', { credentials: 'include', cache: 'no-store' });
+                            if (lastResp.ok) {
+                                const lastData = await lastResp.json();
+                                const m = lastData && lastData.message ? lastData.message : null;
+                                if (m && !(currentUser && String(m.user_id) === String(currentUser.id))) {
+                                    console.debug('chatNotifier: notifying from debug last_message', { id: m.id, preview: (m.message||'').slice(0,60) });
+                                    window.showChatNotification({ avatar: (m.profile_picture_url || '/images/default-avatar.svg'), username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general' }, 6000);
+                                }
+                            }
+                        } catch (e) { console.debug('chatNotifier: /api/_last_message fetch error', e && e.message); }
+                    } else {
+                        for (let i = msgs.length-1; i>=0; i--) {
+                            const m = msgs[i];
+                            if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
+                            console.debug('chatNotifier: polling -> notifying general message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
+                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'general' }, 6000);
+                        }
                     }
                     lastGeneral = new Date().toISOString();
+                } else {
+                    console.debug('chatNotifier: fetch general messages failed', r.status, r.statusText);
                 }
             }
             if (p > 0) {
                 // For private, we simply fetch private messages
-                const r = await fetch('/api/messages/private?limit=3', { credentials: 'include' });
+                const r = await fetch('/api/messages/private?limit=3&_=' + Date.now(), { credentials: 'include', cache: 'no-store' });
                 if (r.ok) {
                     const d = await r.json();
                     const msgs = d && d.messages ? d.messages : [];

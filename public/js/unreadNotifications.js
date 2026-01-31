@@ -32,13 +32,19 @@
         try {
             const lastSeenGeneral = encodeURIComponent(getLastSeen(LAST_SEEN_GENERAL_KEY) || '1970-01-01T00:00:00Z');
             const lastSeenPrivate = encodeURIComponent(getLastSeen(LAST_SEEN_PRIVATE_KEY) || '1970-01-01T00:00:00Z');
-            const resp = await fetch(`/api/messages/unread?lastSeenGeneral=${lastSeenGeneral}&lastSeenPrivate=${lastSeenPrivate}`, { credentials: 'include' });
-            if (!resp.ok) return;
+            const url = `/api/messages/unread?lastSeenGeneral=${lastSeenGeneral}&lastSeenPrivate=${lastSeenPrivate}`;
+            // Explicitly avoid cached responses
+            const resp = await fetch(url, { credentials: 'include', cache: 'no-store' });
+            if (!resp.ok) {
+                console.debug('unreadNotifications: unread fetch not ok', resp.status, resp.statusText);
+                return null;
+            }
             const data = await resp.json();
+            console.debug('unreadNotifications: pollSharedUnread result', data);
             updateBadges(data);
             return data;
         } catch (e) {
-            // ignore
+            console.debug('unreadNotifications: pollSharedUnread error', e && (e.message || e));
             return null;
         }
     }

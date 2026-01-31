@@ -134,6 +134,9 @@ app.get('/api/_status', (req, res) => {
     });
 });
 
+// Debug: return the last inserted message (requires auth)
+// (debug route moved to after auth middleware to avoid initialization order issues)
+
 // Environment check (safe): do not return secret values, only presence and lengths
 app.get('/api/_env_check', (req, res) => {
     const check = {
@@ -1022,6 +1025,27 @@ async function requireAuthWithBanCheck(req, res, next) {
         return res.status(500).json({ error: 'Server error' });
     }
 }
+
+// Debug: return the last inserted message (requires auth)
+app.get('/api/_last_message', requireAuth, async (req, res) => {
+    try {
+        const { data: messages, error } = await supabaseAdmin
+            .from('messages')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (error) {
+            console.error('Debug _last_message error:', error);
+            return res.status(500).json({ error: 'Failed to fetch last message' });
+        }
+
+        return res.json({ message: (messages && messages[0]) ? messages[0] : null });
+    } catch (err) {
+        console.error('Debug _last_message unexpected error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // Simple UUIDv4 generator for flashcard ids when not provided
 function generateUUID() {
