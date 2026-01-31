@@ -37,6 +37,7 @@
             const client = window.supabase.createClient(url, key);
             const channel = client.channel('public:messages-notifier')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, async (payload) => {
+                    console.debug('chatNotifier: realtime INSERT payload received', payload && payload.new ? { id: payload.new.id, user_id: payload.new.user_id, message: (payload.new.message || '').slice(0,60) } : payload);
                     try {
                         const n = payload && payload.new ? payload.new : null;
                         if (!n) return;
@@ -46,14 +47,17 @@
                         const username = n.username || n.display_name || ('User ' + String(n.user_id));
                         const text = n.message || '';
                         const chatType = n.chat_type || (n.recipient_id ? 'private' : 'general');
+                        console.debug('chatNotifier: emitting toast for realtime message', { username, chatType, textPreview: text.slice(0,60) });
                         window.showChatNotification({ avatar, username, message: text, chatType }, 6000);
                     } catch (e) { /* ignore */ }
                 })
                 .subscribe((status) => {
-                    // no-op
+                    console.debug('chatNotifier: subscription status ->', status);
                 });
+            console.debug('chatNotifier: realtime subscription attempted');
             return true;
         } catch (e) {
+            console.debug('chatNotifier: realtime init failed', e && e.message ? e.message : e);
             return false;
         }
     }
@@ -80,6 +84,7 @@
                     for (let i = msgs.length-1; i>=0; i--) {
                         const m = msgs[i];
                         if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
+                        console.debug('chatNotifier: polling -> notifying general message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
                         window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'general' }, 6000);
                     }
                     lastGeneral = new Date().toISOString();
@@ -94,6 +99,7 @@
                     for (let i = msgs.length-1; i>=0; i--) {
                         const m = msgs[i];
                         if (currentUser && String(m.user_id) === String(currentUser.id)) continue;
+                        console.debug('chatNotifier: polling -> notifying private message', { id: m.id, user_id: m.user_id, preview: (m.message || '').slice(0,60) });
                         window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'private' }, 6000);
                     }
                     lastPrivate = new Date().toISOString();
