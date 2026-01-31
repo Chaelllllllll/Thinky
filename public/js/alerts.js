@@ -18,6 +18,7 @@
         const el = document.createElement('div');
         el.className = `site-alert site-alert-${type}`;
         el.innerHTML = `<div class="site-alert-content">${message}</div>`;
+        console.debug('alerts: creating alert', { type, messagePreview: (typeof message === 'string' ? message.slice(0,80) : null) });
         container.appendChild(el);
 
         // entrance
@@ -56,6 +57,7 @@
             </div>
         `;
 
+        console.debug('alerts: showChatNotification', { username: opts.username, chatType: opts.chatType });
         return showAlert('info', messageHtml, timeout);
     }
 

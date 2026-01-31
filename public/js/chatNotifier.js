@@ -70,8 +70,10 @@
         try {
             const lg = encodeURIComponent(lastGeneral);
             const lp = encodeURIComponent(lastPrivate);
-            const resp = await fetch(`/api/messages/unread?lastSeenGeneral=${lg}&lastSeenPrivate=${lp}`, { credentials: 'include' });
-            if (!resp.ok) return;
+            const unreadUrl = `/api/messages/unread?lastSeenGeneral=${lg}&lastSeenPrivate=${lp}`;
+            console.debug('chatNotifier: polling unread URL', unreadUrl);
+            const resp = await fetch(unreadUrl, { credentials: 'include' });
+            if (!resp.ok) { console.debug('chatNotifier: unread fetch not ok', resp.status, resp.statusText); return; }
             const data = await resp.json();
             const g = data && data.general ? parseInt(data.general,10) : 0;
             const p = data && data.private ? parseInt(data.private,10) : 0;
@@ -105,7 +107,7 @@
                     lastPrivate = new Date().toISOString();
                 }
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) { console.debug('chatNotifier: poll() error', e && (e.message || e)); }
     }
 
     const realtimeOk = await tryRealtime();
