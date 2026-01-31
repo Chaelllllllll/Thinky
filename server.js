@@ -59,6 +59,13 @@ if (process.env.TRUST_PROXY) {
     trustProxySetting = 1;
 }
 app.set('trust proxy', trustProxySetting);
+// Normalize any accidental boolean `true` (too permissive) into a numeric 1
+// which trusts a single proxy. This prevents express-rate-limit from throwing
+// ERR_ERL_PERMISSIVE_TRUST_PROXY while still allowing typical proxy setups.
+if (app.get('trust proxy') === true) {
+    console.warn('Express trust proxy was boolean true; normalizing to 1 to avoid permissive trust errors.');
+    app.set('trust proxy', 1);
+}
 console.info('Express trust proxy:', app.get('trust proxy'));
 const PORT = process.env.PORT || 3000;
 
