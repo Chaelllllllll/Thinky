@@ -274,6 +274,53 @@ function createSessionPool() {
     return sessionPool;
 }
 
+// Safe session-pool query runner with exponential backoff. This avoids
+// immediately failing when PgBouncer in "session" mode denies new clients
+// due to upstream pool_size limits. The helper will retry a few times with
+// backoff and log if ultimately unsuccessful. Calls are fire-and-forget so
+// they don't block request handling.
+function runSessionPoolQueryAsync(sql, params = [], attempt = 0) {
+    const maxAttempts = 6;
+    const baseDelay = 250; // ms
+
+    (async function tryOnce(attemptNum) {
+        try {
+            if (!sessionPool) throw new Error('no-session-pool');
+
+            const max = (sessionPool && sessionPool.options && sessionPool.options.max) ? sessionPool.options.max : 1;
+            const total = typeof sessionPool.totalCount === 'number' ? sessionPool.totalCount : 0;
+            const idle = typeof sessionPool.idleCount === 'number' ? sessionPool.idleCount : 0;
+
+            // If all clients are used and none idle, delay and retry rather than
+            // calling pool.query immediately which would trigger MaxClientsInSessionMode.
+            if (total >= max && idle === 0) {
+                if (attemptNum >= maxAttempts) {
+                    console.warn('Session pool appears saturated; aborting query after retries');
+                    return;
+                }
+                const delay = Math.min(baseDelay * Math.pow(2, attemptNum), 30000);
+                setTimeout(() => tryOnce(attemptNum + 1), delay);
+                return;
+            }
+
+            await sessionPool.query(sql, params);
+            // success
+            return;
+        } catch (err) {
+            // If the error is from MaxClientsInSessionMode, retry with backoff.
+            const isPoolErr = err && (String(err.message).includes('MaxClientsInSessionMode') || String(err.code) === 'XX000');
+            if (isPoolErr && attempt < maxAttempts) {
+                const delay = Math.min(baseDelay * Math.pow(2, attempt), 30000);
+                setTimeout(() => tryOnce(attempt + 1), delay);
+                return;
+            }
+            // Log and give up
+            console.warn('Session pool query failed and will not be retried:', err && err.message ? err.message : err);
+            return;
+        }
+    })(attempt);
+}
+
 // Optional diagnostics endpoint to inspect the session pool state. Enable by
 // setting ENABLE_POOL_DIAGNOSTICS=true in the environment. This helps debug
 // PgBouncer "session" mode client exhaustion by reporting pool counts.
@@ -308,7 +355,7 @@ async function migrateFallbackSessionsToPg(pool) {
             try {
                 const sessJson = JSON.stringify(sess || {});
                 const expireDate = (sess && sess.cookie && sess.cookie.expires) ? new Date(sess.cookie.expires) : new Date(Date.now() + (sessionOptions && sessionOptions.cookie && sessionOptions.cookie.maxAge ? sessionOptions.cookie.maxAge : 24 * 60 * 60 * 1000));
-                await pool.query(
+                runSessionPoolQueryAsync(
                     `INSERT INTO session (sid, sess, expire) VALUES ($1, $2::json, $3::timestamptz)
                      ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire`,
                     [sid, sessJson, expireDate.toISOString()]
@@ -354,10 +401,21 @@ if (process.env.DATABASE_URL) {
             sessionStore = new PgSession({ pool, tableName: 'session' });
             console.info(`Using Postgres session store via DATABASE_URL (pool max=${pool.options.max || 'default'})`);
         } catch (connErr) {
-            console.warn('Postgres session store unreachable at startup, falling back to in-memory store:', connErr && connErr.message ? connErr.message : connErr);
-            sessionStore = null;
-            // Ensure the shared pool is closed to avoid dangling timers
-            try { if (sessionPool) { await sessionPool.end(); sessionPool = null; } } catch (e) { /* ignore */ }
+            const msg = connErr && connErr.message ? connErr.message : String(connErr);
+            // If the failure is due to PgBouncer session-mode exhaustion, don't
+            // immediately destroy the pool; keep it so background retries can
+            // attempt to obtain a client when slots free up. Log at info level
+            // to reduce noise but record the condition.
+            if (String(msg).includes('MaxClientsInSessionMode') || String(connErr && connErr.code) === 'XX000') {
+                console.info('Postgres session store temporarily unreachable (pool saturation). Using fallback store for now; scheduling retry. Details:', msg);
+                sessionStore = null;
+                // Keep sessionPool intact so retry logic can reuse it.
+            } else {
+                console.warn('Postgres session store unreachable at startup, falling back to in-memory store:', msg);
+                sessionStore = null;
+                // Ensure the shared pool is closed to avoid dangling timers
+                try { if (sessionPool) { await sessionPool.end(); sessionPool = null; } } catch (e) { /* ignore */ }
+            }
         }
     } catch (e) {
         console.warn('Failed to initialize Postgres session store, falling back to MemoryStore:', e && e.message ? e.message : e);
@@ -1381,8 +1439,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                     const currentSid = req.sessionID || null;
                     if (pool && currentSid) {
                         const delSql = `DELETE FROM session WHERE (sess::json->>'userId') = $1 AND sid <> $2`;
-                        const delRes = await pool.query(delSql, [String(user.id), String(currentSid)]);
-                        console.info('Single-session cleanup:', { userId: user.id, removedRows: delRes && delRes.rowCount });
+                        // Use non-blocking, backoff-enabled pool runner to avoid immediate
+                        // failures when the pool is saturated.
+                        runSessionPoolQueryAsync(delSql, [String(user.id), String(currentSid)]);
+                        console.info('Scheduled single-session cleanup for user', user.id);
                     }
                 } catch (e) {
                     console.warn('Failed to run single-session cleanup:', e && e.message ? e.message : e);
