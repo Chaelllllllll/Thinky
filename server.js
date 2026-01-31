@@ -35,6 +35,11 @@ const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app = express();
+// Trust proxy headers when running behind a proxy (e.g., Vercel, Cloudflare).
+// This prevents express-rate-limit from throwing when `X-Forwarded-For` is present.
+// Enable via `NODE_ENV=production` or set `TRUST_PROXY=true` in the environment.
+app.set('trust proxy', (process.env.TRUST_PROXY === 'true') || process.env.NODE_ENV === 'production');
+console.info('Express trust proxy:', app.get('trust proxy'));
 const PORT = process.env.PORT || 3000;
 
 // Initialize Supabase client
