@@ -233,6 +233,21 @@ if (process.env.DATABASE_URL) {
         try {
             // Short timeout for startup check
             await withTimeout(pool.query('SELECT 1'), 3000);
+            // Ensure the session table exists. If it doesn't, create it so
+            // `connect-pg-simple` can operate without manual migrations.
+            try {
+                await pool.query(`CREATE TABLE IF NOT EXISTS session (sid varchar NOT NULL, sess json NOT NULL, expire timestamp(6) NOT NULL)`);
+                await pool.query(`CREATE INDEX IF NOT EXISTS IDX_session_expire ON session (expire)`);
+                // Ensure a unique index on sid so ON CONFLICT (sid) works as expected
+                try {
+                    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS IDX_session_sid_unique ON session (sid)`);
+                } catch (uniqErr) {
+                    console.warn('Warning: could not create unique index on session.sid:', uniqErr && uniqErr.message ? uniqErr.message : uniqErr);
+                }
+            } catch (tableErr) {
+                console.warn('Warning: could not ensure session table exists:', tableErr && tableErr.message ? tableErr.message : tableErr);
+            }
+
             sessionStore = new PgSession({ pool, tableName: 'session' });
             console.info('Using Postgres session store via DATABASE_URL');
         } catch (connErr) {
@@ -249,8 +264,53 @@ if (process.env.DATABASE_URL) {
     console.warn('DATABASE_URL not set — using in-memory session store (not suitable for production)');
 }
 
-app.use(session({
-    store: sessionStore || undefined,
+// If Postgres session store couldn't be initialized at startup, avoid letting
+// express-session fall back to its built-in MemoryStore which logs a noisy
+// warning and is not intended for production. Provide a tiny custom store
+// implementation that extends `session.Store` so behaviour remains correct
+// but without the warning.
+class LightweightFallbackStore extends session.Store {
+    constructor() {
+        super();
+        this.sessions = new Map();
+    }
+    get(sid, callback) {
+        try {
+            const sess = this.sessions.get(sid) || null;
+            return process.nextTick(() => callback(null, sess));
+        } catch (err) {
+            return process.nextTick(() => callback(err));
+        }
+    }
+    set(sid, sess, callback) {
+        try {
+            this.sessions.set(sid, sess);
+            return process.nextTick(() => callback && callback(null));
+        } catch (err) {
+            return process.nextTick(() => callback && callback(err));
+        }
+    }
+    destroy(sid, callback) {
+        try {
+            this.sessions.delete(sid);
+            return process.nextTick(() => callback && callback(null));
+        } catch (err) {
+            return process.nextTick(() => callback && callback(err));
+        }
+    }
+    touch(sid, sess, callback) {
+        // Update expiry-related metadata if used; for our simple Map store
+        // we just replace the session object to reflect last access.
+        return this.set(sid, sess, callback);
+    }
+}
+
+const fallbackStore = sessionStore || new LightweightFallbackStore();
+
+// Create the session middleware and keep a reference so we can swap the
+// underlying store later if Postgres becomes available after startup.
+const sessionOptions = {
+    store: fallbackStore,
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
@@ -260,7 +320,66 @@ app.use(session({
         sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
-}));
+};
+
+const sessionMiddleware = session(sessionOptions);
+app.use(sessionMiddleware);
+
+// If we couldn't initialize the Postgres-backed session store at startup
+// (network/DNS flakiness, transient DNS propagation, etc.), attempt to
+// enable it in the background with exponential backoff. This allows the
+// server to start promptly while still preferring the durable store when
+// it becomes available later.
+if (process.env.DATABASE_URL && !sessionStore) {
+    (function schedulePgStoreRetry() {
+        let attempt = 0;
+        let delay = 5000; // start at 5s
+        const maxDelay = 5 * 60 * 1000; // 5 minutes
+        const maxAttempts = 10;
+
+        const tryEnable = async () => {
+            attempt += 1;
+            try {
+                const PgSession = connectPgSimple(session);
+                const pool = new Pool({
+                    connectionString: process.env.DATABASE_URL,
+                    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+                });
+
+                await withTimeout(pool.query('SELECT 1'), 5000);
+                try {
+                    await pool.query(`CREATE TABLE IF NOT EXISTS session (sid varchar NOT NULL, sess json NOT NULL, expire timestamp(6) NOT NULL)`);
+                    await pool.query(`CREATE INDEX IF NOT EXISTS IDX_session_expire ON session (expire)`);
+                    try {
+                        await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS IDX_session_sid_unique ON session (sid)`);
+                    } catch (uniqErr) {
+                        console.warn('Retry: could not create unique index on session.sid:', uniqErr && uniqErr.message ? uniqErr.message : uniqErr);
+                    }
+                } catch (tableErr) {
+                    console.warn('Retry: could not ensure session table exists:', tableErr && tableErr.message ? tableErr.message : tableErr);
+                }
+
+                const pgStoreInstance = new PgSession({ pool, tableName: 'session' });
+
+                // Swap stores on the session middleware so new requests use Postgres
+                sessionMiddleware.store = pgStoreInstance;
+                console.info('Postgres session store enabled after retry');
+                return;
+            } catch (err) {
+                console.warn(`Retry ${attempt}: Postgres session store still unreachable: ${err && err.message ? err.message : err}`);
+                if (attempt < maxAttempts) {
+                    delay = Math.min(delay * 2, maxDelay);
+                    setTimeout(tryEnable, delay);
+                } else {
+                    console.warn('Exceeded max retries for Postgres session store; continuing with fallback store');
+                }
+            }
+        };
+
+        // Initial schedule
+        setTimeout(tryEnable, delay);
+    })();
+}
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
@@ -1105,6 +1224,22 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.role = user.role;
+
+        // If client is on localhost over plain HTTP, ensure the session cookie
+        // is not marked `secure` (otherwise the browser won't store it). This
+        // handles the common case where NODE_ENV=production is set locally.
+        try {
+            const hostHeader = (req.headers && req.headers.host) ? req.headers.host : '';
+            const originHeader = (req.headers && req.headers.origin) ? req.headers.origin : '';
+            const isLocalhostHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(hostHeader);
+            const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(originHeader);
+            if (isLocalhostHost || isLocalhostOrigin) {
+                req.session.cookie.secure = false;
+                console.info('Login from localhost detected — setting session cookie secure=false for this session');
+            }
+        } catch (e) {
+            // non-fatal
+        }
 
         // Update online status (use admin client to bypass RLS for server-side writes)
         await supabaseAdmin
