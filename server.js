@@ -12,7 +12,17 @@ const cookieParser = require('cookie-parser');
 const cors = require('cors');
 const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
-const bcrypt = require('bcrypt');
+const bcryptLib = require('bcryptjs');
+
+// Promise-based wrapper around bcryptjs to keep async/await usage
+const bcrypt = {
+    hash: (password, rounds) => new Promise((resolve, reject) => {
+        bcryptLib.hash(password, rounds, (err, hash) => err ? reject(err) : resolve(hash));
+    }),
+    compare: (password, hash) => new Promise((resolve, reject) => {
+        bcryptLib.compare(password, hash, (err, res) => err ? reject(err) : resolve(res));
+    })
+};
 const multer = require('multer');
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
