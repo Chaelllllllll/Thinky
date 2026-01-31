@@ -74,6 +74,28 @@ app.get('/api/_status', (req, res) => {
         productionUrlPresent: !!process.env.PRODUCTION_URL
     });
 });
+
+// Debug Supabase reachability: runs a quick query with a 5s timeout
+app.get('/api/_debug_supabase', async (req, res) => {
+    try {
+        const fetchPromise = (async () => {
+            const { data, error } = await supabaseAdmin.from('users').select('id').limit(1);
+            return { data, error };
+        })();
+
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('supabase_timeout')), 5000));
+
+        const result = await Promise.race([fetchPromise, timeout]);
+
+        if (result.error) {
+            return res.status(500).json({ ok: false, error: String(result.error) });
+        }
+
+        return res.json({ ok: true, data: result.data });
+    } catch (err) {
+        return res.status(504).json({ ok: false, error: err && err.message ? err.message : String(err) });
+    }
+});
 // =====================================================
 // MIDDLEWARE CONFIGURATION
 // =====================================================
