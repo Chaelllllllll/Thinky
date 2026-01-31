@@ -56,8 +56,22 @@
     window.sharedSetLastSeen = setLastSeen;
     window.sharedGetLastSeen = getLastSeen;
 
-    // Auto-start on pages that include this script
-    document.addEventListener('DOMContentLoaded', () => {
-        startSharedUnreadPolling();
+    // Auto-start on pages that include this script, but only after
+    // verifying the client is authenticated. This prevents silent 401s
+    // from hiding badge updates when the session cookie isn't sent.
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const resp = await fetch('/api/auth/me', { credentials: 'include' });
+            if (resp.ok) {
+                startSharedUnreadPolling();
+            } else {
+                // Not authenticated: don't start polling (avoids noise).
+                // Log to console for easier debugging in production.
+                console.info('Unread polling not started: client not authenticated');
+            }
+        } catch (e) {
+            // Network errors: avoid starting polling to prevent repeated failures
+            console.info('Unread polling not started due to network error');
+        }
     });
 })();
