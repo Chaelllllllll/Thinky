@@ -218,14 +218,29 @@ app.use(cookieParser());
 // Session configuration
 // Session configuration
 let sessionStore = null;
+// Shared Pool instance for session store to avoid creating multiple Pools
+// which can exhaust PgBouncer "session" mode client slots.
+let sessionPool = null;
+
+function createSessionPool() {
+    if (sessionPool) return sessionPool;
+    const sessionPoolMax = parseInt(process.env.SESSION_DB_POOL_MAX || '2', 10);
+    sessionPool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        // allow self-signed / default in dev; in production ensure proper SSL
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        max: sessionPoolMax,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+    });
+
+    return sessionPool;
+}
+
 if (process.env.DATABASE_URL) {
     try {
         const PgSession = connectPgSimple(session);
-        const pool = new Pool({
-            connectionString: process.env.DATABASE_URL,
-            // allow self-signed / default in dev; in production ensure proper SSL
-            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-        });
+        const pool = createSessionPool();
 
         // Test DB connectivity at startup. If the DB is unreachable (network timeout,
         // credentials wrong, etc.), avoid using the Postgres-backed session store so
@@ -249,12 +264,12 @@ if (process.env.DATABASE_URL) {
             }
 
             sessionStore = new PgSession({ pool, tableName: 'session' });
-            console.info('Using Postgres session store via DATABASE_URL');
+            console.info(`Using Postgres session store via DATABASE_URL (pool max=${pool.options.max || 'default'})`);
         } catch (connErr) {
             console.warn('Postgres session store unreachable at startup, falling back to in-memory store:', connErr && connErr.message ? connErr.message : connErr);
             sessionStore = null;
-            // Ensure the pool is closed to avoid dangling timers
-            try { await pool.end(); } catch (e) { /* ignore */ }
+            // Ensure the shared pool is closed to avoid dangling timers
+            try { if (sessionPool) { await sessionPool.end(); sessionPool = null; } } catch (e) { /* ignore */ }
         }
     } catch (e) {
         console.warn('Failed to initialize Postgres session store, falling back to MemoryStore:', e && e.message ? e.message : e);
@@ -341,10 +356,7 @@ if (process.env.DATABASE_URL && !sessionStore) {
             attempt += 1;
             try {
                 const PgSession = connectPgSimple(session);
-                const pool = new Pool({
-                    connectionString: process.env.DATABASE_URL,
-                    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-                });
+                const pool = createSessionPool();
 
                 await withTimeout(pool.query('SELECT 1'), 5000);
                 try {
@@ -363,7 +375,7 @@ if (process.env.DATABASE_URL && !sessionStore) {
 
                 // Swap stores on the session middleware so new requests use Postgres
                 sessionMiddleware.store = pgStoreInstance;
-                console.info('Postgres session store enabled after retry');
+                console.info(`Postgres session store enabled after retry (pool max=${pool.options.max || 'default'})`);
                 return;
             } catch (err) {
                 console.warn(`Retry ${attempt}: Postgres session store still unreachable: ${err && err.message ? err.message : err}`);
