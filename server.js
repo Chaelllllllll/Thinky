@@ -487,19 +487,20 @@ const sessionOptions = {
     }
 };
 
-// If running in production with a configured production origin, set the
-// cookie domain and trust proxy accordingly so cookies are accepted by
-// browsers for cross-site requests.
+// If running in production, allow an explicit COOKIE_DOMAIN to be set to
+// control the cookie domain. We avoid deriving the domain from
+// PRODUCTION_URL because the frontend host and API host can differ; using
+// the backend's response host (no domain set) is safer by default.
 try {
-    if (productionOrigin && process.env.NODE_ENV === 'production') {
-        const prodUrl = new URL(productionOrigin);
-        if (prodUrl && prodUrl.hostname) {
-            sessionOptions.cookie.domain = prodUrl.hostname;
+    if (process.env.NODE_ENV === 'production') {
+        if (process.env.COOKIE_DOMAIN) {
+            const cookieDomain = process.env.COOKIE_DOMAIN.replace(/\/$/, '');
+            sessionOptions.cookie.domain = cookieDomain;
         }
         try { app.set('trust proxy', 1); } catch (e) { /* ignore */ }
     }
 } catch (e) {
-    console.warn('Failed to set session cookie domain from PRODUCTION_URL:', e && e.message ? e.message : e);
+    console.warn('Failed to set session cookie domain from COOKIE_DOMAIN:', e && e.message ? e.message : e);
 }
 
 const sessionMiddleware = session(sessionOptions);
