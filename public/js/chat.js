@@ -46,6 +46,11 @@ document.addEventListener('DOMContentLoaded', () => {
         loadMessages(true);
     }, 3000);
 
+    // Try to initialize realtime subscriptions (Supabase) for instant updates
+    try {
+        initRealtime();
+    } catch (e) { /* ignore */ }
+
     // Poll for online users every 10 seconds
     setInterval(() => {
         loadOnlineUsers();
@@ -71,6 +76,63 @@ document.addEventListener('DOMContentLoaded', () => {
     // Ensure input/send state reflects current chat selection
     updateChatInputState();
 });
+
+// Realtime (Supabase) integration -------------------------------------------------
+let _realtimeInitialized = false;
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src;
+        s.async = true;
+        s.onload = () => resolve();
+        s.onerror = () => reject(new Error('Failed to load ' + src));
+        document.head.appendChild(s);
+    });
+}
+
+async function initRealtime() {
+    if (_realtimeInitialized) return;
+
+    // Look for creds injected into the page by the server or window.ENV
+    const env = (window && window.ENV) ? window.ENV : window;
+    const url = env.SUPABASE_URL || env.SUPABASE_URL || (window.SUPABASE_URL || null);
+    const key = env.SUPABASE_ANON_KEY || env.SUPABASE_KEY || (window.SUPABASE_KEY || null);
+    if (!url || !key) {
+        // no client creds available — skip realtime
+        return;
+    }
+
+    // Load Supabase JS (UMD) if not already present
+    if (!window.supabase || !window.supabase.createClient) {
+        try {
+            await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js');
+        } catch (e) {
+            console.warn('Could not load Supabase client for realtime:', e && e.message ? e.message : e);
+            return;
+        }
+    }
+
+    try {
+        window._supabaseRealtime = window.supabase.createClient(url, key);
+
+        // subscribe to inserts on `messages` table
+        const chan = window._supabaseRealtime.channel('public:messages')
+            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+                // When a new message is inserted, refresh messages (silent) so
+                // the UI receives the fully joined payload from the API and
+                // our notification logic runs as normal.
+                try { loadMessages(true); } catch (e) { /* ignore */ }
+            })
+            .subscribe((status) => {
+                if (status === 'SUBSCRIBED') {
+                    _realtimeInitialized = true;
+                    console.info('Realtime messages subscription active');
+                }
+            });
+    } catch (e) {
+        console.warn('Realtime init failed:', e && e.message ? e.message : e);
+    }
+}
 
 // ------- Unread badge helpers -------
 const LAST_SEEN_GENERAL_KEY = 'chat_last_seen_general';
