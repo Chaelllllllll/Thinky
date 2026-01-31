@@ -41,10 +41,34 @@ document.addEventListener('DOMContentLoaded', () => {
         // ignore
     }
 
-    // Poll for new messages every 3 seconds
-    setInterval(() => {
-        loadMessages(true);
-    }, 3000);
+    // Poll for new messages with adaptive interval to reduce server load
+    (function startAdaptiveMessagesPolling(){
+        let baseInterval = 5000; // 5s when visible
+        let hiddenInterval = 20000; // 20s when hidden
+        let errorBackoff = 0;
+        let timer = null;
+
+        const schedule = (delay) => {
+            if (timer) clearTimeout(timer);
+            timer = setTimeout(async () => {
+                try {
+                    await loadMessages(true);
+                    errorBackoff = 0;
+                    schedule(document.hidden ? hiddenInterval : baseInterval);
+                } catch (e) {
+                    errorBackoff = Math.min(6, errorBackoff + 1);
+                    const backoff = Math.min(60000, (document.hidden ? hiddenInterval : baseInterval) * Math.pow(2, errorBackoff));
+                    console.debug('chat.js: loadMessages error, backing off next poll to', backoff);
+                    schedule(backoff);
+                }
+            }, delay);
+        };
+
+        schedule(0);
+        document.addEventListener('visibilitychange', () => {
+            schedule(document.hidden ? hiddenInterval : baseInterval);
+        });
+    })();
 
     // Try to initialize realtime subscriptions (Supabase) for instant updates
     try {

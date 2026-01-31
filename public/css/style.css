@@ -342,11 +342,16 @@ textarea.form-control {
     position: fixed;
     right: 16px;
     bottom: 16px;
-    z-index: 9999;
+    z-index: 99999;
     display: flex;
     flex-direction: column;
     gap: 12px;
     pointer-events: none;
+}
+.site-alert-container.top-right {
+    right: 16px;
+    top: 16px;
+    bottom: auto;
 }
 .site-alert {
     pointer-events: auto;

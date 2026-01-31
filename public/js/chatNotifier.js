@@ -68,13 +68,19 @@
 
     async function poll() {
         try {
-            const lg = encodeURIComponent(lastGeneral);
-            const lp = encodeURIComponent(lastPrivate);
-            const unreadUrl = `/api/messages/unread?lastSeenGeneral=${lg}&lastSeenPrivate=${lp}`;
-            console.debug('chatNotifier: polling unread URL', unreadUrl);
-            const resp = await fetch(unreadUrl, { credentials: 'include' });
-            if (!resp.ok) { console.debug('chatNotifier: unread fetch not ok', resp.status, resp.statusText); return; }
-            const data = await resp.json();
+            // Prefer using shared unread poll so we don't duplicate requests
+            let data = null;
+            if (typeof window.pollSharedUnread === 'function') {
+                data = await window.pollSharedUnread();
+            } else {
+                const lg = encodeURIComponent(lastGeneral);
+                const lp = encodeURIComponent(lastPrivate);
+                const unreadUrl = `/api/messages/unread?lastSeenGeneral=${lg}&lastSeenPrivate=${lp}`;
+                console.debug('chatNotifier: polling unread URL', unreadUrl);
+                const resp = await fetch(unreadUrl, { credentials: 'include' });
+                if (!resp.ok) { console.debug('chatNotifier: unread fetch not ok', resp.status, resp.statusText); return; }
+                data = await resp.json();
+            }
             const g = data && data.general ? parseInt(data.general,10) : 0;
             const p = data && data.private ? parseInt(data.private,10) : 0;
             if (g > 0) {
@@ -112,8 +118,39 @@
 
     const realtimeOk = await tryRealtime();
     if (!realtimeOk) {
-        // start polling every 5s
-        poll();
-        setInterval(poll, 5000);
+        // start polling with adaptive interval to reduce server load
+        let baseInterval = 10000; // 10s when visible
+        let hiddenInterval = 30000; // 30s when hidden
+        let errorBackoff = 0; // number of consecutive errors
+        let timerId = null;
+
+        const scheduleNext = (delay) => {
+            if (timerId) clearTimeout(timerId);
+            timerId = setTimeout(async () => {
+                try {
+                    await poll();
+                    errorBackoff = 0;
+                    // schedule next based on visibility
+                    const next = document.hidden ? hiddenInterval : baseInterval;
+                    scheduleNext(next);
+                } catch (e) {
+                    // poll() already logs errors; increase backoff
+                    errorBackoff = Math.min(6, errorBackoff + 1);
+                    const backoffMs = Math.min(60000, (document.hidden ? hiddenInterval : baseInterval) * Math.pow(2, errorBackoff));
+                    console.debug('chatNotifier: scheduling backoff next poll', backoffMs);
+                    scheduleNext(backoffMs);
+                }
+            }, delay);
+        };
+
+        // Start initial poll immediately
+        scheduleNext(0);
+
+        // Adjust timer when visibility changes
+        document.addEventListener('visibilitychange', () => {
+            const next = document.hidden ? hiddenInterval : baseInterval;
+            console.debug('chatNotifier: visibilitychange, next poll in', next);
+            scheduleNext(next);
+        });
     }
 })();

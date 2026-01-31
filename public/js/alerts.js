@@ -7,7 +7,9 @@
         if (!c) {
             c = document.createElement('div');
             c.id = containerId;
-            c.className = 'site-alert-container';
+            // Force top-right placement and high z-index so toasts aren't hidden
+            c.className = 'site-alert-container top-right';
+            c.style.zIndex = '200000';
             document.body.appendChild(c);
         }
         return c;
@@ -68,4 +70,14 @@
     }
 
     window.showChatNotification = showChatNotification;
+
+    // Test helper to manually show a notification from console: window.testNotify()
+    window.testNotify = function() {
+        try {
+            window.showChatNotification({ avatar: '/images/default-avatar.svg', username: 'Test User', message: 'This is a visual test notification', chatType: 'general' }, 6000);
+            console.debug('alerts: testNotify fired');
+        } catch (e) {
+            console.debug('alerts: testNotify error', e && e.message ? e.message : e);
+        }
+    };
 })();

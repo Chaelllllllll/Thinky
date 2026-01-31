@@ -36,8 +36,10 @@
             if (!resp.ok) return;
             const data = await resp.json();
             updateBadges(data);
+            return data;
         } catch (e) {
             // ignore
+            return null;
         }
     }
 
