@@ -1501,9 +1501,32 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         // we configured for the session middleware.
         try {
             const baseCookie = (sessionOptions && sessionOptions.cookie) ? sessionOptions.cookie : {};
+            // Derive whether the cookie should be marked `secure` from the
+            // actual incoming request (req.session cookie flag, req.secure,
+            // x-forwarded-proto or origin) so that local HTTP requests don't
+            // accidentally get a `secure` cookie which browsers will ignore.
+            let secureFlag;
+            if (req && req.session && req.session.cookie && typeof req.session.cookie.secure !== 'undefined') {
+                secureFlag = !!req.session.cookie.secure;
+            } else if (req && req.secure) {
+                secureFlag = true;
+            } else {
+                const xfpHeader = (req && req.headers) ? (req.headers['x-forwarded-proto'] || req.headers['X-Forwarded-Proto'] || '') : '';
+                const xfp = String(xfpHeader || '').split(',')[0].trim().toLowerCase();
+                secureFlag = xfp === 'https';
+                if (!secureFlag && req && req.headers && req.headers.origin) {
+                    try {
+                        secureFlag = String(req.headers.origin).toLowerCase().startsWith('https://');
+                    } catch (err) {
+                        // ignore
+                    }
+                }
+            }
+            if (typeof secureFlag === 'undefined') secureFlag = !!baseCookie.secure;
+
             const cookieOpts = {
                 httpOnly: !!baseCookie.httpOnly,
-                secure: (req.session && req.session.cookie && typeof req.session.cookie.secure !== 'undefined') ? !!req.session.cookie.secure : !!baseCookie.secure,
+                secure: !!secureFlag,
                 sameSite: baseCookie.sameSite || undefined,
                 maxAge: baseCookie.maxAge || undefined
             };
