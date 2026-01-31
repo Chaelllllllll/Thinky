@@ -26,9 +26,10 @@ try {
 	console.error('Failed to import server app:', importError);
 }
 
+let handler = null;
 if (!serverless || !app) {
-	// Export a minimal handler that returns 500 explaining the issue
-	export default async (req, res) => {
+	// Minimal handler that returns 500 explaining the issue
+	handler = async (req, res) => {
 		res.statusCode = 500;
 		res.setHeader('Content-Type', 'application/json');
 		const detail = serverless ? 'app_load_failed' : 'serverless_http_missing';
@@ -37,5 +38,7 @@ if (!serverless || !app) {
 		res.end(JSON.stringify(payload));
 	};
 } else {
-	export default serverless(app);
+	handler = serverless(app);
 }
+
+export default handler;
