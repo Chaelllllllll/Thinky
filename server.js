@@ -260,7 +260,7 @@ let sessionPool = null;
 
 function createSessionPool() {
     if (sessionPool) return sessionPool;
-    const sessionPoolMax = parseInt(process.env.SESSION_DB_POOL_MAX || '2', 10);
+    const sessionPoolMax = parseInt(process.env.SESSION_DB_POOL_MAX || '1', 10);
     sessionPool = new Pool({
         connectionString: process.env.DATABASE_URL,
         // allow self-signed / default in dev; in production ensure proper SSL
@@ -271,6 +271,26 @@ function createSessionPool() {
     });
 
     return sessionPool;
+}
+
+// Optional diagnostics endpoint to inspect the session pool state. Enable by
+// setting ENABLE_POOL_DIAGNOSTICS=true in the environment. This helps debug
+// PgBouncer "session" mode client exhaustion by reporting pool counts.
+if (process.env.ENABLE_POOL_DIAGNOSTICS === 'true') {
+    app.get('/api/_session_pool', (req, res) => {
+        try {
+            if (!sessionPool) return res.json({ ok: false, message: 'no sessionPool' });
+            const info = {
+                max: sessionPool.options && sessionPool.options.max,
+                totalCount: sessionPool.totalCount || 0,
+                idleCount: sessionPool.idleCount || 0,
+                waitingCount: sessionPool.waitingCount || 0
+            };
+            res.json({ ok: true, pool: info });
+        } catch (e) {
+            res.status(500).json({ ok: false, error: String(e) });
+        }
+    });
 }
 
 // Migrate in-memory fallback sessions to Postgres session table to avoid
