@@ -476,27 +476,26 @@ const sessionOptions = {
     resave: false,
     saveUninitialized: false,
     cookie: {
-        // If a production origin is configured, prefer cross-site-safe cookie
-        // attributes so browsers will send the cookie when the frontend is
-        // hosted on a different origin (typical for Vercel). Otherwise fall
-        // back to behavior tied to NODE_ENV.
-        secure: productionOrigin ? true : (process.env.NODE_ENV === 'production'),
+        // Only enable cross-site cookie attributes when running in production
+        // and a production origin is explicitly configured. This avoids
+        // setting a cookie domain that prevents cookies from being stored
+        // when running locally for development.
+        secure: (process.env.NODE_ENV === 'production' && productionOrigin) ? true : false,
         httpOnly: true,
-        sameSite: productionOrigin ? 'none' : 'lax',
+        sameSite: (process.env.NODE_ENV === 'production' && productionOrigin) ? 'none' : 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
 };
 
-// If a production origin is configured, set the cookie domain to that host
-// so the browser will send the cookie to the API when frontend is on that domain.
+// If running in production with a configured production origin, set the
+// cookie domain and trust proxy accordingly so cookies are accepted by
+// browsers for cross-site requests.
 try {
-    if (productionOrigin) {
+    if (productionOrigin && process.env.NODE_ENV === 'production') {
         const prodUrl = new URL(productionOrigin);
         if (prodUrl && prodUrl.hostname) {
             sessionOptions.cookie.domain = prodUrl.hostname;
         }
-        // Ensure express trusts the proxy so req.secure reflects the HTTPS
-        // nature of the original request (useful if behind reverse proxies).
         try { app.set('trust proxy', 1); } catch (e) { /* ignore */ }
     }
 } catch (e) {
@@ -1426,6 +1425,24 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         req.session.username = user.username;
         req.session.role = user.role;
 
+        // Ensure the session is saved to the store before doing follow-up work.
+        try {
+            await new Promise((resolve) => {
+                try {
+                    req.session.save((err) => {
+                        if (err) console.warn('Session save error during login:', err && err.message ? err.message : err);
+                        else console.info('Session saved during login, sid=', req.sessionID);
+                        resolve();
+                    });
+                } catch (e) {
+                    console.warn('Unexpected error while saving session:', e && e.message ? e.message : e);
+                    resolve();
+                }
+            });
+        } catch (e) {
+            console.warn('Session save promise error:', e && e.message ? e.message : e);
+        }
+
         // Optionally enforce a single active session per user. When enabled
         // via env var `SINGLE_SESSION_PER_USER=true` we'll delete other
         // rows in the `session` table that reference this user. This helps
@@ -1439,13 +1456,12 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                     const currentSid = req.sessionID || null;
                     if (pool && currentSid) {
                         const delSql = `DELETE FROM session WHERE (sess::json->>'userId') = $1 AND sid <> $2`;
-                        // Use non-blocking, backoff-enabled pool runner to avoid immediate
-                        // failures when the pool is saturated.
+                        // Use non-blocking, backoff-enabled pool runner to avoid pool saturation errors.
                         runSessionPoolQueryAsync(delSql, [String(user.id), String(currentSid)]);
                         console.info('Scheduled single-session cleanup for user', user.id);
                     }
                 } catch (e) {
-                    console.warn('Failed to run single-session cleanup:', e && e.message ? e.message : e);
+                    console.warn('Failed to schedule single-session cleanup:', e && e.message ? e.message : e);
                 }
             }
         } catch (e) {
