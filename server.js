@@ -418,16 +418,32 @@ const sessionOptions = {
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: process.env.NODE_ENV === 'production',
+        // If a production origin is configured, prefer cross-site-safe cookie
+        // attributes so browsers will send the cookie when the frontend is
+        // hosted on a different origin (typical for Vercel). Otherwise fall
+        // back to behavior tied to NODE_ENV.
+        secure: productionOrigin ? true : (process.env.NODE_ENV === 'production'),
         httpOnly: true,
-        // In production we often serve the frontend from a different origin
-        // (e.g. Vercel) which performs XHR requests to this API. To allow the
-        // browser to send the session cookie on cross-site requests, use
-        // `SameSite=None` in production and ensure `secure` is enabled.
-        sameSite: (process.env.NODE_ENV === 'production' && productionOrigin) ? 'none' : 'lax',
+        sameSite: productionOrigin ? 'none' : 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
 };
+
+// If a production origin is configured, set the cookie domain to that host
+// so the browser will send the cookie to the API when frontend is on that domain.
+try {
+    if (productionOrigin) {
+        const prodUrl = new URL(productionOrigin);
+        if (prodUrl && prodUrl.hostname) {
+            sessionOptions.cookie.domain = prodUrl.hostname;
+        }
+        // Ensure express trusts the proxy so req.secure reflects the HTTPS
+        // nature of the original request (useful if behind reverse proxies).
+        try { app.set('trust proxy', 1); } catch (e) { /* ignore */ }
+    }
+} catch (e) {
+    console.warn('Failed to set session cookie domain from PRODUCTION_URL:', e && e.message ? e.message : e);
+}
 
 const sessionMiddleware = session(sessionOptions);
 app.use(sessionMiddleware);
@@ -1351,6 +1367,30 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.role = user.role;
+
+        // Optionally enforce a single active session per user. When enabled
+        // via env var `SINGLE_SESSION_PER_USER=true` we'll delete other
+        // rows in the `session` table that reference this user. This helps
+        // avoid multiple session rows for the same user (duplicate `sess`
+        // payloads) which can arise from changing cookie attributes or
+        // migrations between stores.
+        try {
+            if (process.env.SINGLE_SESSION_PER_USER === 'true' && typeof createSessionPool === 'function') {
+                try {
+                    const pool = createSessionPool();
+                    const currentSid = req.sessionID || null;
+                    if (pool && currentSid) {
+                        const delSql = `DELETE FROM session WHERE (sess::json->>'userId') = $1 AND sid <> $2`;
+                        const delRes = await pool.query(delSql, [String(user.id), String(currentSid)]);
+                        console.info('Single-session cleanup:', { userId: user.id, removedRows: delRes && delRes.rowCount });
+                    }
+                } catch (e) {
+                    console.warn('Failed to run single-session cleanup:', e && e.message ? e.message : e);
+                }
+            }
+        } catch (e) {
+            // non-fatal
+        }
 
         // If client is on localhost over plain HTTP, ensure the session cookie
         // is not marked `secure` (otherwise the browser won't store it). This
