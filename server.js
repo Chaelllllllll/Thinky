@@ -187,10 +187,11 @@ app.use(helmet({
     },
 }));
 
-// CORS configuration
+// Normalize production origin (strip trailing slash) and configure CORS
+const productionOrigin = process.env.PRODUCTION_URL ? process.env.PRODUCTION_URL.replace(/\/$/, '') : null;
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production' 
-        ? process.env.PRODUCTION_URL 
+    origin: process.env.NODE_ENV === 'production' && productionOrigin
+        ? productionOrigin
         : 'http://localhost:3000',
     credentials: true
 }));
@@ -419,7 +420,11 @@ const sessionOptions = {
     cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
-        sameSite: 'lax',
+        // In production we often serve the frontend from a different origin
+        // (e.g. Vercel) which performs XHR requests to this API. To allow the
+        // browser to send the session cookie on cross-site requests, use
+        // `SameSite=None` in production and ensure `secure` is enabled.
+        sameSite: (process.env.NODE_ENV === 'production' && productionOrigin) ? 'none' : 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
 };
