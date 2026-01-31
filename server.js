@@ -1476,7 +1476,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             const hostHeader = (req.headers && req.headers.host) ? req.headers.host : '';
             const originHeader = (req.headers && req.headers.origin) ? req.headers.origin : '';
             const isLocalhostHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(hostHeader);
-            const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/.test(originHeader);
+            const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(originHeader);
             if (isLocalhostHost || isLocalhostOrigin) {
                 req.session.cookie.secure = false;
                 console.info('Login from localhost detected — setting session cookie secure=false for this session');
@@ -1493,6 +1493,28 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 username: user.username,
                 last_seen: new Date().toISOString()
             });
+
+        // Ensure the session cookie is sent to the client. Some deployments
+        // (proxies, mismatched cookie attributes, or client behavior) can
+        // prevent the `Set-Cookie` header from being delivered. As a
+        // defensive measure set the cookie explicitly using the same options
+        // we configured for the session middleware.
+        try {
+            const baseCookie = (sessionOptions && sessionOptions.cookie) ? sessionOptions.cookie : {};
+            const cookieOpts = {
+                httpOnly: !!baseCookie.httpOnly,
+                secure: (req.session && req.session.cookie && typeof req.session.cookie.secure !== 'undefined') ? !!req.session.cookie.secure : !!baseCookie.secure,
+                sameSite: baseCookie.sameSite || undefined,
+                maxAge: baseCookie.maxAge || undefined
+            };
+            if (sessionOptions && sessionOptions.cookie && sessionOptions.cookie.domain) {
+                cookieOpts.domain = sessionOptions.cookie.domain;
+            }
+            res.cookie('connect.sid', req.sessionID, cookieOpts);
+            console.info('Explicitly set connect.sid cookie on login response', { cookieOpts });
+        } catch (e) {
+            console.warn('Failed to explicitly set session cookie on login response:', e && e.message ? e.message : e);
+        }
 
         res.json({
             message: 'Login successful',
