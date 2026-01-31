@@ -7,6 +7,8 @@ import 'dotenv/config';
 import express from 'express';
 import session from 'express-session';
 import helmet from 'helmet';
+import connectPgSimple from 'connect-pg-simple';
+import { Pool } from 'pg';
 import rateLimit from 'express-rate-limit';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -182,13 +184,35 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Session configuration
+// Session configuration
+let sessionStore = null;
+if (process.env.DATABASE_URL) {
+    try {
+        const PgSession = connectPgSimple(session);
+        const pool = new Pool({
+            connectionString: process.env.DATABASE_URL,
+            // allow self-signed / default in dev; in production ensure proper SSL
+            ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        });
+        sessionStore = new PgSession({ pool, tableName: 'session' });
+        console.info('Using Postgres session store via DATABASE_URL');
+    } catch (e) {
+        console.warn('Failed to initialize Postgres session store, falling back to MemoryStore:', e && e.message ? e.message : e);
+        sessionStore = null;
+    }
+} else {
+    console.warn('DATABASE_URL not set — using in-memory session store (not suitable for production)');
+}
+
 app.use(session({
+    store: sessionStore || undefined,
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
         secure: process.env.NODE_ENV === 'production',
         httpOnly: true,
+        sameSite: 'lax',
         maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
 }));
