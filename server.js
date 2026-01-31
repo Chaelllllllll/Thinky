@@ -178,19 +178,28 @@ app.get('/api/_debug_supabase', async (req, res) => {
 // =====================================================
 
 // Security middleware
+// In development we allow 'unsafe-eval' because some third-party UMD bundles
+// (e.g., older supabase UMD builds) rely on eval/new Function. Do NOT enable
+// this in production for security reasons.
+const isProd = process.env.NODE_ENV === 'production';
+const scriptSrcArray = ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.quilljs.com"];
+if (!isProd) scriptSrcArray.push("'unsafe-eval'");
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
             connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.quilljs.com"],
+            scriptSrc: scriptSrcArray,
             scriptSrcAttr: ["'unsafe-inline'"],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
-            imgSrc: ["'self'", "data:", "https:"],
+            imgSrc: ["'self'", "data:", "https:"] ,
         },
     },
 }));
+
+if (!isProd) console.info('Helmet CSP: development mode - allowing unsafe-eval for third-party UMDs');
 
 // Normalize production origin (strip trailing slash) and configure CORS
 const productionOrigin = process.env.PRODUCTION_URL ? process.env.PRODUCTION_URL.replace(/\/$/, '') : null;
