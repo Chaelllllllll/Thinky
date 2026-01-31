@@ -194,8 +194,21 @@ if (process.env.DATABASE_URL) {
             // allow self-signed / default in dev; in production ensure proper SSL
             ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
         });
-        sessionStore = new PgSession({ pool, tableName: 'session' });
-        console.info('Using Postgres session store via DATABASE_URL');
+
+        // Test DB connectivity at startup. If the DB is unreachable (network timeout,
+        // credentials wrong, etc.), avoid using the Postgres-backed session store so
+        // runtime requests don't fail with PG connection timeouts.
+        try {
+            // Short timeout for startup check
+            await withTimeout(pool.query('SELECT 1'), 3000);
+            sessionStore = new PgSession({ pool, tableName: 'session' });
+            console.info('Using Postgres session store via DATABASE_URL');
+        } catch (connErr) {
+            console.warn('Postgres session store unreachable at startup, falling back to in-memory store:', connErr && connErr.message ? connErr.message : connErr);
+            sessionStore = null;
+            // Ensure the pool is closed to avoid dangling timers
+            try { await pool.end(); } catch (e) { /* ignore */ }
+        }
     } catch (e) {
         console.warn('Failed to initialize Postgres session store, falling back to MemoryStore:', e && e.message ? e.message : e);
         sessionStore = null;
@@ -2484,6 +2497,11 @@ app.use((req, res) => {
 // Error handler
 app.use((err, req, res, next) => {
     console.error('Server error:', err);
+    // If headers have already been sent (response partially handled), delegate to
+    // the default Express error handler to avoid "Cannot set headers after they are sent".
+    if (res.headersSent) {
+        return next(err);
+    }
     res.status(500).json({ error: 'Internal server error' });
 });
 
