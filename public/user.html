@@ -159,32 +159,7 @@
         </div>
     </div>
 
-    <!-- Message modal for private chat (Messenger-like UI) -->
-    <div id="messageModal" class="modal">
-        <div class="modal-content message-modal modal-helper-box" style="max-width:720px; width:95%;">
-            <div class="mm-header">
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <button id="mmBack" class="btn btn-light" onclick="closeMessageModal()" aria-label="Back" style="border-radius:999px;padding:6px 10px;">&lt;</button>
-                </div>
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;">
-                    <div id="messageRecipientName" class="mm-name">User</div>
-                    <div id="mmSubtitle" class="mm-sub">Private message</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <img id="mmAvatar" src="/images/default-avatar.svg" alt="avatar" style="width:40px;height:40px;border-radius:999px;object-fit:cover;border:2px solid rgba(255,158,180,0.15);"/>
-                </div>
-            </div>
-            <div class="mm-thread-wrap">
-                <div id="messageThread" class="mm-thread" aria-live="polite">
-                    <div class="mm-empty">Loading messages…</div>
-                </div>
-            </div>
-            <div class="mm-input-area">
-                <textarea id="messageText" class="mm-input" placeholder="Write a response..." rows="2" maxlength="1000"></textarea>
-                <button id="sendMessageBtn" class="mm-send" aria-label="Send message"><i class="bi bi-send-fill" style="font-size:18px;color:#fff"></i></button>
-            </div>
-        </div>
-    </div>
+
 
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>

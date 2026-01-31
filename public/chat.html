@@ -29,6 +29,7 @@
             margin-bottom: 32px;
             border-radius: var(--radius-lg);
             box-shadow: var(--shadow-md);
+            width: 100%;
         }
 
         .chat-tabs {
@@ -95,12 +96,63 @@
             display: grid;
             grid-template-columns: 1fr;
             gap: 24px;
+            justify-items: center;
         }
 
-        @media (min-width: 1200px) {
-            .chat-wrapper {
-                grid-template-columns: 3fr 1fr;
-            }
+          /* Make the chat card the same width as the page header and center it. */
+        .chat-container { max-width: 1100px; width: 100%; margin: 0 auto; overflow: visible; }
+
+          /* Ensure the anonymous grid child fills the grid column so
+              the chat container's 100% width can take effect. */
+          .chat-wrapper > div { width: 100%; }
+
+        /* Message interactions: hide time by default and show when selected */
+        .chat-message { position: relative; padding-right: 48px; }
+        .msg-time-below { display: none; color: var(--dark-gray); font-size: 0.85rem; margin-top: 8px; }
+        .chat-message.selected .msg-time-below { display: block; }
+
+        /* Three-dots actions displayed inline to the right of the message bubble */
+        .msg-row { display: flex; align-items: center; gap: 8px; }
+        .msg-actions-inline { display: none; position: relative; }
+        .chat-message.selected .msg-actions-inline { display: flex; align-items: center; }
+        /* Position three-dots to the left of right-aligned (self) messages */
+        .chat-message.msg-self .msg-actions-inline { order: -1; margin-left: -40px; margin-right: 8px; }
+        .chat-message.msg-self .msg-actions-inline .msg-more-btn { transform: none; }
+        .msg-actions-inline .msg-more-btn { background: transparent; border: none; color: var(--dark-gray); font-size: 1.25rem; cursor: pointer; padding: 6px; border-radius: 6px; }
+        .msg-actions-inline .msg-more-btn:hover { background: rgba(0,0,0,0.03); }
+        .msg-actions-menu { display: none; position: absolute; right: 0; top: 110%; background: var(--white); border: 1px solid var(--medium-gray); border-radius: 8px; box-shadow: var(--shadow-md); z-index: 50; min-width: 120px; }
+        .msg-actions-menu.show { display: block; }
+        .msg-actions-menu button { display: block; width: 100%; padding: 8px 12px; text-align: left; background: transparent; border: none; cursor: pointer; }
+
+        /* Reply preview design */
+        .msg-reply-preview { cursor: pointer; display: block; padding: 6px 10px; border-radius: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(0,0,0,0.02); color: var(--dark-gray); max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .msg-reply-preview:hover { background: rgba(0,0,0,0.04); }
+        .msg-reply-preview.inline { display:inline-block; margin-top:6px; background: var(--primary-pink-dark, #ff9cc7); color: #fff; border: none; padding: 8px 14px; box-shadow: 0 6px 0 rgba(0,0,0,0.03); opacity: 0.8; position:relative; }
+        .msg-reply-preview.inline:hover { filter:brightness(.98); }
+        .msg-reply-preview.inline .reply-indicator { position:absolute; top:50%; transform:translateY(-50%); width:28px; height:28px; border-radius:9999px; display:flex; align-items:center; justify-content:center; background: rgba(255,255,255,0.14); color:#fff; font-size:14px; box-shadow:0 2px 0 rgba(0,0,0,0.03); }
+        /* Place icon left for right-side (self) messages, right for left-side messages */
+        .chat-message.msg-self .msg-reply-preview.inline { padding-left:44px; }
+        .chat-message.msg-self .msg-reply-preview.inline .reply-indicator { left:12px; }
+        .chat-message:not(.msg-self) .msg-reply-preview.inline { padding-right:44px; }
+        .chat-message:not(.msg-self) .msg-reply-preview.inline .reply-indicator { right:12px; }
+        .msg-body { display:flex; flex-direction:column; align-items:flex-start; gap:6px; }
+        .chat-message.msg-self .msg-body { align-items:flex-end; }
+        .msg-reply-preview.inline { align-self:flex-start; margin-bottom:2px; }
+        .chat-message.msg-self .msg-reply-preview.inline { align-self:flex-end; }
+        .msg-bubble { margin-top:1px; }
+        .msg-header { margin-bottom:4px; }
+
+        /* Shared centered content wrapper so header and chat align exactly */
+        .content-center { max-width: 1100px; width: 100%; margin: 0 auto; }
+
+        /* Mobile tweaks: reduce right-side gap for right-aligned messages */
+        @media (max-width: 600px) {
+            .chat-message { padding-right: 16px; }
+            .chat-message.msg-self { padding-left: 8px; }
+            .chat-message.msg-self .msg-actions-inline { margin-left: -24px; margin-right: 4px; }
+            .msg-reply-preview.inline { padding-left: 28px; padding-right: 28px; }
+            .chat-container { padding-left: 8px; padding-right: 8px; }
+            .chat-messages { padding-right: 8px; }
         }
     </style>
 </head>
@@ -144,32 +196,36 @@
 
     <!-- Main Content -->
     <div class="main-content">
-        <!-- Page Header -->
-        <div class="page-header">
-            <h1 style="margin: 0; color: white;">Messages</h1>
-            <p style="margin: 8px 0 0 0; opacity: 0.9;">Connect with other students</p>
-        </div>
-
-        <!-- Chat Tabs -->
-        <div class="chat-tabs">
-            <div class="chat-tab active" onclick="switchChat('general')">
-                <i class="bi bi-globe"></i> General Chat
-                <span id="generalUnreadBadge" class="chat-unread-badge" style="display:none;">0</span>
+        <div class="content-center">
+            <!-- Page Header -->
+            <div class="page-header">
+                <h1 style="margin: 0; color: white;">Messages</h1>
+                <p style="margin: 8px 0 0 0; opacity: 0.9;">Connect with other students</p>
             </div>
-            <div class="chat-tab" onclick="switchChat('personal')">
-                <i class="bi bi-circle-fill" style="color: var(--success); font-size: 0.5rem;"></i> Personal Chat
-                <span id="personalUnreadBadge" class="chat-unread-badge" style="display:none;">0</span>
-            </div>
-        </div>
 
-        <div class="chat-wrapper">
+            <!-- Chat Tabs -->
+            <div class="chat-tabs">
+                <div class="chat-tab active" onclick="switchChat('general')">
+                    <i class="bi bi-globe"></i> General
+                    <span id="generalUnreadBadge" class="chat-unread-badge" style="display:none;">0</span>
+                </div>
+                <div class="chat-tab" onclick="switchChat('personal')">
+                    <i class="bi bi-circle-fill" style="color: var(--success); font-size: 0.5rem;"></i> Personal
+                    <span id="personalUnreadBadge" class="chat-unread-badge" style="display:none;">0</span>
+                </div>
+            </div>
+
+            <div class="chat-wrapper">
             <!-- Chat Container -->
             <div>
                 <div class="chat-container">
                     <div class="chat-header" id="chatHeader" style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
-                        <div id="chatHeaderTitle">General Chat</div>
+                            <div id="chatHeaderTitle" style="display:flex;align-items:center;gap:12px;">
+                                <img id="chatHeaderAvatar" src="/images/default-avatar.svg" alt="avatar" style="width:36px;height:36px;border-radius:9999px;object-fit:cover;display:none;border:2px solid rgba(255,255,255,0.25);"/>
+                                <div id="chatHeaderTitleText">General Chat</div>
+                            </div>
                         <div id="chatHeaderActions">
-                            <button id="closePrivateBtn" class="btn btn-outline" style="display:none;">Close</button>
+                                <button id="closePrivateBtn" class="btn btn-light" style="display:none;padding:8px;border-radius:9999px;" aria-label="Back"><i class="bi bi-arrow-left"></i></button>
                         </div>
                     </div>
                     <div class="chat-messages" id="chatMessages">
@@ -187,24 +243,13 @@
                             maxlength="500"
                         >
                         <button id="sendBtn" class="btn btn-primary" onclick="sendMessage()">
-                            <i class="bi bi-send"></i> Send
+                            <i class="bi bi-send"></i>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- Online Users Sidebar -->
-            <div class="online-users">
-                <h4 style="margin: 0 0 4px 0;"><i class="bi bi-people"></i> Online Users</h4>
-                <p style="color: var(--dark-gray); font-size: 0.875rem; margin-bottom: 0;">
-                    <span id="onlineCount">0</span> online
-                </p>
-                <div class="online-user-list" id="onlineUsersList">
-                    <div style="text-align: center; width: 100%; padding: 20px; color: var(--dark-gray);">
-                        Loading...
-                    </div>
-                </div>
-            </div>
+            <!-- Online users removed — chat occupies full width -->
         </div>
     </div>
 
@@ -251,6 +296,7 @@
     </div>
 
     <script src="/js/settings.js"></script>
+    <script src="/js/alerts.js"></script>
     <script src="/js/modalAlerts.js"></script>
     <script src="/js/logoutHelper.js"></script>
     <script src="/js/unreadNotifications.js"></script>

@@ -193,7 +193,7 @@
                     // ignore errors and fall back to message behavior
                 }
 
-                // Default behavior: open message modal after verifying auth (existing behavior)
+                // Default behavior: redirect to chat page for private conversation
                 msgBtn.addEventListener('click', async () => {
                     try {
                         const resp = await fetch('/api/auth/me', { credentials: 'include' });
@@ -206,7 +206,11 @@
                                 return;
                             }
                         } catch (e) {}
-                        openMessageModal(data.user);
+                        // Navigate to chat page and open private chat with this user
+                        const target = '/chat.html';
+                        const qs = new URLSearchParams();
+                        qs.set('with', String(userId));
+                        window.location.href = target + '?' + qs.toString();
                     } catch (e) {
                         return window.location.href = '/login';
                     }

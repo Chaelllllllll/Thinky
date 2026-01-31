@@ -6,11 +6,40 @@
 let currentChatType = 'general';
 let currentUser = null;
 let messages = [];
-let onlineUsers = [];
 let messagesSubscription = null;
-let onlineUsersSubscription = null;
 let currentRecipientId = null;
+let currentReplyTo = null;
 let currentRecipientName = null;
+
+// Client-side blacklist and warning/mute fallback (mirrors server rules).
+const CLIENT_BLACKLIST = ['badword1','badword2','slur']; // keep in sync with server MESSAGE_BLACKLIST
+const CLIENT_MAX_WARNINGS = 3;
+const CLIENT_MUTE_MS = 60 * 60 * 1000; // 1 hour
+
+function clientNormalizeForMatch(text) {
+    if (!text) return '';
+    let s = String(text).normalize('NFKD').replace(/\p{Diacritic}/gu, '');
+    s = s.toLowerCase();
+    s = s.replace(/[^a-z0-9]+/g, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    return s;
+}
+
+function clientHasBlacklistedWord(text) {
+    const norm = clientNormalizeForMatch(text);
+    if (!norm) return false;
+    for (const raw of CLIENT_BLACKLIST) {
+        if (!raw) continue;
+        const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp('\\b' + esc + '\\b', 'i');
+        if (re.test(norm)) return true;
+    }
+    return false;
+}
+
+// Client-side persistent warnings/mute removed — server is authoritative.
+// LocalStorage-based warning/mute state was intentionally removed to
+// rely on DB-backed moderation persisted by the server.
 
 // Note: Supabase realtime requires configuration on the backend
 // For this demo, we'll use polling instead of realtime subscriptions
@@ -18,7 +47,6 @@ let currentRecipientName = null;
 document.addEventListener('DOMContentLoaded', () => {
     loadCurrentUser();
     loadMessages();
-    loadOnlineUsers();
 
     // If we were navigated to chat with a scrollTo param, capture it so we can scroll after messages load
     try {
@@ -83,11 +111,6 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
         initRealtime();
     } catch (e) { /* ignore */ }
-
-    // Poll for online users every 10 seconds
-    setInterval(() => {
-        loadOnlineUsers();
-    }, 10000);
 
     // Update online status every 30 seconds
     setInterval(updateOnlineStatus, 30000);
@@ -371,17 +394,44 @@ function displayMessages(preserveScroll = false) {
         const profileLink = `/user.html?user=${encodeURIComponent(msg.user_id)}`;
         const avatar = `<a href="${profileLink}" class="msg-avatar-link" title="${who}">${avatarImg}</a>`;
         const time = formatTime(msg.created_at);
+        const replyTargetId = (msg.reply_to_meta && msg.reply_to_meta.id) ? ('msg-' + String(msg.reply_to_meta.id).replace(/[^a-zA-Z0-9-_:.]/g, '')) : '';
 
         // Attach id to each message so we can scroll to it from notifications
         const safeId = msg && msg.id ? String(msg.id).replace(/[^a-zA-Z0-9-_:.]/g, '') : '';
         const idAttr = safeId ? `id="msg-${safeId}"` : '';
+        // build header: normally show author; for replies show label above the recipient snippet
+        let headerHtml = `<div class="msg-header"><span class="msg-author">${who}</span></div>`;
+        let replySnippetHtml = '';
+        if (msg.reply_to_meta) {
+            const repliedName = escapeHtml(msg.reply_to_meta.username || '');
+            const repliedSnippet = escapeHtml(String(msg.reply_to_meta.message || '')).substring(0,120);
+            if (currentUser && currentUser.id && String(currentUser.id) === String(msg.user_id)) {
+                // For messages you sent (the replier), label as 'you replied' and show recipient snippet below
+                headerHtml = `<div class="msg-header"><span class="msg-author">you replied</span></div>`;
+                replySnippetHtml = `<div class="msg-reply-preview inline" data-target="${replyTargetId}"><span class="reply-indicator" aria-hidden="true">↩</span>${repliedSnippet}</div>`;
+            } else {
+                // For others' messages, label as '<author> replied' and show recipient snippet below
+                headerHtml = `<div class="msg-header"><span class="msg-author">${who} replied</span></div>`;
+                replySnippetHtml = `<div class="msg-reply-preview inline" data-target="${replyTargetId}"><span class="reply-indicator" aria-hidden="true">↩</span>${repliedSnippet}</div>`;
+            }
+        }
+
         return `
-        <div ${idAttr} class="chat-message ${isSelf ? 'msg-self' : ''}">
+        <div ${idAttr} class="chat-message ${isSelf ? 'msg-self' : ''}" data-username="${who}">
             ${avatar}
             <div class="msg-body">
-                <div class="msg-header"><span class="msg-author">${who}</span></div>
-                <div class="msg-bubble ${isSelf ? 'right' : 'left'}">
-                    <div class="msg-text">${escapeHtml(msg.message)}</div>
+                ${headerHtml}
+                ${replySnippetHtml}
+                <div class="msg-row">
+                    <div class="msg-bubble ${isSelf ? 'right' : 'left'}">
+                        <div class="msg-text">${escapeHtml(msg.message)}</div>
+                    </div>
+                    <div class="msg-actions-inline" aria-hidden="true">
+                        <button class="msg-more-btn" aria-label="more">⋯</button>
+                        <div class="msg-actions-menu" role="menu">
+                            <button class="msg-reply-btn" role="menuitem">Reply</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="msg-time-below">${time}</div>
             </div>
@@ -393,6 +443,89 @@ function displayMessages(preserveScroll = false) {
     if (!preserveScroll || wasScrolledToBottom) {
         container.scrollTop = container.scrollHeight;
     }
+
+    // Attach interaction handlers: clicking a message reveals time and actions
+    try {
+        const msgEls = container.querySelectorAll('.chat-message');
+        msgEls.forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // deselect others
+                document.querySelectorAll('.chat-message.selected').forEach(x => { if (x !== el) x.classList.remove('selected'); });
+                el.classList.toggle('selected');
+                // hide any open action menus
+                document.querySelectorAll('.msg-actions-menu.show').forEach(m => m.classList.remove('show'));
+            });
+
+            const more = el.querySelector('.msg-more-btn');
+            const menu = el.querySelector('.msg-actions-menu');
+            if (more && menu) {
+                more.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    menu.classList.toggle('show');
+                });
+            }
+
+            // wire reply preview click -> scroll to target message
+            const preview = el.querySelector('.msg-reply-preview');
+            if (preview) {
+                // try to set avatar for reply (best-effort: fetch user avatar if available)
+                (async () => {
+                    try {
+                        const rt = msg.reply_to_meta;
+                        const img = preview.querySelector('.reply-avatar');
+                        if (img && rt && rt.user_id) {
+                            const r = await fetch('/api/users/' + encodeURIComponent(rt.user_id));
+                            if (r.ok) {
+                                const d = await r.json();
+                                const url = d && d.user && d.user.profile_picture_url ? d.user.profile_picture_url : null;
+                                if (url) img.src = url;
+                            }
+                        }
+                    } catch (e) { /* ignore */ }
+                })();
+
+                preview.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const targetId = preview.getAttribute('data-target');
+                    if (!targetId) return;
+                    const targetEl = document.getElementById(targetId);
+                    if (targetEl) {
+                        targetEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        targetEl.classList.add('msg-highlight');
+                        setTimeout(() => { try { targetEl.classList.remove('msg-highlight'); } catch (e) {} }, 3000);
+                    }
+                });
+            }
+
+            const replyBtn = el.querySelector('.msg-reply-btn');
+            if (replyBtn) {
+                replyBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    // Prefill the input with @username and focus and set reply target
+                        const author = el.getAttribute('data-username') || '';
+                    const input = document.getElementById('messageInput');
+                    if (input) {
+                        input.value = `@${author} `;
+                        input.focus();
+                    }
+                    // remember reply target id
+                    const mid = el.getAttribute('id'); // id like msg-<safeId>
+                    if (mid && mid.startsWith('msg-')) {
+                        currentReplyTo = mid.replace(/^msg-/, '');
+                    }
+                    // close menu
+                    if (menu) menu.classList.remove('show');
+                });
+            }
+        });
+
+        // click outside to clear selections and menus
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.chat-message.selected').forEach(x => x.classList.remove('selected'));
+            document.querySelectorAll('.msg-actions-menu.show').forEach(m => m.classList.remove('show'));
+        });
+    } catch (e) { /* ignore */ }
 
     // Mark messages as seen for the current view
     try {
@@ -433,6 +566,19 @@ async function sendMessage() {
 
     if (!message) return;
 
+    // Client-side sanitization to avoid sending HTML or control chars
+    let clean = String(message).trim();
+    clean = clean.replace(/<[^>]*>/g, '');
+    clean = clean.replace(/[\x00-\x1F\x7F]/g, '');
+    if (clean.length > 1000) clean = clean.substring(0, 1000);
+
+    // Do a lightweight client-side blacklist check for quicker feedback,
+    // but do NOT persist warnings or mute state locally — server is authoritative.
+    if (clientHasBlacklistedWord(clean)) {
+        window.showAlert && window.showAlert('warning', 'Message contains disallowed content and was blocked.', 6000);
+        return;
+    }
+
     // Prevent sending private messages without a recipient
     if (currentChatType === 'private' && !currentRecipientId) {
         alert('Please select a user to start a private chat.');
@@ -441,14 +587,18 @@ async function sendMessage() {
 
     // Prevent sending messages to yourself
     if (currentChatType === 'private' && currentRecipientId && currentUser && String(currentRecipientId) === String(currentUser.id)) {
-        alert('You cannot send messages to yourself.');
+        window.showAlert && window.showAlert('error', 'You cannot send messages to yourself.', 3000);
         return;
     }
 
     try {
-        const body = { message, chat_type: currentChatType };
+        const body = { message: clean, chat_type: currentChatType };
         if (currentChatType === 'private' && currentRecipientId) {
             body.recipient_id = currentRecipientId;
+        }
+        // include reply reference if set
+        if (currentReplyTo) {
+            body.reply_to = currentReplyTo;
         }
 
         const response = await fetch('/api/messages', {
@@ -459,66 +609,44 @@ async function sendMessage() {
             credentials: 'include',
             body: JSON.stringify(body)
         });
+        // Try to parse response JSON for helpful errors
+        let respJson = null;
+        try { respJson = await response.json(); } catch (e) { /* ignore */ }
 
-        if (!response.ok) throw new Error('Failed to send message');
+        if (!response.ok) {
+                if (response.status === 401) {
+                // Not authenticated
+                window.location.href = '/login';
+                return;
+            }
+            if (response.status === 403) {
+                // Muted or forbidden — server is authoritative; show server message.
+                window.showAlert && window.showAlert('error', (respJson && respJson.error) ? respJson.error : 'You are not allowed to send messages.', 6000);
+                return;
+            }
+            if (response.status === 400) {
+                if (respJson && respJson.warnings != null) {
+                    const warnings = Number(respJson.warnings) || 0;
+                    window.showAlert && window.showAlert('warning', (respJson && respJson.error) ? (respJson.error + ' — Warning ' + warnings + ' of ' + (respJson.maxWarnings || CLIENT_MAX_WARNINGS)) : 'Message blocked.', 6000);
+                    return;
+                }
+            }
+            window.showAlert && window.showAlert('error', (respJson && respJson.error) ? respJson.error : 'Failed to send message', 5000);
+            return;
+        }
 
         input.value = '';
-        
+        currentReplyTo = null;
+
         // Immediately reload messages
         await loadMessages();
     } catch (error) {
         console.error('Error sending message:', error);
-        alert('Failed to send message. Please try again.');
+        window.showAlert && window.showAlert('error', 'Failed to send message. Please try again.');
     }
 }
 
-async function loadOnlineUsers() {
-    try {
-        const response = await fetch('/api/online-users', { credentials: 'include' });
-        if (!response.ok) throw new Error('Failed to load online users');
-
-        const data = await response.json();
-        onlineUsers = data.onlineUsers;
-        displayOnlineUsers();
-    } catch (error) {
-        console.error('Error loading online users:', error);
-    }
-}
-
-function displayOnlineUsers() {
-    const container = document.getElementById('onlineUsersList');
-    const count = document.getElementById('onlineCount');
-
-    count.textContent = onlineUsers.length;
-
-    if (onlineUsers.length === 0) {
-        container.innerHTML = `
-            <div style="text-align: center; width: 100%; padding: 20px; color: var(--dark-gray);">
-                <i class="bi bi-person-slash"></i>
-                <p style="margin-top: 8px; font-size: 0.875rem;">No users online</p>
-            </div>
-        `;
-        return;
-    }
-
-    container.innerHTML = onlineUsers.map(user => `
-        <div class="online-user" data-user-id="${user.user_id}" data-username="${escapeHtml(user.username)}">
-            <span class="online-indicator"></span>
-            <span>${escapeHtml(user.username)}</span>
-        </div>
-    `).join('');
-
-    // Attach click handlers to start private chat
-    container.querySelectorAll('.online-user').forEach(el => {
-        el.addEventListener('click', () => {
-            const id = el.getAttribute('data-user-id');
-            const name = el.getAttribute('data-username');
-            startPrivateChat(id, name);
-        });
-    });
-    // Update input state in case current mode requires recipient
-    updateChatInputState();
-}
+// Online users list removed — sidebar handled in HTML; presence ping still runs via updateOnlineStatus
 
 // Start a private chat with another user
 async function startPrivateChat(userId, username) {
@@ -543,9 +671,27 @@ async function startPrivateChat(userId, username) {
     currentRecipientId = userId;
     currentRecipientName = username;
 
-    // Update header
-    const headerTitle = document.getElementById('chatHeaderTitle');
-    if (headerTitle) headerTitle.textContent = `Private chat with ${username}`;
+    // Update header text and show avatar
+    const headerTitleText = document.getElementById('chatHeaderTitleText');
+    const headerAvatar = document.getElementById('chatHeaderAvatar');
+    if (headerTitleText) headerTitleText.textContent = `${username}`;
+    if (headerAvatar) {
+        headerAvatar.style.display = 'inline-block';
+        headerAvatar.src = '/images/default-avatar.svg';
+        headerAvatar.style.cursor = 'pointer';
+        headerAvatar.title = `View ${username}`;
+        headerAvatar.onclick = () => { window.location.href = '/user.html?user=' + encodeURIComponent(userId); };
+        // Try to fetch the user's avatar URL (best-effort)
+        (async () => {
+            try {
+                const r = await fetch(`/api/users/${encodeURIComponent(userId)}`);
+                if (!r.ok) return;
+                const d = await r.json();
+                const url = d && d.user && d.user.profile_picture_url ? d.user.profile_picture_url : null;
+                if (url) headerAvatar.src = url;
+            } catch (e) { /* ignore */ }
+        })();
+    }
 
     const closeBtn = document.getElementById('closePrivateBtn');
     if (closeBtn) {
@@ -573,8 +719,15 @@ function closePrivateChat() {
     currentRecipientId = null;
     currentRecipientName = null;
 
-    const headerTitle = document.getElementById('chatHeaderTitle');
-    if (headerTitle) headerTitle.textContent = 'General Chat';
+    const headerTitleText = document.getElementById('chatHeaderTitleText');
+    const headerAvatar = document.getElementById('chatHeaderAvatar');
+    if (headerTitleText) headerTitleText.textContent = 'General Chat';
+    if (headerAvatar) {
+        headerAvatar.style.display = 'none';
+        headerAvatar.onclick = null;
+        headerAvatar.title = '';
+        headerAvatar.style.cursor = '';
+    }
 
     const closeBtn = document.getElementById('closePrivateBtn');
     if (closeBtn) closeBtn.style.display = 'none';
@@ -616,8 +769,15 @@ function switchChat(type) {
     }
 
     // Update header
-    const headerTitle = document.getElementById('chatHeaderTitle');
-    if (headerTitle) headerTitle.textContent = currentChatType === 'general' ? 'General Chat' : 'Personal Chat';
+    const headerTitleText2 = document.getElementById('chatHeaderTitleText');
+    const headerAvatar2 = document.getElementById('chatHeaderAvatar');
+    if (headerTitleText2) headerTitleText2.textContent = currentChatType === 'general' ? 'General Chat' : 'Personal Chat';
+    if (currentChatType === 'general' && headerAvatar2) {
+        headerAvatar2.style.display = 'none';
+        headerAvatar2.onclick = null;
+        headerAvatar2.title = '';
+        headerAvatar2.style.cursor = '';
+    }
 
     // Load messages for the selected mode
     messages = [];

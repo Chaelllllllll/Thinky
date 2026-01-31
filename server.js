@@ -278,6 +278,135 @@ function clearLoginAttempts(id) {
     try { loginAttempts.delete(id); } catch (e) { /* ignore */ }
 }
 
+// In-memory per-user warning/mute tracking for message blacklist enforcement.
+// NOTE: This is an in-memory store suitable for single-instance deployments
+// or as a short-term mitigation. For multi-instance production, persist
+// warnings/mutes in a shared store (database/redis) so counts and mutes
+// are enforced cluster-wide.
+const messageWarnings = new Map();
+const BLACKLIST = (process.env.MESSAGE_BLACKLIST || 'badword1,badword2,slur').split(',').map(s => s.trim()).filter(Boolean);
+const MAX_WARNINGS = parseInt(process.env.MAX_MESSAGE_WARNINGS || '3', 10);
+const MUTE_MS = parseInt(process.env.MESSAGE_MUTE_MS || String(60 * 60 * 1000), 10); // default 1 hour
+
+function normalizeForMatch(text) {
+    if (!text) return '';
+    // Normalize unicode, remove diacritics, lowercase
+    let s = String(text).normalize('NFKD').replace(/\p{Diacritic}/gu, '');
+    s = s.toLowerCase();
+    // replace non-alphanumeric with spaces
+    s = s.replace(/[^a-z0-9]+/g, ' ');
+    s = s.replace(/\s+/g, ' ').trim();
+    return s;
+}
+
+function hasBlacklistedWord(text) {
+    if (!text) return false;
+    const norm = normalizeForMatch(text);
+    if (!norm) return false;
+    // Build regex from BLACKLIST with word boundaries and escape
+    for (const raw of BLACKLIST) {
+        if (!raw) continue;
+        const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const re = new RegExp('\\b' + esc + '\\b', 'i');
+        if (re.test(norm)) return true;
+    }
+    return false;
+}
+
+function recordMessageWarning(userId) {
+    try {
+        const now = Date.now();
+        const rec = messageWarnings.get(userId) || { count: 0, first: now, mutedUntil: null };
+        // reset if older than 24h to avoid permanent accumulation
+        if (rec.first && now - rec.first > 24 * 60 * 60 * 1000) {
+            rec.count = 0;
+            rec.first = now;
+            rec.mutedUntil = null;
+        }
+        rec.count = (rec.count || 0) + 1;
+        if (rec.count >= MAX_WARNINGS) {
+            rec.mutedUntil = now + MUTE_MS;
+            rec.count = 0; // reset warnings after mute
+            rec.first = now;
+        }
+        messageWarnings.set(userId, rec);
+        return rec;
+    } catch (e) {
+        return null;
+    }
+}
+
+function getMessageWarningState(userId) {
+    const rec = messageWarnings.get(userId);
+    if (!rec) return { count: 0, mutedUntil: null };
+    return rec;
+}
+
+// Database-backed warning/mute helpers (authoritative). Use supabaseAdmin
+// to persist per-user moderation state so it's consistent across instances.
+async function getMessageWarningStateDB(userId) {
+    try {
+        if (!userId) return { count: 0, mutedUntil: null };
+        const { data, error } = await supabaseAdmin
+            .from('users')
+            .select('message_warning_count, message_warning_first_at, message_muted_until')
+            .eq('id', userId)
+            .single();
+        if (error || !data) return { count: 0, mutedUntil: null };
+        return {
+            count: data.message_warning_count ? Number(data.message_warning_count) : 0,
+            first: data.message_warning_first_at ? new Date(data.message_warning_first_at).getTime() : null,
+            mutedUntil: data.message_muted_until ? new Date(data.message_muted_until).getTime() : null
+        };
+    } catch (e) {
+        return { count: 0, mutedUntil: null };
+    }
+}
+
+async function recordMessageWarningDB(userId) {
+    try {
+        if (!userId) return null;
+        const now = Date.now();
+        const { data, error } = await supabaseAdmin
+            .from('users')
+            .select('message_warning_count, message_warning_first_at, message_muted_until')
+            .eq('id', userId)
+            .single();
+
+        let count = data && data.message_warning_count ? Number(data.message_warning_count) : 0;
+        let first = data && data.message_warning_first_at ? new Date(data.message_warning_first_at).getTime() : now;
+        let mutedUntil = data && data.message_muted_until ? new Date(data.message_muted_until).getTime() : null;
+
+        // Reset sliding window after 24h
+        if (first && now - first > 24 * 60 * 60 * 1000) {
+            count = 0;
+            first = now;
+            mutedUntil = null;
+        }
+
+        count = (count || 0) + 1;
+        const updates = {};
+        if (count >= MAX_WARNINGS) {
+            mutedUntil = now + MUTE_MS;
+            count = 0; // reset warnings after mute
+            first = now;
+            updates.message_warning_count = count;
+            updates.message_warning_first_at = new Date(first).toISOString();
+            updates.message_muted_until = new Date(mutedUntil).toISOString();
+        } else {
+            updates.message_warning_count = count;
+            updates.message_warning_first_at = new Date(first).toISOString();
+        }
+
+        await supabaseAdmin.from('users').update(updates).eq('id', userId);
+
+        return { count, mutedUntil };
+    } catch (e) {
+        console.warn('recordMessageWarningDB error', e && e.message ? e.message : e);
+        return null;
+    }
+}
+
 // Body parsing middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -2540,7 +2669,19 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                 }
 
                 try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (e) {}
-                return res.json({ messages: messages.reverse() });
+                // Enrich reply metadata for private messages
+                try {
+                    const msgs = messages.reverse();
+                    const replyIds = msgs.map(m => m.reply_to).filter(Boolean);
+                    if (replyIds.length > 0) {
+                        const { data: replies } = await supabaseAdmin.from('messages').select('id, message, user_id, username').in('id', replyIds);
+                        const map = (replies || []).reduce((acc, r) => { acc[r.id] = r; return acc; }, {});
+                        msgs.forEach(m => { if (m.reply_to && map[m.reply_to]) m.reply_to_meta = map[m.reply_to]; });
+                    }
+                    return res.json({ messages: msgs });
+                } catch (e) {
+                    return res.json({ messages: messages.reverse() });
+                }
         } else {
             // Support optional `since` query param so clients can request only messages
             // newer than a given ISO timestamp. Example: /api/messages/general?since=2026-01-31T10:00:00Z
@@ -2558,13 +2699,26 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
 
             const { data: messages, error } = await q;
 
-            if (error) {
-                console.error('Get messages error:', error);
-                return res.status(500).json({ error: 'Failed to fetch messages' });
-            }
+                if (error) {
+                    console.error('Get messages error:', error);
+                    return res.status(500).json({ error: 'Failed to fetch messages' });
+                }
 
-            try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (e) {}
-            return res.json({ messages: messages.reverse() });
+                // Enrich reply metadata if present
+                try {
+                    const msgs = messages.reverse();
+                    const replyIds = msgs.map(m => m.reply_to).filter(Boolean);
+                    if (replyIds.length > 0) {
+                        const { data: replies } = await supabaseAdmin.from('messages').select('id, message, user_id, username').in('id', replyIds);
+                        const map = (replies || []).reduce((acc, r) => { acc[r.id] = r; return acc; }, {});
+                        msgs.forEach(m => { if (m.reply_to && map[m.reply_to]) m.reply_to_meta = map[m.reply_to]; });
+                    }
+                    try { console.debug('Get messages:', chatType, 'count=', (msgs && msgs.length) ? msgs.length : 0); } catch (e) {}
+                    return res.json({ messages: msgs });
+                } catch (e) {
+                    try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (ee) {}
+                    return res.json({ messages: messages.reverse() });
+                }
         }
 
         if (error) {
@@ -2584,18 +2738,46 @@ app.post('/api/messages', requireAuth, async (req, res) => {
     try {
         const { message, chat_type } = req.body;
         const recipient_id = req.body.recipient_id || null;
+        const reply_to = req.body.reply_to || null;
 
         if (!message || !chat_type) {
             return res.status(400).json({ error: 'Message and chat type are required' });
         }
 
+        // Server-side sanitization: trim and limit length
+        let cleanMessage = String(message || '').trim();
+        if (cleanMessage.length > 1000) cleanMessage = cleanMessage.substring(0, 1000);
+
+        // Basic stripping of HTML tags to avoid stored HTML/JS
+        cleanMessage = cleanMessage.replace(/<[^>]*>/g, '');
+
+        // Prevent control characters that could confuse downstream systems
+        cleanMessage = cleanMessage.replace(/[\x00-\x1F\x7F]/g, '');
+
+        // Check mute state for this user (DB-backed)
+        const warnState = await getMessageWarningStateDB(req.session.userId);
+        if (warnState && warnState.mutedUntil && Date.now() < warnState.mutedUntil) {
+            const until = new Date(warnState.mutedUntil).toISOString();
+            return res.status(403).json({ error: 'You are muted from sending messages', mutedUntil: until });
+        }
+
+        // Enforce blacklist detection
+        if (hasBlacklistedWord(cleanMessage)) {
+            const rec = await recordMessageWarningDB(req.session.userId) || { count: 0, mutedUntil: null };
+            if (rec.mutedUntil) {
+                return res.status(403).json({ error: 'You have been muted due to repeated blacklist violations', mutedUntil: new Date(rec.mutedUntil).toISOString() });
+            }
+            return res.status(400).json({ error: 'Message contains disallowed content', warnings: rec.count, maxWarnings: MAX_WARNINGS });
+        }
+
         const insertObj = {
             user_id: req.session.userId,
             username: req.session.username,
-            message,
+            message: cleanMessage,
             chat_type
         };
         if (chat_type === 'private') insertObj.recipient_id = recipient_id;
+        if (reply_to) insertObj.reply_to = reply_to;
 
         const { data: newMessage, error } = await supabaseAdmin
             .from('messages')
