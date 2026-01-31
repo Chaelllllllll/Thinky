@@ -35,10 +35,30 @@ const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app = express();
-// Trust proxy headers when running behind a proxy (e.g., Vercel, Cloudflare).
-// This prevents express-rate-limit from throwing when `X-Forwarded-For` is present.
-// Enable via `NODE_ENV=production` or set `TRUST_PROXY=true` in the environment.
-app.set('trust proxy', (process.env.TRUST_PROXY === 'true') || process.env.NODE_ENV === 'production');
+// Determine a safe `trust proxy` setting. Setting this to `true` is permissive
+// and may allow clients to spoof IP addresses; prefer trusting a single proxy
+// in production (typical for Vercel) or allow explicit configuration via
+// `TRUST_PROXY`. Supported values:
+//  - numeric string (e.g. "1") — trust that number of proxies
+//  - "true" — treated as "1"
+//  - explicit value (CIDR/list) — passed through
+// Default: trust 1 proxy when NODE_ENV=production, otherwise false.
+let trustProxySetting = false;
+if (process.env.TRUST_PROXY) {
+    const v = process.env.TRUST_PROXY.trim();
+    if (/^\d+$/.test(v)) {
+        trustProxySetting = parseInt(v, 10);
+    } else if (v === 'true') {
+        trustProxySetting = 1;
+    } else if (v === 'false') {
+        trustProxySetting = false;
+    } else {
+        trustProxySetting = v; // allow advanced values
+    }
+} else if (process.env.NODE_ENV === 'production') {
+    trustProxySetting = 1;
+}
+app.set('trust proxy', trustProxySetting);
 console.info('Express trust proxy:', app.get('trust proxy'));
 const PORT = process.env.PORT || 3000;
 
