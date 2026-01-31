@@ -237,6 +237,37 @@ function createSessionPool() {
     return sessionPool;
 }
 
+// Migrate in-memory fallback sessions to Postgres session table to avoid
+// users being logged out when we swap stores at runtime.
+async function migrateFallbackSessionsToPg(pool) {
+    try {
+        if (!pool) return;
+        if (!(fallbackStore instanceof LightweightFallbackStore)) return;
+        const entries = Array.from(fallbackStore.sessions.entries());
+        if (!entries.length) return;
+
+        console.info(`Migrating ${entries.length} in-memory sessions to Postgres session table`);
+        for (const [sid, sess] of entries) {
+            try {
+                const sessJson = JSON.stringify(sess || {});
+                const expireDate = (sess && sess.cookie && sess.cookie.expires) ? new Date(sess.cookie.expires) : new Date(Date.now() + (sessionOptions && sessionOptions.cookie && sessionOptions.cookie.maxAge ? sessionOptions.cookie.maxAge : 24 * 60 * 60 * 1000));
+                await pool.query(
+                    `INSERT INTO session (sid, sess, expire) VALUES ($1, $2::json, $3::timestamptz)
+                     ON CONFLICT (sid) DO UPDATE SET sess = EXCLUDED.sess, expire = EXCLUDED.expire`,
+                    [sid, sessJson, expireDate.toISOString()]
+                );
+            } catch (err) {
+                console.warn('Failed to migrate session', sid, err && err.message ? err.message : err);
+            }
+        }
+
+        // Clear in-memory store once migrated to avoid double-writes and free memory
+        try { fallbackStore.sessions.clear(); } catch (e) { /* ignore */ }
+    } catch (err) {
+        console.warn('Session migration error:', err && err.message ? err.message : err);
+    }
+}
+
 if (process.env.DATABASE_URL) {
     try {
         const PgSession = connectPgSimple(session);
@@ -373,9 +404,17 @@ if (process.env.DATABASE_URL && !sessionStore) {
 
                 const pgStoreInstance = new PgSession({ pool, tableName: 'session' });
 
+                // Migrate any in-memory sessions into Postgres so users don't get
+                // unexpectedly logged out when we swap stores.
+                try {
+                    await migrateFallbackSessionsToPg(pool);
+                } catch (e) {
+                    console.warn('Session migration before swap failed:', e && e.message ? e.message : e);
+                }
+
                 // Swap stores on the session middleware so new requests use Postgres
                 sessionMiddleware.store = pgStoreInstance;
-                console.info(`Postgres session store enabled after retry (pool max=${pool.options.max || 'default'})`);
+                console.info(`Postgres session store enabled after retry (pool max=${(sessionPool && sessionPool.options && sessionPool.options.max) || 'default'})`);
                 return;
             } catch (err) {
                 console.warn(`Retry ${attempt}: Postgres session store still unreachable: ${err && err.message ? err.message : err}`);
