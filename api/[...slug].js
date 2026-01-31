@@ -10,12 +10,14 @@ try {
 	console.error('serverless-http is not installed:', err && err.message ? err.message : err);
 }
 
-// Import the Express app
+// Import the Express app and capture any require error for debugging
 let app = null;
+let requireError = null;
 try {
 	app = require('../server');
 } catch (err) {
-	console.error('Failed to require server app:', err && err.message ? err.message : err);
+	requireError = err && err.message ? err.message : String(err);
+	console.error('Failed to require server app:', requireError);
 }
 
 if (!serverless || !app) {
@@ -23,7 +25,10 @@ if (!serverless || !app) {
 	module.exports = async (req, res) => {
 		res.statusCode = 500;
 		res.setHeader('Content-Type', 'application/json');
-		res.end(JSON.stringify({ error: 'Server misconfiguration', detail: serverless ? 'app_load_failed' : 'serverless_http_missing' }));
+		const detail = serverless ? 'app_load_failed' : 'serverless_http_missing';
+		const payload = { error: 'Server misconfiguration', detail };
+		if (requireError) payload.requireError = requireError;
+		res.end(JSON.stringify(payload));
 	};
 } else {
 	module.exports = serverless(app);
