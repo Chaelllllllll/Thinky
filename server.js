@@ -47,7 +47,9 @@ if (missingEnv.length) {
 
 // If not ready, return a simple JSON 500 for API routes to avoid crashing.
 app.use('/api', (req, res, next) => {
+    // Allow the status endpoint to be reachable even when the server is misconfigured
     if (!serverReady) {
+        if (req.path === '/_status') return next();
         return res.status(500).json({ error: 'Server misconfigured', missing: missingEnv });
     }
     next();
