@@ -314,7 +314,7 @@
 
     <!-- Subject Modal -->
     <div id="subjectModal" class="modal">
-        <div class="modal-content">
+        <div class="modal-content modal-helper-box">
             <div class="modal-header">
                 <h3 class="modal-title" id="subjectModalTitle">Add Subject</h3>
                 <button class="modal-close" onclick="closeSubjectModal()">&times;</button>
@@ -350,12 +350,15 @@
                         </div>
                 </form>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-light" onclick="closeSubjectModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveSubject()" id="saveSubjectBtn">
-                    <span id="saveSubjectText">Save Subject</span>
-                    <span id="saveSubjectSpinner" class="spinner spinner-sm" style="display: none;"></span>
-                </button>
+            <div class="modal-footer custom-footer">
+                <div></div>
+                <div class="right-actions">
+                    <button type="button" class="btn btn-light" onclick="closeSubjectModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveSubject()" id="saveSubjectBtn">
+                        <span id="saveSubjectText">Save Subject</span>
+                        <span id="saveSubjectSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                    </button>
+                </div>
             </div>
         </div>
     </div>

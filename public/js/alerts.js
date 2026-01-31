@@ -22,7 +22,7 @@
     let _audioUnlocked = false;
 
     function createAudio() {
-        if (_audioEl) return _audioEl;
+        if (_audioEl) return _audioEl; 
         try {
             // Detect supported formats and prefer MP3 when available per user request.
             const probe = document.createElement('audio');
