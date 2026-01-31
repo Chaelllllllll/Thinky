@@ -20,6 +20,15 @@ document.addEventListener('DOMContentLoaded', () => {
     loadMessages();
     loadOnlineUsers();
 
+    // If we were navigated to chat with a scrollTo param, capture it so we can scroll after messages load
+    try {
+        const params = new URLSearchParams(window.location.search);
+        const scrollTo = params.get('scrollTo') || null;
+        if (scrollTo) {
+            window._pendingScrollMessageId = String(scrollTo);
+        }
+    } catch (e) { /* ignore */ }
+
     // If a query param `with` is present, start a private chat with that user id
     try {
         const params = new URLSearchParams(window.location.search);
@@ -318,7 +327,7 @@ async function loadMessages(silent = false) {
                         const chatType = msg.chat_type || (msg.recipient_id ? 'private' : 'general');
 
                         try {
-                            window.showChatNotification({ avatar: avatarUrl, username, message: body, chatType });
+                            window.showChatNotification({ avatar: avatarUrl, username, message: body, chatType, msgId: msg.id, recipientId: msg.recipient_id });
                         } catch (e) { /* ignore */ }
                     });
                 }
@@ -363,8 +372,11 @@ function displayMessages(preserveScroll = false) {
         const avatar = `<a href="${profileLink}" class="msg-avatar-link" title="${who}">${avatarImg}</a>`;
         const time = formatTime(msg.created_at);
 
+        // Attach id to each message so we can scroll to it from notifications
+        const safeId = msg && msg.id ? String(msg.id).replace(/[^a-zA-Z0-9-_:.]/g, '') : '';
+        const idAttr = safeId ? `id="msg-${safeId}"` : '';
         return `
-        <div class="chat-message ${isSelf ? 'msg-self' : ''}">
+        <div ${idAttr} class="chat-message ${isSelf ? 'msg-self' : ''}">
             ${avatar}
             <div class="msg-body">
                 <div class="msg-header"><span class="msg-author">${who}</span></div>
@@ -393,6 +405,25 @@ function displayMessages(preserveScroll = false) {
         }
         // Refresh badges after marking
         pollUnreadCounts();
+    } catch (e) { /* ignore */ }
+
+    // If a pending scroll is requested, try to find and scroll to it
+    tryScrollPending();
+}
+
+function tryScrollPending() {
+    try {
+        const id = window._pendingScrollMessageId;
+        if (!id) return;
+        const el = document.getElementById('msg-' + id);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // briefly highlight
+            el.classList.add('msg-highlight');
+            setTimeout(() => { try { el.classList.remove('msg-highlight'); } catch(e){} }, 3000);
+            // clear pending
+            window._pendingScrollMessageId = null;
+        }
     } catch (e) { /* ignore */ }
 }
 

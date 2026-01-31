@@ -598,6 +598,8 @@ if (process.env.DATABASE_URL && !sessionStore) {
     })();
 }
 
+// Serve a small built-in notification sound at /audio/notify.wav when no file exists.
+// This provides a reliable fallback even if a static file isn't present.
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -2540,12 +2542,21 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                 try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (e) {}
                 return res.json({ messages: messages.reverse() });
         } else {
-                const { data: messages, error } = await supabaseAdmin
-                .from('messages')
-                .select('*, users:user_id (username, profile_picture_url)')
-                .eq('chat_type', chatType)
-                .order('created_at', { ascending: false })
-                .limit(limit);
+            // Support optional `since` query param so clients can request only messages
+            // newer than a given ISO timestamp. Example: /api/messages/general?since=2026-01-31T10:00:00Z
+            const since = req.query.since || null;
+            let q = supabaseAdmin
+            .from('messages')
+            .select('*, users:user_id (username, profile_picture_url)')
+            .eq('chat_type', chatType)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+            if (since) {
+                q = q.gt('created_at', since);
+            }
+
+            const { data: messages, error } = await q;
 
             if (error) {
                 console.error('Get messages error:', error);

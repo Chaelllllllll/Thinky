@@ -376,6 +376,12 @@ textarea.form-control {
 .chat-notif-body { color:var(--dark-gray); font-size:0.95rem; max-height:3.6rem; overflow:hidden; text-overflow:ellipsis; }
 .chat-notif-type { font-size:0.8rem; color:var(--primary-pink); text-transform:uppercase; font-weight:600; }
 
+/* Highlight briefly when scrolled to from a notification */
+.msg-highlight {
+    box-shadow: 0 0 0 4px rgba(255, 200, 0, 0.25);
+    transition: box-shadow 0.3s ease;
+}
+
 /* =====================================================
    MODAL
    ===================================================== */
