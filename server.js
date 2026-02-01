@@ -3162,13 +3162,22 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
             // Fetch messages between current user and the other user using admin client
             const [sentRes, receivedRes] = await Promise.all([sentQuery, receivedQuery]);
             const error = sentRes.error || receivedRes.error;
-            const messages = [...(sentRes.data || []), ...(receivedRes.data || [])]
+            let messages = [...(sentRes.data || []), ...(receivedRes.data || [])]
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
 
                 if (error) {
                     console.error('Get messages error:', error);
                     return res.status(500).json({ error: 'Failed to fetch messages' });
                 }
+
+                // Filter out soft-deleted messages for current user
+                const { data: deletedMsgs } = await supabaseAdmin
+                    .from('deleted_messages')
+                    .select('message_id')
+                    .eq('user_id', req.session.userId);
+                
+                const deletedIds = new Set((deletedMsgs || []).map(d => d.message_id));
+                messages = messages.filter(m => !deletedIds.has(m.id));
 
                 try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (e) {}
                 // Enrich reply metadata for private messages
@@ -3214,9 +3223,18 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                     return res.status(500).json({ error: 'Failed to fetch messages' });
                 }
 
+                // Filter out soft-deleted messages for current user
+                const { data: deletedMsgs } = await supabaseAdmin
+                    .from('deleted_messages')
+                    .select('message_id')
+                    .eq('user_id', req.session.userId);
+                
+                const deletedIds = new Set((deletedMsgs || []).map(d => d.message_id));
+                const filteredMessages = messages.filter(m => !deletedIds.has(m.id));
+
                 // Enrich reply metadata if present
                 try {
-                    const msgs = messages.reverse();
+                    const msgs = filteredMessages.reverse();
                     const replyIds = msgs.map(m => m.reply_to).filter(Boolean);
                     if (replyIds.length > 0) {
                         const { data: replies } = await supabaseAdmin.from('messages').select('id, message, user_id, username').in('id', replyIds);
@@ -3226,8 +3244,8 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                     try { console.debug('Get messages:', chatType, 'count=', (msgs && msgs.length) ? msgs.length : 0); } catch (e) {}
                     return res.json({ messages: msgs });
                 } catch (e) {
-                    try { console.debug('Get messages:', chatType, 'count=', (messages && messages.length) ? messages.length : 0); } catch (ee) {}
-                    return res.json({ messages: messages.reverse() });
+                    try { console.debug('Get messages:', chatType, 'count=', (filteredMessages && filteredMessages.length) ? filteredMessages.length : 0); } catch (ee) {}
+                    return res.json({ messages: filteredMessages.reverse() });
                 }
         }
 
@@ -3362,6 +3380,110 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+
+    // Delete message for everyone (hard delete - only message owner can do this)
+    app.delete('/api/messages/:id/delete-all', requireAuth, async (req, res) => {
+        try {
+            const messageId = req.params.id;
+            
+            // Verify the user owns this message
+            const { data: message, error: fetchError } = await supabaseAdmin
+                .from('messages')
+                .select('user_id')
+                .eq('id', messageId)
+                .single();
+            
+            if (fetchError || !message) {
+                return res.status(404).json({ error: 'Message not found' });
+            }
+            
+            if (String(message.user_id) !== String(req.session.userId)) {
+                return res.status(403).json({ error: 'You can only delete your own messages' });
+            }
+            
+            // Hard delete the message
+            const { error: deleteError } = await supabaseAdmin
+                .from('messages')
+                .delete()
+                .eq('id', messageId);
+            
+            if (deleteError) {
+                console.error('Delete message error:', deleteError);
+                return res.status(500).json({ error: 'Failed to delete message' });
+            }
+            
+            res.json({ success: true, message: 'Message deleted for everyone' });
+        } catch (error) {
+            console.error('Delete message error:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    });
+
+    // Delete message for current user only (soft delete)
+    app.delete('/api/messages/:id/delete-for-me', requireAuth, async (req, res) => {
+        try {
+            const messageId = req.params.id;
+            
+            // Verify message exists
+            const { data: message, error: fetchError } = await supabaseAdmin
+                .from('messages')
+                .select('id')
+                .eq('id', messageId)
+                .single();
+            
+            if (fetchError || !message) {
+                return res.status(404).json({ error: 'Message not found' });
+            }
+            
+            // Add to deleted_messages table (soft delete)
+            const upsertPayload = {
+                user_id: req.session.userId,
+                message_id: messageId,
+                deleted_at: new Date().toISOString()
+            };
+
+            let { error: insertError } = await supabaseAdmin
+                .from('deleted_messages')
+                .upsert(upsertPayload, { onConflict: 'user_id,message_id' });
+
+            // If the table does not exist, attempt to create it and retry once
+            if (insertError && (String(insertError.message || '').includes('does not exist') || String(insertError.code || '') === '42P01')) {
+                console.warn('deleted_messages table missing; attempting to create it on-the-fly');
+                try {
+                    const pool = createSessionPool();
+                    const createSql = `
+                        CREATE TABLE IF NOT EXISTS deleted_messages (
+                            id UUID PRIMARY KEY,
+                            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                            message_id UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                            deleted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                            UNIQUE(user_id, message_id)
+                        );
+                        CREATE INDEX IF NOT EXISTS idx_deleted_messages_user_id ON deleted_messages(user_id);
+                        CREATE INDEX IF NOT EXISTS idx_deleted_messages_message_id ON deleted_messages(message_id);
+                    `;
+                    await pool.query(createSql);
+
+                    // retry upsert
+                    const retry = await supabaseAdmin.from('deleted_messages').upsert(upsertPayload, { onConflict: 'user_id,message_id' });
+                    insertError = retry.error;
+                } catch (e) {
+                    console.error('Failed to create deleted_messages table:', e);
+                    return res.status(500).json({ error: 'Failed to delete message' });
+                }
+            }
+
+            if (insertError) {
+                console.error('Soft delete message error:', insertError);
+                return res.status(500).json({ error: 'Failed to delete message' });
+            }
+            
+            res.json({ success: true, message: 'Message deleted for you' });
+        } catch (error) {
+            console.error('Delete message error:', error);
+            res.status(500).json({ error: 'Server error' });
+        }
+    });
 
     // Report a chat message
     app.post('/api/messages/:id/report', requireAuth, async (req, res) => {

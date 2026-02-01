@@ -394,6 +394,7 @@ function displayMessages(preserveScroll = false) {
                         <div class="msg-actions-menu" role="menu">
                             <button class="msg-reply-btn" role="menuitem">Reply</button>
                             <button class="msg-report-btn" role="menuitem">Report</button>
+                            <button class="msg-delete-btn" role="menuitem" style="color:var(--danger);">Delete</button>
                         </div>
                     </div>
                 </div>
@@ -490,6 +491,20 @@ function displayMessages(preserveScroll = false) {
                     if (mid && mid.startsWith('msg-')) {
                         const messageId = mid.replace(/^msg-/, '');
                         if (window.openMessageReportModal) window.openMessageReportModal(messageId);
+                    }
+                    if (menu) menu.classList.remove('show');
+                });
+            }
+            
+            const deleteBtn = el.querySelector('.msg-delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const mid = el.getAttribute('id');
+                    if (mid && mid.startsWith('msg-')) {
+                        const messageId = mid.replace(/^msg-/, '');
+                        const isSelf = currentUser && msg && String(msg.user_id) === String(currentUser.id);
+                        openDeleteMessageModal(messageId, isSelf);
                     }
                     if (menu) menu.classList.remove('show');
                 });
@@ -1268,5 +1283,120 @@ async function logout() {
         console.error('Logout error:', error);
         try { await window.showModal('An error occurred while logging out. Redirecting to login.', 'Error', { small: true }); } catch (e) {}
         window.location.href = '/login';
+    }
+}
+
+// Delete message functionality
+let _deleteMessageId = null;
+
+function openDeleteMessageModal(messageId, isSelf) {
+    _deleteMessageId = messageId;
+    
+    const modal = document.getElementById('deleteMessageModal');
+    if (!modal) {
+        createDeleteMessageModal();
+        setTimeout(() => openDeleteMessageModal(messageId, isSelf), 100);
+        return;
+    }
+    
+    // Show/hide delete options based on whether user owns the message
+    const deleteForAllBtn = document.getElementById('deleteForAllBtn');
+    const deleteForYouBtn = document.getElementById('deleteForYouBtn');
+    
+    if (deleteForAllBtn && deleteForYouBtn) {
+        if (isSelf) {
+            // User owns the message: show both options
+            deleteForAllBtn.style.display = 'block';
+            deleteForYouBtn.style.display = 'block';
+        } else {
+            // User doesn't own the message: only "Delete for You"
+            deleteForAllBtn.style.display = 'none';
+            deleteForYouBtn.style.display = 'block';
+        }
+    }
+    
+    // Use the shared modal 'show' class so CSS centers it correctly
+    modal.classList.add('show');
+    // focus primary action for accessibility
+    try {
+        const deleteForYouBtn = document.getElementById('deleteForYouBtn');
+        const deleteForAllBtn = document.getElementById('deleteForAllBtn');
+        if (deleteForYouBtn) deleteForYouBtn.focus();
+        else if (deleteForAllBtn) deleteForAllBtn.focus();
+    } catch (e) { /* ignore */ }
+}
+
+function createDeleteMessageModal() {
+    const existingModal = document.getElementById('deleteMessageModal');
+    if (existingModal) return;
+    
+    const modal = document.createElement('div');
+    modal.id = 'deleteMessageModal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content modal-helper-box" style="max-width:420px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Delete Message</h3>
+                <button class="modal-close" aria-label="Close" onclick="closeDeleteMessageModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin:0 0 16px;color:var(--dark-gray);">How would you like to delete this message?</p>
+                <div style="display:flex;flex-direction:column;gap:12px;">
+                    <button id="deleteForAllBtn" class="btn btn-danger" onclick="deleteMessage('all')" style="width:100%;">
+                        <i class="bi bi-trash"></i> Delete for Everyone
+                    </button>
+                    <button id="deleteForYouBtn" class="btn btn-outline" onclick="deleteMessage('you')" style="width:100%;">
+                        <i class="bi bi-eye-slash"></i> Delete for You
+                    </button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeDeleteMessageModal()">Cancel</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    
+    // Close on outside click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeDeleteMessageModal();
+    });
+}
+
+function closeDeleteMessageModal() {
+    const modal = document.getElementById('deleteMessageModal');
+    if (modal) modal.classList.remove('show');
+    _deleteMessageId = null;
+}
+
+async function deleteMessage(type) {
+    if (!_deleteMessageId) return;
+    
+    const messageId = _deleteMessageId;
+    closeDeleteMessageModal();
+    
+    try {
+        const endpoint = type === 'all' 
+            ? `/api/messages/${messageId}/delete-all`
+            : `/api/messages/${messageId}/delete-for-me`;
+        
+        const response = await fetch(endpoint, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            window.showAlert && window.showAlert('error', data.error || 'Failed to delete message');
+            return;
+        }
+        
+        window.showAlert && window.showAlert('success', type === 'all' ? 'Message deleted for everyone' : 'Message deleted for you', 2000);
+        
+        // Reload messages to reflect deletion
+        await loadMessages(true);
+    } catch (error) {
+        console.error('Error deleting message:', error);
+        window.showAlert && window.showAlert('error', 'Failed to delete message');
     }
 }
