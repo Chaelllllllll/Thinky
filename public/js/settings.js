@@ -187,13 +187,22 @@ async function saveProfileSettings() {
         display_name: document.getElementById('displayName').value.trim(),
         email: document.getElementById('settingsEmail').value.trim()
     };
-    
-    const resp = await fetch('/api/auth/me', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-    });
+
+    // Button UX: find the appropriate save button (standalone or modal)
+    const saveBtn = document.querySelector('#saveProfileBtn') || document.querySelector('#saveSettingsBtn') || document.querySelector('.save-button-container .btn.btn-primary');
+    const origHtml = saveBtn ? saveBtn.innerHTML : null;
+    try {
+        if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...';
+        }
+
+        const resp = await fetch('/api/auth/me', {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
     
     if (!resp.ok) {
         const error = await resp.json().catch(() => ({ error: 'Failed to update profile' }));
@@ -232,6 +241,12 @@ async function saveProfileSettings() {
     }
 
     await window.showModal('Profile updated successfully', 'Success', { small: true });
+    } finally {
+        if (saveBtn) {
+            try { saveBtn.disabled = false; } catch (e) {}
+            try { saveBtn.innerHTML = origHtml || 'Save Changes'; } catch (e) {}
+        }
+    }
 }
 
 async function enableGoogleAuth() {
