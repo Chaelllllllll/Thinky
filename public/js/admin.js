@@ -15,6 +15,23 @@ document.addEventListener('DOMContentLoaded', () => {
     loadReviewers();
     // Load moderation queue for admins
     if (typeof loadModeration === 'function') loadModeration();
+    // If a hash is present (e.g. #users, #reviewers, #moderation), switch to that tab
+    try {
+        const hash = (location.hash || '').replace('#','');
+        // support #message-moderation by mapping it to the moderation tab
+        const map = {
+            'users': 'users',
+            'reviewers': 'reviewers',
+            'moderation': 'moderation',
+            'message-moderation': 'moderation'
+        };
+        if (hash && map[hash]) {
+            // slight delay to allow initial rendering
+            setTimeout(() => switchTab(map[hash]), 50);
+        }
+    } catch (e) { /* ignore */ }
+    // Highlight the correct sidebar link on load
+    try { updateSidebarActive(); } catch (e) { /* ignore */ }
     // Auto-refresh data every 30 seconds (messages removed)
     setInterval(() => {
         loadAnalytics();
@@ -72,6 +89,46 @@ async function loadCurrentUser() {
         window.location.href = '/login';
     }
 }
+
+// Update sidebar active state based on current location
+function updateSidebarActive() {
+    const links = Array.from(document.querySelectorAll('.sidebar-nav .sidebar-link'));
+    // determine target key: users/reviewers/moderation
+    let key = null;
+    const p = (location.pathname || '').toLowerCase();
+    if (p.includes('admin-users')) key = 'users';
+    else if (p.includes('admin-reviewers')) key = 'reviewers';
+    else if (p.includes('admin-message-moderation')) key = 'message-moderation';
+    else if (p.includes('admin-moderation')) key = 'moderation';
+    else {
+        const h = (location.hash || '').replace('#','').toLowerCase();
+        if (['users','reviewers','moderation','message-moderation'].includes(h)) key = h;
+    }
+    if (!key) key = 'users'; // default
+
+    links.forEach(a => {
+        a.classList.remove('active');
+        const href = (a.getAttribute('href')||'').toLowerCase();
+        if ((key === 'users' && href.includes('admin-users')) ||
+            (key === 'reviewers' && href.includes('admin-reviewers')) ||
+            (key === 'moderation' && href.includes('admin-moderation')) ||
+            (key === 'message-moderation' && href.includes('admin-message-moderation'))) {
+            a.classList.add('active');
+        }
+    });
+}
+
+// Recompute active when hash changes or navigation occurs
+window.addEventListener('hashchange', () => { updateSidebarActive(); });
+window.addEventListener('popstate', () => { updateSidebarActive(); });
+
+// Also update active when sidebar links are clicked
+document.addEventListener('click', (ev) => {
+    const a = ev.target.closest && ev.target.closest('.sidebar-link');
+    if (!a) return;
+    // let normal navigation occur, but update active immediately for responsiveness
+    setTimeout(() => updateSidebarActive(), 10);
+});
 
 // Global logout helper for pages that include admin.js (and similar admin UI)
 window.logout = async function() {
@@ -190,12 +247,24 @@ function displayUsers() {
 }
 
 function filterUsers() {
-    const searchTerm = document.getElementById('userSearch').value.toLowerCase();
-    const filtered = users.filter(user => 
-        (user.username && user.username.toLowerCase().includes(searchTerm)) ||
-        (user.email && user.email.toLowerCase().includes(searchTerm)) ||
-        (user.display_name && user.display_name.toLowerCase().includes(searchTerm))
-    );
+    const searchTerm = (document.getElementById('userSearch').value || '').toLowerCase();
+    const roleFilterEl = document.getElementById('roleFilter');
+    const roleFilter = roleFilterEl ? (roleFilterEl.value || 'all') : 'all';
+
+    const filtered = users.filter(user => {
+        const username = (user.username || '').toLowerCase();
+        const email = (user.email || '').toLowerCase();
+        const displayName = (user.display_name || '').toLowerCase();
+        const role = (user.role || '').toLowerCase();
+
+        // search term matches username, email, display name, or role
+        const matchesSearch = !searchTerm || username.includes(searchTerm) || email.includes(searchTerm) || displayName.includes(searchTerm) || role.includes(searchTerm);
+
+        // role filter must match exactly unless 'all'
+        const matchesRole = (roleFilter === 'all') || (role === roleFilter);
+
+        return matchesSearch && matchesRole;
+    });
 
     const tbody = document.getElementById('usersTableBody');
     
@@ -270,11 +339,15 @@ function attachUserActionHandlers() {
 }
 
 async function toggleUserRole(userId, currentRole) {
-    const newRole = currentRole === 'admin' ? 'student' : 'admin';
-    
-    if (!(await window.showConfirm(`Change user role from ${currentRole} to ${newRole}?`, 'Confirm Role Change'))) {
+    // Prompt admin to choose new role
+    const choice = await window.showPrompt('Enter new role (admin, moderator, student):', 'Set User Role', { defaultValue: currentRole });
+    if (!choice) return;
+    const newRole = choice.trim().toLowerCase();
+    if (!['admin','moderator','student'].includes(newRole)) {
+        await window.showModal('Invalid role selected', 'Error');
         return;
     }
+    if (!(await window.showConfirm(`Change user role from ${currentRole} to ${newRole}?`, 'Confirm Role Change'))) return;
 
     try {
         const response = await fetch(`/api/admin/users/${userId}/role`, {
@@ -343,7 +416,15 @@ async function loadModeration() {
         const resp = await fetch('/api/admin/moderation', { credentials: 'include' });
         if (!resp.ok) throw new Error('Failed to load moderation');
         const data = await resp.json();
-        displayModeration(data.reports || []);
+        // Determine scope from hash: 'message-moderation' => message reports only, default => reviewer reports
+        const hash = (location.hash || '').replace('#','').toLowerCase();
+        const scope = (hash === 'message-moderation') ? 'message' : 'reviewer';
+        // update moderation header title to reflect selected scope
+        try {
+            const hdr = document.querySelector('#moderationTab .table-header h3');
+            if (hdr) hdr.textContent = scope === 'message' ? 'Message Moderation' : 'Reviewer Moderation';
+        } catch (e) {}
+        displayModeration(data.reports || [], scope);
     } catch (e) {
         console.error('Error loading moderation:', e);
         const tbody = document.getElementById('moderationTableBody');
@@ -351,118 +432,429 @@ async function loadModeration() {
     }
 }
 
-function displayModeration(reports) {
+function displayModeration(reports, scope = 'reviewer') {
     const tbody = document.getElementById('moderationTableBody');
     if (!tbody) return;
     // Filter out already resolved or dismissed reports as a defensive client-side check
-    const openReports = (reports || []).filter(r => !r.status || r.status === 'open');
+    let openReports = (reports || []).filter(r => !r.status || r.status === 'open');
+    // Filter by requested scope
+    if (scope === 'message') {
+        openReports = openReports.filter(r => (r.type === 'chat') || (!!r.message));
+    } else {
+        openReports = openReports.filter(r => !(r.type === 'chat') && !r.message);
+    }
     if (!openReports || openReports.length === 0) {
         tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--dark-gray);">No reports found</td></tr>`;
         return;
     }
 
-    tbody.innerHTML = openReports.map(r => `
+    tbody.innerHTML = openReports.map(r => {
+        if (r.type === 'chat' || r.message) {
+            const msg = r.message || {};
+            const reportedUser = msg.username || msg.user_id || 'Unknown User';
+            const viewLink = msg.id ? `<a href="/chat.html?scrollTo=${encodeURIComponent(msg.id)}" target="_blank" style="color:var(--primary-pink);font-weight:500;">View message</a>` : '';
+            return `
         <tr>
-            <td>${escapeHtml(r.reviewers?.title || r.reviewer_id || '')}</td>
+            <td><strong>${escapeHtml(reportedUser)}</strong></td>
+            <td>${escapeHtml(r.reporter?.username || 'Anonymous')}</td>
+            <td><span class="badge badge-warning">${escapeHtml(r.report_type || 'unspecified')}</span></td>
+            <td style="max-width:300px;">${viewLink}</td>
+            <td style="white-space:nowrap;">${new Date(r.created_at).toLocaleString()}</td>
+            <td>
+                <div class="action-buttons">
+                    <button class="btn btn-warning btn-sm" onclick="openMessageActionModal('${r.id}')">Take Action</button>
+                    <button class="btn btn-light btn-sm" onclick="dismissReport('${r.id}')">Dismiss</button>
+                </div>
+            </td>
+        </tr>
+        `;
+        }
+        // default: reviewer report
+        const reviewerTitle = r.reviewers?.title || 'Untitled Reviewer';
+        const reviewerId = r.reviewers?.id || r.reviewer_id;
+        const reviewerLink = reviewerId ? `<a href="/user.html?reviewer=${encodeURIComponent(reviewerId)}" target="_blank" style="color:var(--primary-pink);font-weight:500;" onclick="event.preventDefault(); window.openReviewerModal('${reviewerId}'); return false;">${escapeHtml(reviewerTitle)}</a>` : escapeHtml(reviewerTitle);
+        return `
+        <tr>
+            <td>${reviewerLink}</td>
             <td>${escapeHtml(r.reporter?.username || '')}</td>
             <td>${escapeHtml(r.report_type || '')}</td>
             <td style="max-width:280px;">${escapeHtml((r.details || '').substring(0,300))}</td>
             <td>${new Date(r.created_at).toLocaleString()}</td>
             <td>
                 <div class="action-buttons">
-                    <button class="btn btn-warning btn-sm" onclick="openActionSelector('${r.id}')">Restrict</button>
-                    <button class="btn btn-danger btn-sm" onclick="adminTakeAction('${r.id}','delete_user')">Delete User</button>
+                    <button class="btn btn-warning btn-sm" onclick="openReviewerActionModal('${r.id}')">Take Action</button>
+                    <button class="btn btn-light btn-sm" onclick="dismissReport('${r.id}')">Dismiss</button>
                 </div>
             </td>
         </tr>
-    `).join('');
+        `;
+    }).join('');
 }
 
-// Open a custom modal to select restrict/ban durations and optional note
-window.openActionSelector = function(reportId) {
-    // build modal HTML
-    const existing = document.getElementById('actionSelectorModal');
+// Global function to open reviewer modal from moderation table
+window.openReviewerModal = async function(reviewerId) {
+    try {
+        const resp = await fetch(`/api/reviewers/${reviewerId}`, { credentials: 'include' });
+        if (!resp.ok) {
+            await window.showModal('Reviewer not found or not accessible', 'Error');
+            return;
+        }
+        const data = await resp.json();
+        const reviewer = data.reviewer;
+        
+        // Create modal
+        const existing = document.getElementById('reviewerViewModal');
+        if (existing) existing.remove();
+        
+        const modal = document.createElement('div');
+        modal.id = 'reviewerViewModal';
+        modal.className = 'modal';
+        modal.style.display = 'flex';
+        modal.style.zIndex = 8000;
+        
+        modal.innerHTML = `
+            <div class="modal-content" style="max-width:800px;max-height:90vh;overflow-y:auto;">
+                <div class="modal-header">
+                    <h3 class="modal-title">${escapeHtml(reviewer.title || 'Reviewer')}</h3>
+                    <button class="modal-close" id="reviewerViewClose">&times;</button>
+                </div>
+                <div class="modal-body" style="padding:24px;">
+                    <div style="margin-bottom:16px;">
+                        <strong style="color:var(--dark-gray);">Content:</strong>
+                        <div style="margin-top:8px;padding:16px;background:#fafafa;border-radius:8px;white-space:pre-wrap;">${escapeHtml(reviewer.content || 'No content')}</div>
+                    </div>
+                    ${reviewer.flashcards && reviewer.flashcards.length > 0 ? `
+                        <div style="margin-top:20px;">
+                            <strong style="color:var(--dark-gray);">Flashcards (${reviewer.flashcards.length}):</strong>
+                            <div style="margin-top:8px;">${reviewer.flashcards.map((fc, idx) => `
+                                <div style="padding:12px;margin-top:8px;background:#fff;border:1px solid #e0e0e0;border-radius:6px;">
+                                    <div style="font-weight:600;color:var(--primary-pink);">Card ${idx + 1}</div>
+                                    <div style="margin-top:6px;"><strong>Front:</strong> ${escapeHtml(fc.front || fc.meaning || '')}</div>
+                                    <div style="margin-top:4px;"><strong>Back:</strong> ${escapeHtml(fc.back || fc.content || '')}</div>
+                                </div>
+                            `).join('')}</div>
+                        </div>
+                    ` : ''}
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-light" id="reviewerViewCloseBtn">Close</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(modal);
+        
+        const close = () => { try { modal.remove(); } catch(e) {} };
+        document.getElementById('reviewerViewClose').onclick = close;
+        document.getElementById('reviewerViewCloseBtn').onclick = close;
+        modal.onclick = (e) => { if (e.target === modal) close(); };
+        
+    } catch (error) {
+        console.error('Error opening reviewer modal:', error);
+        await window.showModal('Failed to load reviewer content', 'Error');
+    }
+};
+
+// Professional modal for message report actions
+window.openMessageActionModal = function(reportId) {
+    const existing = document.getElementById('messageActionModal');
     if (existing) existing.remove();
     const div = document.createElement('div');
-    div.id = 'actionSelectorModal';
+    div.id = 'messageActionModal';
     div.className = 'modal';
     div.style.display = 'flex';
     div.style.zIndex = 7000;
     div.innerHTML = `
-        <div class="modal-content" style="max-width:640px;">
-            <div class="modal-header"><h3 class="modal-title">Take Action</h3><button class="modal-close" id="actionSelectorClose">&times;</button></div>
-            <div class="modal-body">
-                <p>Select the type of action and duration:</p>
-                <div style="margin-bottom:12px;">
-                    <label><input type="radio" name="actionType" value="restrict" checked> Restrict posting</label>
-                    &nbsp;&nbsp;
-                    <label><input type="radio" name="actionType" value="ban"> Ban user</label>
+        <div class="modal-content" style="max-width:700px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-chat-square-text-fill"></i> Message Moderation Action</h3>
+                <button class="modal-close" id="msgActionClose">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:24px;">
+                <p style="margin-bottom:20px;color:var(--dark-gray);font-size:14px;">Select the appropriate action for this reported chat message:</p>
+                
+                <div style="margin-bottom:20px;">
+                    <label style="font-weight:600;margin-bottom:12px;display:block;color:var(--text-dark);">Message Action</label>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
+                            <input type="radio" name="msgActionType" value="delete_message" checked style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Delete Message</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Remove the message from chat</small>
+                        </label>
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
+                            <input type="radio" name="msgActionType" value="mute_user" style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Mute User</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Temporarily restrict from chat</small>
+                        </label>
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
+                            <input type="radio" name="msgActionType" value="ban_user" style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Ban from Chat</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Suspend chat privileges</small>
+                        </label>
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
+                            <input type="radio" name="msgActionType" value="warn_user" style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Send Warning</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Notify user of violation</small>
+                        </label>
+                    </div>
                 </div>
-                <div id="restrictOptions">
-                    <label><input type="radio" name="duration" value="1h" checked> 1 hour</label><br>
-                    <label><input type="radio" name="duration" value="10h"> 10 hours</label><br>
-                    <label><input type="radio" name="duration" value="24h"> 24 hours</label><br>
-                    <label><input type="radio" name="duration" value="1w"> 1 week</label>
+
+                <div id="msgDurationSection" style="margin-bottom:20px;display:none;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Restriction Duration</label>
+                    <select id="msgDuration" class="form-control" style="max-width:280px;">
+                        <option value="30m">30 minutes</option>
+                        <option value="1h" selected>1 hour</option>
+                        <option value="3h">3 hours</option>
+                        <option value="6h">6 hours</option>
+                        <option value="12h">12 hours</option>
+                        <option value="1d">1 day</option>
+                        <option value="3d">3 days</option>
+                        <option value="1w">1 week</option>
+                        <option value="2w">2 weeks</option>
+                        <option value="1m">1 month</option>
+                        <option value="permanent">Permanent</option>
+                    </select>
                 </div>
-                <div id="banOptions" style="display:none; margin-top:8px;">
-                    <label><input type="radio" name="durationBan" value="24h" checked> 24 hours</label><br>
-                    <label><input type="radio" name="durationBan" value="1w"> 1 week</label><br>
-                    <label><input type="radio" name="durationBan" value="1m"> 1 month</label><br>
-                    <label><input type="radio" name="durationBan" value="3m"> 3 months</label><br>
-                    <label><input type="radio" name="durationBan" value="permanent"> Permanent</label>
+
+                <div style="margin-bottom:20px;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Action Reason</label>
+                    <textarea id="msgActionNote" class="form-control" placeholder="Specify the violation and reason for this action..." style="width:100%;height:90px;resize:vertical;font-size:14px;"></textarea>
+                    <small style="color:var(--dark-gray);font-size:12px;">This will be logged in the moderation history</small>
                 </div>
-                <div style="margin-top:12px;">
-                    <label>Optional note</label>
-                    <textarea id="actionNote" class="form-control" placeholder="Add a note for the audit..." style="width:100%;height:80px;"></textarea>
+
+                <div style="padding:14px;background:#fff3cd;border-radius:8px;border-left:4px solid #ffc107;">
+                    <div style="display:flex;align-items:start;gap:10px;">
+                        <i class="bi bi-info-circle-fill" style="color:#856404;font-size:18px;margin-top:2px;"></i>
+                        <small style="color:#856404;line-height:1.5;"><strong>Message Actions:</strong> Delete Message removes the content. Mute/Ban actions affect the user's ability to post in chat.</small>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-light" id="actionCancel">Cancel</button>
-                <button class="btn btn-primary" id="actionSubmit">Submit</button>
+                <button class="btn btn-light" id="msgActionCancel">Cancel</button>
+                <button class="btn btn-danger" id="msgActionSubmit" style="min-width:140px;"><i class="bi bi-shield-fill-check"></i> Execute Action</button>
             </div>
         </div>`;
     document.body.appendChild(div);
 
+    const labels = div.querySelectorAll('.action-type-label');
+    const updateLabels = () => {
+        labels.forEach(l => {
+            const input = l.querySelector('input');
+            if (input.checked) {
+                l.style.borderColor = 'var(--primary-pink)';
+                l.style.background = 'var(--secondary-pink)';
+                l.style.transform = 'scale(1.02)';
+            } else {
+                l.style.borderColor = 'var(--medium-gray)';
+                l.style.background = 'white';
+                l.style.transform = 'scale(1)';
+            }
+        });
+        const actionType = div.querySelector('input[name="msgActionType"]:checked').value;
+        const durationSection = document.getElementById('msgDurationSection');
+        durationSection.style.display = (actionType === 'mute_user' || actionType === 'ban_user') ? 'block' : 'none';
+    };
+    div.querySelectorAll('input[name="msgActionType"]').forEach(r => r.addEventListener('change', updateLabels));
+    updateLabels();
+
     const close = () => { try{ div.remove(); }catch(e){} };
-    document.getElementById('actionSelectorClose').onclick = close;
-    document.getElementById('actionCancel').onclick = close;
+    document.getElementById('msgActionClose').onclick = close;
+    document.getElementById('msgActionCancel').onclick = close;
 
-    // toggle option groups
-    div.querySelectorAll('input[name="actionType"]').forEach(r => r.addEventListener('change', (e)=>{
-        const v = e.target.value;
-        document.getElementById('restrictOptions').style.display = v === 'restrict' ? 'block' : 'none';
-        document.getElementById('banOptions').style.display = v === 'ban' ? 'block' : 'none';
-    }));
-
-    document.getElementById('actionSubmit').onclick = async () => {
-        const actionType = div.querySelector('input[name="actionType"]:checked').value;
-        let duration = null;
-        if (actionType === 'restrict') {
-            duration = div.querySelector('input[name="duration"]:checked').value;
-        } else {
-            duration = div.querySelector('input[name="durationBan"]:checked').value;
+    document.getElementById('msgActionSubmit').onclick = async () => {
+        const actionType = div.querySelector('input[name="msgActionType"]:checked').value;
+        const duration = document.getElementById('msgDuration').value;
+        const note = document.getElementById('msgActionNote').value.trim();
+        
+        if (!note) {
+            await window.showModal('Please provide a reason for this moderation action.', 'Reason Required');
+            return;
         }
-        const note = document.getElementById('actionNote').value || '';
 
-        // convert duration to ISO until
-        const until = computeUntilFromDuration(duration);
-        // call adminTakeAction with opts
-        await adminTakeAction(reportId, actionType === 'restrict' ? 'restrict' : 'ban', { until, note });
+        let confirmMsg = '';
+        if (actionType === 'delete_message') confirmMsg = 'Delete this message from the chat?';
+        else if (actionType === 'mute_user') confirmMsg = 'Mute this user from posting in chat?';
+        else if (actionType === 'ban_user') confirmMsg = 'Ban this user from chat completely?';
+        else if (actionType === 'warn_user') confirmMsg = 'Send a warning to this user?';
+        
+        if (!await window.showConfirm(confirmMsg, 'Confirm Moderation Action')) return;
+        
+        if (actionType === 'warn_user') {
+            await adminTakeAction(reportId, 'warn_message', { note });
+        } else if (actionType === 'delete_message') {
+            await adminTakeAction(reportId, 'delete_message', { note });
+        } else {
+            const until = computeUntilFromDuration(duration);
+            const action = actionType === 'mute_user' ? 'mute' : 'ban_chat';
+            await adminTakeAction(reportId, action, { until, note });
+        }
         close();
     };
+};
+
+// Professional modal for reviewer report actions
+window.openReviewerActionModal = function(reportId) {
+    const existing = document.getElementById('reviewerActionModal');
+    if (existing) existing.remove();
+    const div = document.createElement('div');
+    div.id = 'reviewerActionModal';
+    div.className = 'modal';
+    div.style.display = 'flex';
+    div.style.zIndex = 7000;
+    div.innerHTML = `
+        <div class="modal-content" style="max-width:700px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-journal-text"></i> Reviewer Content Moderation</h3>
+                <button class="modal-close" id="revActionClose">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:24px;">
+                <p style="margin-bottom:20px;color:var(--dark-gray);font-size:14px;">Select the appropriate action for this reported reviewer content:</p>
+                
+                <div style="margin-bottom:20px;">
+                    <label style="font-weight:600;margin-bottom:12px;display:block;color:var(--text-dark);">Content Action</label>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;">
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="rev-action-label">
+                            <input type="radio" name="revActionType" value="hide_reviewer" checked style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Hide Reviewer</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Make private temporarily</small>
+                        </label>
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="rev-action-label">
+                            <input type="radio" name="revActionType" value="delete_reviewer" style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Delete Reviewer</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Permanently remove content</small>
+                        </label>
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="rev-action-label">
+                            <input type="radio" name="revActionType" value="suspend_author" style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Suspend Author</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Block from creating content</small>
+                        </label>
+                        <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="rev-action-label">
+                            <input type="radio" name="revActionType" value="warn_author" style="margin-right:8px;">
+                            <div><strong style="color:var(--text-dark);">Issue Warning</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Notify author of violation</small>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="revDurationSection" style="margin-bottom:20px;display:none;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Suspension Duration</label>
+                    <select id="revDuration" class="form-control" style="max-width:280px;">
+                        <option value="1d">1 day</option>
+                        <option value="3d">3 days</option>
+                        <option value="1w" selected>1 week</option>
+                        <option value="2w">2 weeks</option>
+                        <option value="1m">1 month</option>
+                        <option value="3m">3 months</option>
+                        <option value="6m">6 months</option>
+                        <option value="permanent">Permanent</option>
+                    </select>
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Violation Details</label>
+                    <textarea id="revActionNote" class="form-control" placeholder="Describe the policy violation and justification for this action..." style="width:100%;height:90px;resize:vertical;font-size:14px;"></textarea>
+                    <small style="color:var(--dark-gray);font-size:12px;">This will be recorded in the content moderation log</small>
+                </div>
+
+                <div style="padding:14px;background:#e7f3ff;border-radius:8px;border-left:4px solid #0066cc;">
+                    <div style="display:flex;align-items:start;gap:10px;">
+                        <i class="bi bi-lightbulb-fill" style="color:#0066cc;font-size:18px;margin-top:2px;"></i>
+                        <small style="color:#004085;line-height:1.5;"><strong>Content Actions:</strong> Hide temporarily removes visibility. Delete permanently removes content. Suspend prevents author from creating new reviewers.</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" id="revActionCancel">Cancel</button>
+                <button class="btn btn-primary" id="revActionSubmit" style="min-width:140px;"><i class="bi bi-shield-fill-check"></i> Execute Action</button>
+            </div>
+        </div>`;
+    document.body.appendChild(div);
+
+    const labels = div.querySelectorAll('.rev-action-label');
+    const updateLabels = () => {
+        labels.forEach(l => {
+            const input = l.querySelector('input');
+            if (input.checked) {
+                l.style.borderColor = 'var(--primary-pink)';
+                l.style.background = 'var(--secondary-pink)';
+                l.style.transform = 'scale(1.02)';
+            } else {
+                l.style.borderColor = 'var(--medium-gray)';
+                l.style.background = 'white';
+                l.style.transform = 'scale(1)';
+            }
+        });
+        const actionType = div.querySelector('input[name="revActionType"]:checked').value;
+        const durationSection = document.getElementById('revDurationSection');
+        durationSection.style.display = (actionType === 'suspend_author' || actionType === 'hide_reviewer') ? 'block' : 'none';
+    };
+    div.querySelectorAll('input[name="revActionType"]').forEach(r => r.addEventListener('change', updateLabels));
+    updateLabels();
+
+    const close = () => { try{ div.remove(); }catch(e){} };
+    document.getElementById('revActionClose').onclick = close;
+    document.getElementById('revActionCancel').onclick = close;
+
+    document.getElementById('revActionSubmit').onclick = async () => {
+        const actionType = div.querySelector('input[name="revActionType"]:checked').value;
+        const duration = document.getElementById('revDuration').value;
+        const note = document.getElementById('revActionNote').value.trim();
+        
+        if (!note) {
+            await window.showModal('Please provide details about the policy violation.', 'Details Required');
+            return;
+        }
+
+        let confirmMsg = '';
+        if (actionType === 'delete_reviewer') confirmMsg = 'Permanently delete this reviewer content? This cannot be undone.';
+        else if (actionType === 'hide_reviewer') confirmMsg = 'Hide this reviewer from public view?';
+        else if (actionType === 'suspend_author') confirmMsg = 'Suspend this author from creating new reviewer content?';
+        else if (actionType === 'warn_author') confirmMsg = 'Send a policy violation warning to this author?';
+        
+        if (!await window.showConfirm(confirmMsg, 'Confirm Content Moderation')) return;
+        
+        if (actionType === 'warn_author') {
+            await adminTakeAction(reportId, 'warn_reviewer', { note });
+        } else if (actionType === 'delete_reviewer') {
+            await adminTakeAction(reportId, 'delete_content', { note });
+        } else if (actionType === 'hide_reviewer') {
+            const until = computeUntilFromDuration(duration);
+            await adminTakeAction(reportId, 'hide_content', { until, note });
+        } else if (actionType === 'suspend_author') {
+            const until = computeUntilFromDuration(duration);
+            await adminTakeAction(reportId, 'suspend_author', { until, note });
+        }
+        close();
+    };
+};
+
+// Dismiss report without action
+window.dismissReport = async function(reportId) {
+    if (!await window.showConfirm('Mark this report as reviewed without taking action?', 'Dismiss Report')) return;
+    await adminTakeAction(reportId, 'dismiss', {});
 };
 
 function computeUntilFromDuration(duration) {
     if (!duration) return null;
     const now = new Date();
     if (duration === 'permanent') {
-        // Treat permanent as a far-future timestamp (100 years) so server enforces it
         const far = new Date(); far.setFullYear(far.getFullYear() + 100);
         return far.toISOString();
+    }
+    if (duration.endsWith('m') && duration.includes('m') && !duration.includes('h')) {
+        // minutes (e.g., 30m)
+        const mins = parseInt(duration.replace('m',''),10);
+        now.setMinutes(now.getMinutes() + mins);
+        return now.toISOString();
     }
     if (duration.endsWith('h')) {
         const hrs = parseInt(duration.replace('h',''),10);
         now.setHours(now.getHours() + hrs);
+        return now.toISOString();
+    }
+    if (duration.endsWith('d')) {
+        const days = parseInt(duration.replace('d',''),10);
+        now.setDate(now.getDate() + days);
         return now.toISOString();
     }
     if (duration.endsWith('w')) {
@@ -470,7 +862,8 @@ function computeUntilFromDuration(duration) {
         now.setDate(now.getDate() + weeks * 7);
         return now.toISOString();
     }
-    if (duration.endsWith('m')) {
+    if (duration.endsWith('m') && !duration.includes('h')) {
+        // months (e.g., 1m, 3m)
         const months = parseInt(duration.replace('m',''),10);
         now.setMonth(now.getMonth() + months);
         return now.toISOString();

@@ -285,14 +285,16 @@
                 if (response.ok) {
                     showAlert('Login successful! Redirecting...', 'success');
                     
-                    // Redirect based on role
+                    // Redirect based on role (admin, moderator, student)
                     setTimeout(() => {
                         if (data.user.role === 'admin') {
                             window.location.href = '/admin';
+                        } else if (data.user.role === 'moderator') {
+                            window.location.href = '/moderator';
                         } else {
                             window.location.href = '/dashboard';
                         }
-                    }, 1000);
+                    }, 800);
                 } else {
                     showAlert(data.error || 'Login failed', 'error');
                     resetButton();

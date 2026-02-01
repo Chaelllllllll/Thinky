@@ -199,9 +199,21 @@
             <h2 class="sidebar-brand">Thinky</h2>
         </div>
         <nav class="sidebar-nav">
-            <a href="/admin" class="sidebar-link active">
-                <i class="bi bi-speedometer2"></i>
-                <span>Dashboard</span>
+            <a href="/admin-users.html" class="sidebar-link">
+                <i class="bi bi-people"></i>
+                <span>Users</span>
+            </a>
+            <a href="/admin-reviewers.html" class="sidebar-link">
+                <i class="bi bi-journal-text"></i>
+                <span>Reviewers</span>
+            </a>
+            <a href="/admin-moderation.html" class="sidebar-link">
+                <i class="bi bi-flag"></i>
+                <span>Reviewer Moderation</span>
+            </a>
+            <a href="/admin-message-moderation.html" class="sidebar-link">
+                <i class="bi bi-chat-left-text"></i>
+                <span>Message Moderation</span>
             </a>
             <!-- Removed non-admin links: My Dashboard, Chat, Public Reviewers -->
             <div style="margin-top: auto; padding-top: 24px;">
@@ -254,25 +266,22 @@
             </div>
         </div>
 
-        <!-- Tabs -->
-        <div class="admin-tabs">
-            <div class="admin-tab active" onclick="switchTab('users', this)">
-                <i class="bi bi-people"></i> Users
-            </div>
-            <div class="admin-tab" onclick="switchTab('reviewers', this)">
-                <i class="bi bi-journal-text"></i> Reviewers
-            </div>
-                <div class="admin-tab" onclick="switchTab('moderation', this)">
-                    <i class="bi bi-flag"></i> Moderation
-                </div>
-            <!-- Messages tab removed -->
-        </div>
+        <!-- Header tabs removed (Users / Reviewers / Moderation pills) -->
 
         <!-- Users Tab -->
         <div id="usersTab" class="tab-content active">
             <div class="data-table">
                 <div class="table-header">
                     <h3 style="margin: 0;">User Management</h3>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <label for="roleFilter" style="margin:0 8px 0 0;color:var(--dark-gray);">Role</label>
+                        <select id="roleFilter" class="form-control" onchange="filterUsers()" style="min-width:160px;">
+                            <option value="all">All Roles</option>
+                            <option value="student">Student</option>
+                            <option value="moderator">Moderator</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                    </div>
                 </div>
                 <div style="padding: 20px;">
                     <div class="search-filter">
@@ -314,16 +323,16 @@
         <div id="moderationTab" class="tab-content">
             <div class="data-table">
                 <div class="table-header">
-                    <h3 style="margin: 0;">Moderation Queue</h3>
+                    <h3 style="margin: 0;">Reviewer Moderation Queue</h3>
                 </div>
                 <div style="padding: 20px; overflow-x:auto;">
                     <table id="moderationTable">
                         <thead>
                             <tr>
-                                <th>Reviewer</th>
+                                <th>Reported User</th>
                                 <th>Reporter</th>
-                                <th>Type</th>
-                                <th>Details</th>
+                                <th>Violation Type</th>
+                                <th>Message / Details</th>
                                 <th>Created</th>
                                 <th>Action</th>
                             </tr>
@@ -408,8 +417,9 @@
                     </div>
                     <div class="form-group">
                         <label for="editRole">Role</label>
-                        <select id="editRole" class="form-control">
+                            <select id="editRole" class="form-control">
                             <option value="student">Student</option>
+                            <option value="moderator">Moderator</option>
                             <option value="admin">Admin</option>
                         </select>
                     </div>

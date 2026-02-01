@@ -430,6 +430,7 @@ function displayMessages(preserveScroll = false) {
                         <button class="msg-more-btn" aria-label="more">⋯</button>
                         <div class="msg-actions-menu" role="menu">
                             <button class="msg-reply-btn" role="menuitem">Reply</button>
+                            <button class="msg-report-btn" role="menuitem">Report</button>
                         </div>
                     </div>
                 </div>
@@ -518,6 +519,18 @@ function displayMessages(preserveScroll = false) {
                     if (menu) menu.classList.remove('show');
                 });
             }
+            const reportBtn = el.querySelector('.msg-report-btn');
+            if (reportBtn) {
+                reportBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const mid = el.getAttribute('id');
+                    if (mid && mid.startsWith('msg-')) {
+                        const messageId = mid.replace(/^msg-/, '');
+                        if (window.openMessageReportModal) window.openMessageReportModal(messageId);
+                    }
+                    if (menu) menu.classList.remove('show');
+                });
+            }
         });
 
         // click outside to clear selections and menus
@@ -572,12 +585,7 @@ async function sendMessage() {
     clean = clean.replace(/[\x00-\x1F\x7F]/g, '');
     if (clean.length > 1000) clean = clean.substring(0, 1000);
 
-    // Do a lightweight client-side blacklist check for quicker feedback,
-    // but do NOT persist warnings or mute state locally — server is authoritative.
-    if (clientHasBlacklistedWord(clean)) {
-        window.showAlert && window.showAlert('warning', 'Message contains disallowed content and was blocked.', 6000);
-        return;
-    }
+    // No client-side blocking for blacklisted words — reports are used instead.
 
     // Prevent sending private messages without a recipient
     if (currentChatType === 'private' && !currentRecipientId) {
@@ -835,6 +843,82 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// Report modal for chat messages
+window.openMessageReportModal = async function(messageId) {
+    const existing = document.getElementById('messageReportModal');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'messageReportModal';
+    modal.className = 'modal';
+    modal.style.display = 'flex';
+    modal.style.zIndex = '7000';
+    modal.innerHTML = `
+        <div class="modal-content" style="max-width:560px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Report Message</h3>
+                <button class="modal-close" id="reportModalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom:16px;">Please select the reason for reporting this message:</p>
+                <div style="margin-bottom:12px;">
+                    <label style="display:block;margin-bottom:8px;">
+                        <input type="radio" name="reportType" value="spam" checked> Spam
+                    </label>
+                    <label style="display:block;margin-bottom:8px;">
+                        <input type="radio" name="reportType" value="harassment"> Harassment
+                    </label>
+                    <label style="display:block;margin-bottom:8px;">
+                        <input type="radio" name="reportType" value="inappropriate"> Inappropriate Content
+                    </label>
+                    <label style="display:block;margin-bottom:8px;">
+                        <input type="radio" name="reportType" value="other"> Other
+                    </label>
+                </div>
+                <div style="margin-top:12px;">
+                    <label for="reportDetails">Additional details (optional)</label>
+                    <textarea id="reportDetails" class="form-control" placeholder="Provide more context..." style="width:100%;height:80px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" id="reportCancel">Cancel</button>
+                <button class="btn btn-danger" id="reportSubmit">Submit Report</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    const close = () => { try { modal.remove(); } catch(e) {} };
+    document.getElementById('reportModalClose').onclick = close;
+    document.getElementById('reportCancel').onclick = close;
+    
+    document.getElementById('reportSubmit').onclick = async () => {
+        const reportType = modal.querySelector('input[name="reportType"]:checked').value;
+        const details = document.getElementById('reportDetails').value.trim();
+        
+        try {
+            const resp = await fetch(`/api/messages/${encodeURIComponent(messageId)}/report`, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ report_type: reportType, details })
+            });
+
+            if (!resp.ok) {
+                const j = await resp.json().catch(() => null);
+                await window.showModal((j && j.error) ? j.error : 'Failed to submit report', 'Error');
+                return;
+            }
+
+            await window.showModal('Report submitted successfully. Our moderation team will review it.', 'Success');
+            close();
+        } catch (e) {
+            console.error('Report submission error:', e);
+            await window.showModal('Failed to submit report', 'Error');
+        }
+    };
+};
 
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('show');

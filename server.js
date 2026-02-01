@@ -278,15 +278,8 @@ function clearLoginAttempts(id) {
     try { loginAttempts.delete(id); } catch (e) { /* ignore */ }
 }
 
-// In-memory per-user warning/mute tracking for message blacklist enforcement.
-// NOTE: This is an in-memory store suitable for single-instance deployments
-// or as a short-term mitigation. For multi-instance production, persist
-// warnings/mutes in a shared store (database/redis) so counts and mutes
-// are enforced cluster-wide.
-const messageWarnings = new Map();
+// Blacklist (kept for reference but no automatic blocking is performed);
 const BLACKLIST = (process.env.MESSAGE_BLACKLIST || 'badword1,badword2,slur').split(',').map(s => s.trim()).filter(Boolean);
-const MAX_WARNINGS = parseInt(process.env.MAX_MESSAGE_WARNINGS || '3', 10);
-const MUTE_MS = parseInt(process.env.MESSAGE_MUTE_MS || String(60 * 60 * 1000), 10); // default 1 hour
 
 function normalizeForMatch(text) {
     if (!text) return '';
@@ -299,113 +292,50 @@ function normalizeForMatch(text) {
     return s;
 }
 
+// Improve matching to catch evasions like spacing or simple leet substitutions
+function leetNormalize(s) {
+    if (!s) return s;
+    return s
+        .replace(/[@4]/g, 'a')
+        .replace(/[3]/g, 'e')
+        .replace(/[1!|]/g, 'i')
+        .replace(/[0]/g, 'o')
+        .replace(/[5$]/g, 's')
+        .replace(/[7]/g, 't')
+        .replace(/[8]/g, 'b');
+}
+
 function hasBlacklistedWord(text) {
     if (!text) return false;
     const norm = normalizeForMatch(text);
     if (!norm) return false;
-    // Build regex from BLACKLIST with word boundaries and escape
+
+    // compact form without spaces (catches "g a g o" -> "gago")
+    const compact = norm.replace(/\s+/g, '');
+    // leet-normalized compact (catches "g4g0" -> "gago")
+    const leetCompact = leetNormalize(compact);
+
     for (const raw of BLACKLIST) {
         if (!raw) continue;
         const esc = raw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // word-boundary match against the spaced-normalized text (default behavior)
         const re = new RegExp('\\b' + esc + '\\b', 'i');
         if (re.test(norm)) return true;
+        // substring match against compact forms to catch spaced/obfuscated inputs
+        if (compact.includes(raw.toLowerCase())) return true;
+        if (leetCompact.includes(raw.toLowerCase())) return true;
     }
     return false;
 }
 
-function recordMessageWarning(userId) {
-    try {
-        const now = Date.now();
-        const rec = messageWarnings.get(userId) || { count: 0, first: now, mutedUntil: null };
-        // reset if older than 24h to avoid permanent accumulation
-        if (rec.first && now - rec.first > 24 * 60 * 60 * 1000) {
-            rec.count = 0;
-            rec.first = now;
-            rec.mutedUntil = null;
-        }
-        rec.count = (rec.count || 0) + 1;
-        if (rec.count >= MAX_WARNINGS) {
-            rec.mutedUntil = now + MUTE_MS;
-            rec.count = 0; // reset warnings after mute
-            rec.first = now;
-        }
-        messageWarnings.set(userId, rec);
-        return rec;
-    } catch (e) {
-        return null;
-    }
-}
-
-function getMessageWarningState(userId) {
-    const rec = messageWarnings.get(userId);
-    if (!rec) return { count: 0, mutedUntil: null };
-    return rec;
-}
+// NOTE: Per-user client-side/browser or server-side automatic muting has been
+// removed. Moderation is performed by admins via reports. The blacklist is
+// retained as reference for moderators but messages are no longer blocked
+// or muted automatically.
 
 // Database-backed warning/mute helpers (authoritative). Use supabaseAdmin
 // to persist per-user moderation state so it's consistent across instances.
-async function getMessageWarningStateDB(userId) {
-    try {
-        if (!userId) return { count: 0, mutedUntil: null };
-        const { data, error } = await supabaseAdmin
-            .from('users')
-            .select('message_warning_count, message_warning_first_at, message_muted_until')
-            .eq('id', userId)
-            .single();
-        if (error || !data) return { count: 0, mutedUntil: null };
-        return {
-            count: data.message_warning_count ? Number(data.message_warning_count) : 0,
-            first: data.message_warning_first_at ? new Date(data.message_warning_first_at).getTime() : null,
-            mutedUntil: data.message_muted_until ? new Date(data.message_muted_until).getTime() : null
-        };
-    } catch (e) {
-        return { count: 0, mutedUntil: null };
-    }
-}
-
-async function recordMessageWarningDB(userId) {
-    try {
-        if (!userId) return null;
-        const now = Date.now();
-        const { data, error } = await supabaseAdmin
-            .from('users')
-            .select('message_warning_count, message_warning_first_at, message_muted_until')
-            .eq('id', userId)
-            .single();
-
-        let count = data && data.message_warning_count ? Number(data.message_warning_count) : 0;
-        let first = data && data.message_warning_first_at ? new Date(data.message_warning_first_at).getTime() : now;
-        let mutedUntil = data && data.message_muted_until ? new Date(data.message_muted_until).getTime() : null;
-
-        // Reset sliding window after 24h
-        if (first && now - first > 24 * 60 * 60 * 1000) {
-            count = 0;
-            first = now;
-            mutedUntil = null;
-        }
-
-        count = (count || 0) + 1;
-        const updates = {};
-        if (count >= MAX_WARNINGS) {
-            mutedUntil = now + MUTE_MS;
-            count = 0; // reset warnings after mute
-            first = now;
-            updates.message_warning_count = count;
-            updates.message_warning_first_at = new Date(first).toISOString();
-            updates.message_muted_until = new Date(mutedUntil).toISOString();
-        } else {
-            updates.message_warning_count = count;
-            updates.message_warning_first_at = new Date(first).toISOString();
-        }
-
-        await supabaseAdmin.from('users').update(updates).eq('id', userId);
-
-        return { count, mutedUntil };
-    } catch (e) {
-        console.warn('recordMessageWarningDB error', e && e.message ? e.message : e);
-        return null;
-    }
-}
+// DB-backed warning/mute helpers removed — moderation is via admin reports now.
 
 // Body parsing middleware
 app.use(express.json());
@@ -912,9 +842,8 @@ function renderEmailTemplate(name, vars) {
                 if (name === 'moderation_decision_reporter') {
                         const decision = vars.decision || 'No action taken';
                             const reason = vars.reason || '';
-                            const reportedUser = vars.reportedUser || '';
+                            const contentType = vars.contentType || 'content';
                             const reviewerTitle = vars.reviewerTitle || '';
-                            const reporter = vars.reporter || '';
                             const actionTakenAt = vars.actionTakenAt || '';
                         const supportEmail = process.env.SUPPORT_EMAIL || 'support@thinky.example';
 
@@ -931,17 +860,15 @@ function renderEmailTemplate(name, vars) {
                                         </tr>
                                         <tr>
                                             <td style="padding:20px 24px;color:#222;">
-                                                <p style="margin:0 0 12px 0;">Hello ${escapeHtml(reporter) || 'there'},</p>
-                                                <p style="margin:0 0 12px 0;color:#444;">Thank you for reporting content on Thinky. Our moderation team has reviewed the report you submitted.</p>
+                                                <p style="margin:0 0 12px 0;">Hello,</p>
+                                                <p style="margin:0 0 12px 0;color:#444;">Thank you for reporting ${escapeHtml(contentType)} on Thinky. Our moderation team has reviewed your report and taken appropriate action.</p>
                                                 <table style="width:100%;margin:12px 0;background:#fafafa;padding:12px;border-radius:6px;border:1px solid #eee;">
-                                                    <tr><td style="font-weight:600;width:160px;padding:6px 8px;">Outcome</td><td style="padding:6px 8px;">${escapeHtml(decision)}</td></tr>
-                                                    ${reportedUser ? `<tr><td style="font-weight:600;padding:6px 8px;">Reported user</td><td style="padding:6px 8px;">${escapeHtml(reportedUser)}</td></tr>` : ''}
-                                                    ${reviewerTitle ? `<tr><td style="font-weight:600;padding:6px 8px;">Reviewer</td><td style="padding:6px 8px;">${escapeHtml(reviewerTitle)}</td></tr>` : ''}
-                                                    ${reason ? `<tr><td style="font-weight:600;padding:6px 8px;">Reason</td><td style="padding:6px 8px;">${escapeHtml(reason)}</td></tr>` : ''}
+                                                    <tr><td style="font-weight:600;width:160px;padding:6px 8px;">Action Taken</td><td style="padding:6px 8px;">${escapeHtml(decision)}</td></tr>
+                                                    ${reviewerTitle ? `<tr><td style="font-weight:600;padding:6px 8px;">Content</td><td style="padding:6px 8px;">${escapeHtml(reviewerTitle)}</td></tr>` : ''}
                                                     ${actionTakenAt ? `<tr><td style="font-weight:600;padding:6px 8px;">Date</td><td style="padding:6px 8px;">${escapeHtml(actionTakenAt)}</td></tr>` : ''}
                                                 </table>
-                                                <p style="margin:12px 0 0 0;color:#444;">If you have further information or evidence, you can reply to this email and our team will re-evaluate. Thank you for helping keep Thinky safe.</p>
-                                                <p style="margin:18px 0 0 0;color:#888;font-size:13px;">Regards,<br/>Thinky Moderation Team</p>
+                                                <p style="margin:12px 0 0 0;color:#444;">We take all reports seriously and review them according to our Community Guidelines. If you have additional information or concerns, you may reply to this email.</p>
+                                                <p style="margin:18px 0 0 0;color:#888;font-size:13px;">Thank you for helping keep Thinky safe.<br/><br/>Regards,<br/>Thinky Moderation Team</p>
                                             </td>
                                         </tr>
                                         <tr>
@@ -1214,6 +1141,29 @@ const requireAdmin = async (req, res, next) => {
         next();
     } catch (error) {
         console.error('Admin middleware error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+};
+
+const requireModerator = async (req, res, next) => {
+    if (!req.session.userId) {
+        return res.status(401).json({ error: 'Authentication required' });
+    }
+
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', req.session.userId)
+            .single();
+
+        if (error || !user || (user.role !== 'moderator' && user.role !== 'admin')) {
+            return res.status(403).json({ error: 'Moderator access required' });
+        }
+
+        next();
+    } catch (error) {
+        console.error('Moderator middleware error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 };
@@ -2461,23 +2411,41 @@ app.delete('/api/reviewers/:id', requireAuth, async (req, res) => {
 // -------------------------
 
 // Get open/all reports for moderation
-app.get('/api/admin/moderation', requireAdmin, async (req, res) => {
+app.get('/api/admin/moderation', requireModerator, async (req, res) => {
     try {
-        const { data: reports, error } = await supabaseAdmin
+        // Load reviewer reports
+        const { data: reviewerReports, error: rerr } = await supabaseAdmin
             .from('reviewer_reports')
             .select(
                 '*, reviewers(id,title,user_id,subject_id), ' +
                 "reporter:users!reviewer_reports_reporter_id_fkey(id,username,email), " +
                 "action_user:users!reviewer_reports_action_taken_by_fkey(id,username,email)"
             )
-            // Only return open or unresolved reports by default
             .or('status.eq.open,status.is.null')
             .order('created_at', { ascending: false });
 
-        if (error) {
-            console.error('Failed to load reports:', error);
+        if (rerr) {
+            console.error('Failed to load reviewer reports:', rerr);
             return res.status(500).json({ error: 'Failed to load reports' });
         }
+
+        // Load chat message reports
+        const { data: chatReports, error: cerr } = await supabaseAdmin
+            .from('chat_reports')
+            .select('*, reporter:users!chat_reports_reporter_id_fkey(id,username,email), message:messages(id, user_id, username, message, created_at)')
+            .or('status.eq.open,status.is.null')
+            .order('created_at', { ascending: false });
+
+        if (cerr) {
+            console.error('Failed to load chat reports:', cerr);
+            return res.status(500).json({ error: 'Failed to load reports' });
+        }
+
+        // Normalize and combine report types for the admin UI
+        const normalizedReviewer = (reviewerReports || []).map(r => ({ ...r, report_type: r.report_type, type: 'reviewer' }));
+        const normalizedChat = (chatReports || []).map(r => ({ ...r, report_type: r.report_type, type: 'chat' }));
+
+        const reports = normalizedReviewer.concat(normalizedChat).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
 
         res.json({ reports });
     } catch (err) {
@@ -2487,41 +2455,73 @@ app.get('/api/admin/moderation', requireAdmin, async (req, res) => {
 });
 
 // Take action on a report
-app.put('/api/admin/moderation/:id/action', requireAdmin, async (req, res) => {
+app.put('/api/admin/moderation/:id/action', requireModerator, async (req, res) => {
     try {
         const reportId = req.params.id;
         const adminId = req.session.userId;
         const { action, until, note } = req.body; // action: ban|restrict|delete_user|dismiss
 
-        // Load report (use admin client to bypass RLS)
-        const { data: rdata, error: rerr } = await supabaseAdmin
+        // Load report (try reviewer_reports first, then chat_reports)
+        let rdata = null;
+        let reportTable = null;
+
+        const { data: rr, error: rerr } = await supabaseAdmin
             .from('reviewer_reports')
             .select('*')
             .eq('id', reportId)
             .single();
 
-        if (rerr || !rdata) return res.status(404).json({ error: 'Report not found' });
+        if (rerr || !rr) {
+            // try chat_reports
+            const { data: cr, error: cerr } = await supabaseAdmin
+                .from('chat_reports')
+                .select('*')
+                .eq('id', reportId)
+                .single();
+            if (cerr || !cr) return res.status(404).json({ error: 'Report not found' });
+            rdata = cr;
+            reportTable = 'chat_reports';
+        } else {
+            rdata = rr;
+            reportTable = 'reviewer_reports';
+        }
 
-        // Load reviewer to find the reported user (use admin client)
-        const { data: rev, error: revErr } = await supabaseAdmin
-            .from('reviewers')
-            .select('*')
-            .eq('id', rdata.reviewer_id)
-            .single();
-
-        if (revErr || !rev) return res.status(404).json({ error: 'Reviewer not found' });
-
-        const reportedUserId = rev.user_id;
+        let reportedUserId = null;
+        let rev = null;
+        // If reviewer report, load reviewer to get reported user
+        if (reportTable === 'reviewer_reports') {
+            const { data: revData, error: revErr } = await supabaseAdmin
+                .from('reviewers')
+                .select('*')
+                .eq('id', rdata.reviewer_id)
+                .single();
+            if (revErr || !revData) return res.status(404).json({ error: 'Reviewer not found' });
+            rev = revData;
+            reportedUserId = rev.user_id;
+        } else {
+            // chat report: load referenced message to find reported user
+            const { data: msg, error: msgErr } = await supabaseAdmin
+                .from('messages')
+                .select('*')
+                .eq('id', rdata.message_id)
+                .single();
+            if (msgErr || !msg) return res.status(404).json({ error: 'Reported message not found' });
+            reportedUserId = msg.user_id;
+            rev = null;
+        }
 
         // Perform actions
-        // Interpret empty/undefined/blank 'until' as permanent (far-future) for ban/restrict
+        // Interpret empty/undefined/blank 'until' as permanent (far-future) for ban/restrict/mute
         const farFuture = new Date(); farFuture.setFullYear(farFuture.getFullYear() + 100);
         let effectiveUntil = null;
-        if (action === 'ban' || action === 'restrict') {
+        if (['ban', 'restrict', 'mute', 'ban_chat', 'suspend_author', 'hide_content'].includes(action)) {
             if (typeof until === 'string' && until.trim() !== '') {
                 effectiveUntil = until;
+            } else if (action === 'hide_content' || action === 'suspend_author') {
+                // for hide/suspend, require an until value
+                effectiveUntil = farFuture.toISOString();
             } else {
-                // treat blank/undefined/null as permanent
+                // treat blank/undefined/null as permanent for ban/mute
                 effectiveUntil = farFuture.toISOString();
             }
         }
@@ -2535,7 +2535,31 @@ app.put('/api/admin/moderation/:id/action', requireAdmin, async (req, res) => {
             }
         }
 
-        if (action === 'ban') {
+        // Message moderation actions
+        if (action === 'delete_message' && reportTable === 'chat_reports') {
+            // Delete the message
+            await supabaseAdmin.from('messages').delete().eq('id', rdata.message_id);
+        } else if (action === 'mute' || action === 'ban_chat') {
+            // Mute/ban user from chat
+            await supabaseAdmin.from('users').update({ banned_until: effectiveUntil }).eq('id', reportedUserId);
+        } else if (action === 'warn_message') {
+            // Warning - no database action needed, email will be sent
+        }
+        // Reviewer moderation actions
+        else if (action === 'hide_content' && reportTable === 'reviewer_reports') {
+            // Hide reviewer (make it private)
+            await supabaseAdmin.from('reviewers').update({ is_public: false }).eq('id', rdata.reviewer_id);
+        } else if (action === 'delete_content' && reportTable === 'reviewer_reports') {
+            // Delete reviewer
+            await supabaseAdmin.from('reviewers').delete().eq('id', rdata.reviewer_id);
+        } else if (action === 'suspend_author') {
+            // Suspend user from creating content
+            await supabaseAdmin.from('users').update({ blocked_from_creating_until: effectiveUntil }).eq('id', reportedUserId);
+        } else if (action === 'warn_reviewer') {
+            // Warning - no database action needed, email will be sent
+        }
+        // Legacy actions for backward compatibility
+        else if (action === 'ban') {
             await supabaseAdmin.from('users').update({ banned_until: effectiveUntil }).eq('id', reportedUserId);
         } else if (action === 'restrict') {
             await supabaseAdmin.from('users').update({ blocked_from_creating_until: effectiveUntil }).eq('id', reportedUserId);
@@ -2554,7 +2578,7 @@ app.put('/api/admin/moderation/:id/action', requireAdmin, async (req, res) => {
             resolved_at: actionTakenAt
         };
 
-        await supabaseAdmin.from('reviewer_reports').update(update).eq('id', reportId);
+        await supabaseAdmin.from(reportTable).update(update).eq('id', reportId);
 
         // Notify reporter and reported user by email (best-effort)
         try {
@@ -2564,11 +2588,69 @@ app.put('/api/admin/moderation/:id/action', requireAdmin, async (req, res) => {
             const { data: reporterUser } = await supabaseAdmin.from('users').select('email,username').eq('id', rdata.reporter_id).single();
 
             const reason = note || '';
+            const contentType = reportTable === 'chat_reports' ? 'message' : 'reviewer content';
             let decision = 'No action taken';
+            
             if (action === 'dismiss') {
-                decision = 'Dismissed';
-            } else if (action === 'delete_user') {
-                decision = 'User account deleted';
+                decision = 'No action taken - report dismissed';
+            }
+            // Message moderation decisions
+            else if (action === 'delete_message') {
+                decision = 'Message removed from chat';
+            } else if (action === 'mute' || action === 'ban_chat') {
+                if (effectiveUntil) {
+                    const dt = new Date(effectiveUntil);
+                    const now = new Date();
+                    if (!isNaN(dt.getTime()) && (dt.getFullYear() - now.getFullYear()) >= 50) {
+                        decision = 'Permanently banned from chat';
+                    } else if (!isNaN(dt.getTime())) {
+                        decision = `Chat access suspended until ${dt.toLocaleString()}`;
+                    } else {
+                        decision = 'Chat access suspended';
+                    }
+                } else {
+                    decision = 'Chat access suspended';
+                }
+            } else if (action === 'warn_message') {
+                decision = 'Warning issued for chat message';
+            }
+            // Reviewer moderation decisions
+            else if (action === 'hide_content') {
+                if (effectiveUntil) {
+                    const dt = new Date(effectiveUntil);
+                    const now = new Date();
+                    if (!isNaN(dt.getTime()) && (dt.getFullYear() - now.getFullYear()) >= 50) {
+                        decision = 'Content hidden permanently';
+                    } else if (!isNaN(dt.getTime())) {
+                        decision = `Content hidden until ${dt.toLocaleString()}`;
+                    } else {
+                        decision = 'Content hidden';
+                    }
+                } else {
+                    decision = 'Content hidden';
+                }
+            } else if (action === 'delete_content') {
+                decision = 'Content permanently deleted';
+            } else if (action === 'suspend_author') {
+                if (effectiveUntil) {
+                    const dt = new Date(effectiveUntil);
+                    const now = new Date();
+                    if (!isNaN(dt.getTime()) && (dt.getFullYear() - now.getFullYear()) >= 50) {
+                        decision = 'Permanently suspended from creating content';
+                    } else if (!isNaN(dt.getTime())) {
+                        decision = `Suspended from creating content until ${dt.toLocaleString()}`;
+                    } else {
+                        decision = 'Suspended from creating content';
+                    }
+                } else {
+                    decision = 'Suspended from creating content';
+                }
+            } else if (action === 'warn_reviewer') {
+                decision = 'Warning issued for content violation';
+            }
+            // Legacy actions
+            else if (action === 'delete_user') {
+                decision = 'Account deleted';
             } else if (action === 'ban') {
                 if (effectiveUntil) {
                     const dt = new Date(effectiveUntil);
@@ -2613,6 +2695,7 @@ app.put('/api/admin/moderation/:id/action', requireAdmin, async (req, res) => {
             }
             if (reporterUser && reporterUser.email) {
                 // Notify the reporter thanking them and summarizing the outcome
+                // DO NOT include reporter name for safety
                 sendTemplatedEmail({
                     to: reporterUser.email,
                     subject: 'Update on your report to Thinky moderation',
@@ -2620,9 +2703,8 @@ app.put('/api/admin/moderation/:id/action', requireAdmin, async (req, res) => {
                     variables: {
                         decision,
                         reason,
-                        reportedUser: reportedUser ? (reportedUser.username || '') : '',
+                        contentType: reportTable === 'chat_reports' ? 'message' : 'content',
                         reviewerTitle: rev ? (rev.title || '') : '',
-                        reporter: reporterUser.username || '',
                         actionTakenAt
                     }
                 });
@@ -2754,21 +2836,9 @@ app.post('/api/messages', requireAuth, async (req, res) => {
         // Prevent control characters that could confuse downstream systems
         cleanMessage = cleanMessage.replace(/[\x00-\x1F\x7F]/g, '');
 
-        // Check mute state for this user (DB-backed)
-        const warnState = await getMessageWarningStateDB(req.session.userId);
-        if (warnState && warnState.mutedUntil && Date.now() < warnState.mutedUntil) {
-            const until = new Date(warnState.mutedUntil).toISOString();
-            return res.status(403).json({ error: 'You are muted from sending messages', mutedUntil: until });
-        }
-
-        // Enforce blacklist detection
-        if (hasBlacklistedWord(cleanMessage)) {
-            const rec = await recordMessageWarningDB(req.session.userId) || { count: 0, mutedUntil: null };
-            if (rec.mutedUntil) {
-                return res.status(403).json({ error: 'You have been muted due to repeated blacklist violations', mutedUntil: new Date(rec.mutedUntil).toISOString() });
-            }
-            return res.status(400).json({ error: 'Message contains disallowed content', warnings: rec.count, maxWarnings: MAX_WARNINGS });
-        }
+        // Note: automatic server-side blocking/muting for blacklisted words
+        // has been removed. Messages are accepted and admins moderate via
+        // reports submitted by users.
 
         const insertObj = {
             user_id: req.session.userId,
@@ -2797,6 +2867,31 @@ app.post('/api/messages', requireAuth, async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 });
+
+    // Report a chat message
+    app.post('/api/messages/:id/report', requireAuth, async (req, res) => {
+        try {
+            const messageId = req.params.id;
+            const reporterId = req.session.userId;
+            const { report_type, details } = req.body;
+
+            if (!report_type) return res.status(400).json({ error: 'report_type is required' });
+
+            const { data, error } = await supabaseAdmin
+                .from('chat_reports')
+                .insert([{ message_id: messageId, reporter_id: reporterId, report_type, details }]);
+
+            if (error) {
+                console.error('Failed to create chat report:', error);
+                return res.status(500).json({ error: 'Failed to submit report' });
+            }
+
+            res.json({ ok: true, report: data && data[0] });
+        } catch (err) {
+            console.error('Report message error:', err);
+            res.status(500).json({ error: 'Server error' });
+        }
+    });
 
 // Unread counts since client-provided timestamps
 app.get('/api/messages/unread', requireAuth, async (req, res) => {
@@ -3063,7 +3158,7 @@ app.put('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
         const { id } = req.params;
         const { role } = req.body;
 
-        if (!['student', 'admin'].includes(role)) {
+        if (!['student', 'admin', 'moderator'].includes(role)) {
             return res.status(400).json({ error: 'Invalid role' });
         }
 
@@ -3082,6 +3177,43 @@ app.put('/api/admin/users/:id/role', requireAdmin, async (req, res) => {
         res.json({ user });
     } catch (error) {
         console.error('Update role error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Update user details (admin save modal expects this endpoint)
+app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { display_name, username, email, role, is_verified } = req.body;
+
+        const update = {};
+        if (typeof display_name !== 'undefined') update.display_name = display_name;
+        if (typeof username !== 'undefined') update.username = username;
+        if (typeof email !== 'undefined') update.email = email;
+        if (typeof is_verified !== 'undefined') update.is_verified = !!is_verified;
+        if (typeof role !== 'undefined') {
+            if (!['student','moderator','admin'].includes(role)) {
+                return res.status(400).json({ error: 'Invalid role' });
+            }
+            update.role = role;
+        }
+
+        const { data: user, error } = await supabaseAdmin
+            .from('users')
+            .update(update)
+            .eq('id', id)
+            .select('id, email, username, role, display_name, is_verified')
+            .single();
+
+        if (error) {
+            console.error('Update user error:', error);
+            return res.status(500).json({ error: 'Failed to update user' });
+        }
+
+        res.json({ user });
+    } catch (error) {
+        console.error('Update user error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -3228,6 +3360,13 @@ app.get('/admin', (req, res) => {
         return res.redirect('/login');
     }
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.get('/moderator', (req, res) => {
+    if (!req.session.userId) return res.redirect('/login');
+    // allow moderators and admins to access the moderator console
+    // server-side enforcement of role happens in API endpoints; here we simply serve the page
+    res.sendFile(path.join(__dirname, 'public', 'moderator.html'));
 });
 
 // Profile and Settings (protected)
