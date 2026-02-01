@@ -1075,31 +1075,82 @@ async function loadOlderMessages() {
     }
 }
 
-// Delete private conversation (one-sided)
-async function deletePrivateConversation() {
+// Delete private conversation (one-sided) — open confirmation modal
+function deletePrivateConversation() {
     if (!currentRecipientId) return;
-    
-    const confirmed = confirm(`Delete this conversation with ${currentRecipientName || 'this user'}? This will only delete it for you.`);
-    if (!confirmed) return;
-    
+    openDeleteConversationModal(currentRecipientId, currentRecipientName);
+}
+
+// Confirmation modal for deleting a private conversation
+let _deleteConvTarget = null;
+function openDeleteConversationModal(userId, username) {
+    _deleteConvTarget = userId;
+    const modal = document.getElementById('deleteConversationModal');
+    if (!modal) {
+        createDeleteConversationModal();
+        setTimeout(() => openDeleteConversationModal(userId, username), 100);
+        return;
+    }
+
+    const title = modal.querySelector('.modal-title');
+    const body = modal.querySelector('.modal-body p');
+    const confirmBtn = document.getElementById('confirmDeleteConversationBtn');
+
+    if (title) title.textContent = `Delete conversation with ${username || 'this user'}`;
+    if (body) body.textContent = 'This will only delete the conversation for you. The other user will still see the messages.';
+    if (confirmBtn) confirmBtn.focus();
+
+    modal.classList.add('show');
+}
+
+function createDeleteConversationModal() {
+    const existing = document.getElementById('deleteConversationModal');
+    if (existing) return;
+    const modal = document.createElement('div');
+    modal.id = 'deleteConversationModal';
+    modal.className = 'modal';
+    modal.innerHTML = `
+        <div class="modal-content modal-helper-box" style="max-width:420px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Delete conversation</h3>
+                <button class="modal-close" aria-label="Close" onclick="closeDeleteConversationModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin:0 0 16px;color:var(--dark-gray);">Are you sure you want to delete this conversation?</p>
+                <div style="display:flex;gap:8px;">
+                    <button id="confirmDeleteConversationBtn" class="btn btn-danger" onclick="confirmDeleteConversation()">Delete for You</button>
+                    <button class="btn btn-light" onclick="closeDeleteConversationModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeDeleteConversationModal(); });
+}
+
+function closeDeleteConversationModal() {
+    const modal = document.getElementById('deleteConversationModal');
+    if (modal) modal.classList.remove('show');
+    _deleteConvTarget = null;
+}
+
+async function confirmDeleteConversation() {
+    if (!_deleteConvTarget) return closeDeleteConversationModal();
     try {
-        const response = await fetch(`/api/messages/private/delete?with=${currentRecipientId}`, {
+        const response = await fetch(`/api/messages/private/delete?with=${encodeURIComponent(_deleteConvTarget)}`, {
             method: 'DELETE',
             credentials: 'include'
         });
-        
         if (!response.ok) {
             const data = await response.json().catch(() => ({}));
             window.showAlert && window.showAlert('error', data.error || 'Failed to delete conversation');
             return;
         }
-        
         window.showAlert && window.showAlert('success', 'Conversation deleted successfully');
-        
-        // Go back to contact list
+        closeDeleteConversationModal();
         backToContactList();
-    } catch (error) {
-        console.error('Error deleting conversation:', error);
+    } catch (err) {
+        console.error('Error deleting conversation:', err);
         window.showAlert && window.showAlert('error', 'Failed to delete conversation');
     }
 }
