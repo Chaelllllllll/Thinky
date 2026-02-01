@@ -29,15 +29,15 @@ DROP POLICY IF EXISTS "Users can delete own messages" ON public.messages;
 CREATE POLICY "Users can view messages when allowed" ON public.messages
     FOR SELECT
     USING (
-        chat_type != 'private' OR auth.uid() = user_id OR auth.uid() = recipient_id
+        chat_type != 'private' OR (select auth.uid()) = user_id OR (select auth.uid()) = recipient_id
     );
 
 CREATE POLICY "Authenticated users can insert messages" ON public.messages
     FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
+    WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own messages" ON public.messages
-    FOR DELETE USING (auth.uid() = user_id);
+    FOR DELETE USING ((select auth.uid()) = user_id);
 
 COMMIT;
 

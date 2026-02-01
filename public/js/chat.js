@@ -80,6 +80,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Poll for new messages with adaptive interval to reduce server load
     (function startAdaptiveMessagesPolling(){
+        // Mark that the full chat UI has an active polling loop so
+        // lightweight notifiers don't also poll and cause duplicate requests.
+        try { window._chatPollingActive = true; } catch (e) {}
         let baseInterval = 5000; // 5s when visible
         let hiddenInterval = 20000; // 20s when hidden
         let errorBackoff = 0;
@@ -105,6 +108,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.addEventListener('visibilitychange', () => {
             schedule(document.hidden ? hiddenInterval : baseInterval);
         });
+        // Ensure flag is cleared when page unloads
+        window.addEventListener('beforeunload', () => { try { window._chatPollingActive = false; } catch (e) {} });
     })();
 
     // Try to initialize realtime subscriptions (Supabase) for instant updates

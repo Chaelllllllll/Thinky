@@ -191,12 +191,18 @@
     };
 
     if (!realtimeOk) {
-        // Simplified: poll every 10s regardless of visibility to ensure timely delivery
-        const POLL_MS = 10000;
-        // initial immediate poll
-        poll();
-        setInterval(() => {
-            try { poll(); } catch (e) { console.debug('chatNotifier: periodic poll error', e && e.message); }
-        }, POLL_MS);
+        // If the full chat page is open and already polling, avoid running
+        // the lightweight notifier polling to prevent duplicate fetches.
+        if (window._chatPollingActive) {
+            console.debug('chatNotifier: full chat polling active, skipping notifier poll');
+        } else {
+            // Simplified: poll every 10s regardless of visibility to ensure timely delivery
+            const POLL_MS = 10000;
+            // initial immediate poll
+            poll();
+            setInterval(() => {
+                try { poll(); } catch (e) { console.debug('chatNotifier: periodic poll error', e && e.message); }
+            }, POLL_MS);
+        }
     }
 })();

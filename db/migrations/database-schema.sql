@@ -151,65 +151,65 @@ CREATE POLICY "Users can view all users" ON users
     FOR SELECT USING (true);
 
 CREATE POLICY "Users can update own profile" ON users
-    FOR UPDATE USING (auth.uid() = id);
+    FOR UPDATE USING ((select auth.uid()) = id);
 
 -- Subjects table policies
 CREATE POLICY "Anyone can view subjects" ON subjects
     FOR SELECT USING (true);
 
 CREATE POLICY "Users can insert own subjects" ON subjects
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+    FOR INSERT WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can update own subjects" ON subjects
-    FOR UPDATE USING (auth.uid() = user_id);
+    FOR UPDATE USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own subjects" ON subjects
-    FOR DELETE USING (auth.uid() = user_id);
+    FOR DELETE USING ((select auth.uid()) = user_id);
 
 -- Reviewers table policies
 CREATE POLICY "Anyone can view public reviewers" ON reviewers
     FOR SELECT USING (is_public = true);
 
 CREATE POLICY "Users can view own reviewers" ON reviewers
-    FOR SELECT USING (auth.uid() = user_id);
+    FOR SELECT USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can insert own reviewers" ON reviewers
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+    FOR INSERT WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can update own reviewers" ON reviewers
-    FOR UPDATE USING (auth.uid() = user_id);
+    FOR UPDATE USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own reviewers" ON reviewers
-    FOR DELETE USING (auth.uid() = user_id);
+    FOR DELETE USING ((select auth.uid()) = user_id);
 
 -- Messages table policies
 -- Allow selects for non-private chats to everyone, and for private chats only to participants
 CREATE POLICY "Users can view messages when allowed" ON messages
     FOR SELECT
     USING (
-        chat_type != 'private' OR auth.uid() = user_id OR auth.uid() = recipient_id
+        chat_type != 'private' OR (select auth.uid()) = user_id OR (select auth.uid()) = recipient_id
     );
 
 CREATE POLICY "Authenticated users can insert messages" ON messages
     FOR INSERT
-    WITH CHECK (auth.uid() = user_id);
+    WITH CHECK ((select auth.uid()) = user_id);
 
 -- Allow delete for message owner
 CREATE POLICY "Users can delete own messages" ON messages
-    FOR DELETE USING (auth.uid() = user_id);
+    FOR DELETE USING ((select auth.uid()) = user_id);
 
 -- Online users table policies
 CREATE POLICY "Anyone can view online users" ON online_users
     FOR SELECT USING (true);
 
 CREATE POLICY "Users can insert own online status" ON online_users
-    FOR INSERT WITH CHECK (auth.uid() = user_id);
+    FOR INSERT WITH CHECK ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can update own online status" ON online_users
-    FOR UPDATE USING (auth.uid() = user_id);
+    FOR UPDATE USING ((select auth.uid()) = user_id);
 
 CREATE POLICY "Users can delete own online status" ON online_users
-    FOR DELETE USING (auth.uid() = user_id);
+    FOR DELETE USING ((select auth.uid()) = user_id);
 
 -- =====================================================
 -- FUNCTIONS AND TRIGGERS
@@ -217,12 +217,15 @@ CREATE POLICY "Users can delete own online status" ON online_users
 
 -- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = public, pg_catalog
+AS $$
 BEGIN
     NEW.updated_at = NOW();
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Triggers for updated_at
 CREATE TRIGGER update_users_updated_at
@@ -242,7 +245,10 @@ CREATE TRIGGER update_reviewers_updated_at
 
 -- Function to clean old messages (keep last 1000 messages per chat type)
 CREATE OR REPLACE FUNCTION cleanup_old_messages()
-RETURNS void AS $$
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = public, pg_catalog
+AS $$
 BEGIN
     DELETE FROM messages
     WHERE id IN (
@@ -260,16 +266,19 @@ BEGIN
         OFFSET 1000
     );
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Function to clean offline users (remove users inactive for 5 minutes)
 CREATE OR REPLACE FUNCTION cleanup_offline_users()
-RETURNS void AS $$
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = public, pg_catalog
+AS $$
 BEGIN
     DELETE FROM online_users
     WHERE last_seen < NOW() - INTERVAL '5 minutes';
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- =====================================================
 -- VIEWS FOR ANALYTICS

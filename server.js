@@ -28,7 +28,35 @@ const bcrypt = {
 };
 import multer from 'multer';
 import nodemailer from 'nodemailer';
+import compression from 'compression';
 import crypto from 'crypto';
+
+// =====================================================
+// INPUT VALIDATION & SANITIZATION UTILITIES
+// =====================================================
+
+// UUID validation regex (compile once)
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,50}$/;
+
+function isValidUUID(str) {
+    return typeof str === 'string' && UUID_REGEX.test(str);
+}
+
+function isValidEmail(str) {
+    return typeof str === 'string' && str.length <= 255 && EMAIL_REGEX.test(str);
+}
+
+function isValidUsername(str) {
+    return typeof str === 'string' && USERNAME_REGEX.test(str);
+}
+
+// Sanitize string input - remove null bytes and limit length
+function sanitizeString(str, maxLength = 1000) {
+    if (typeof str !== 'string') return '';
+    return str.replace(/\x00/g, '').slice(0, maxLength).trim();
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,6 +142,10 @@ console.info('Startup check:', {
 
 // If not ready, return a simple JSON 500 for API routes to avoid crashing.
 app.use('/api', (req, res, next) => {
+    // Add request ID for debugging/tracing
+    req.requestId = crypto.randomUUID();
+    res.set('X-Request-ID', req.requestId);
+    
     // Allow the status endpoint to be reachable even when the server is misconfigured
     if (!serverReady) {
         if (req.path === '/_status') return next();
@@ -185,18 +217,37 @@ const isProd = process.env.NODE_ENV === 'production';
 const scriptSrcArray = ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.quilljs.com"];
 if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
+// Enable gzip/brotli compression for all responses
+app.use(compression({
+    level: 6, // balanced compression level
+    threshold: 1024, // only compress responses > 1KB
+    filter: (req, res) => {
+        // Don't compress if client doesn't accept encoding
+        if (req.headers['x-no-compression']) return false;
+        return compression.filter(req, res);
+    }
+}));
+
 app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            connectSrc: ["'self'", "https://cdn.jsdelivr.net"],
+            connectSrc: ["'self'", "https://cdn.jsdelivr.net", process.env.SUPABASE_URL].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
             scriptSrcAttr: ["'unsafe-inline'"],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
-            imgSrc: ["'self'", "data:", "https:"] ,
+            imgSrc: ["'self'", "data:", "https:"],
+            frameAncestors: ["'none'"],
+            formAction: ["'self'"],
+            baseUri: ["'self'"],
         },
     },
+    // Additional security headers
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+    noSniff: true,
+    hidePoweredBy: true,
 }));
 
 if (!isProd) console.info('Helmet CSP: development mode - allowing unsafe-eval for third-party UMDs');
@@ -246,6 +297,28 @@ const authLimiter = rateLimit({
     }
 });
 
+// Even stricter limiter for password reset to prevent enumeration
+const passwordResetLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 3, // 3 attempts per hour
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({ error: 'Too many password reset attempts. Please try again later.' });
+    }
+});
+
+// Message sending rate limiter to prevent spam
+const messageLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 messages per minute
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({ error: 'You are sending messages too quickly. Please slow down.' });
+    }
+});
+
 // Per-user login attempt tracking to enforce cooldowns (in-memory).
 // Configurable via environment variables. This is an in-memory guard
 // and will not be shared across multiple server instances.
@@ -292,6 +365,45 @@ function normalizeForMatch(text) {
     return s;
 }
 
+// =====================================================
+// MESSAGE ENRICHMENT UTILITIES
+// =====================================================
+
+/**
+ * Enrich messages with reply metadata (author info)
+ * Batch fetches all reply targets to avoid N+1 queries
+ */
+async function enrichMessagesWithReplyMeta(messages) {
+    if (!messages || !messages.length) return messages;
+    
+    const replyIds = messages.map(m => m.reply_to).filter(Boolean);
+    if (replyIds.length === 0) return messages;
+    
+    try {
+        const { data: replies } = await supabaseAdmin
+            .from('messages')
+            .select('id, message, user_id, username')
+            .in('id', replyIds);
+        
+        if (!replies || !replies.length) return messages;
+        
+        const replyMap = replies.reduce((acc, r) => {
+            acc[r.id] = r;
+            return acc;
+        }, {});
+        
+        messages.forEach(m => {
+            if (m.reply_to && replyMap[m.reply_to]) {
+                m.reply_to_meta = replyMap[m.reply_to];
+            }
+        });
+    } catch (e) {
+        console.warn('Failed to enrich reply metadata:', e.message || e);
+    }
+    
+    return messages;
+}
+
 // Improve matching to catch evasions like spacing or simple leet substitutions
 function leetNormalize(s) {
     if (!s) return s;
@@ -307,7 +419,9 @@ function leetNormalize(s) {
 
 function hasBlacklistedWord(text) {
     if (!text) return false;
-    const norm = normalizeForMatch(text);
+    // Limit input length to prevent ReDoS attacks
+    const safeText = typeof text === 'string' ? text.slice(0, 2000) : '';
+    const norm = normalizeForMatch(safeText);
     if (!norm) return false;
 
     // compact form without spaces (catches "g a g o" -> "gago")
@@ -1187,12 +1301,24 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
             return res.status(400).json({ error: 'Password must be at least 6 characters' });
         }
 
-        // Check if user exists (use admin client to bypass RLS for server-side check)
-        const { data: existingUser, error: existingErr } = await supabaseAdmin
-            .from('users')
-            .select('id, is_verified')
-            .or(`email.eq.${lcEmail},username.eq.${username}`)
-            .maybeSingle();
+        // Validate email format before querying
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(lcEmail)) {
+            return res.status(400).json({ error: 'Invalid email format' });
+        }
+        // Validate username (alphanumeric + underscore, 3-50 chars)
+        const usernameRegex = /^[a-zA-Z0-9_]{3,50}$/;
+        if (!usernameRegex.test(username)) {
+            return res.status(400).json({ error: 'Username must be 3-50 alphanumeric characters or underscores' });
+        }
+
+        // Check if user exists - use separate queries to avoid string interpolation
+        const [emailCheck, usernameCheck] = await Promise.all([
+            supabaseAdmin.from('users').select('id, is_verified').eq('email', lcEmail).maybeSingle(),
+            supabaseAdmin.from('users').select('id, is_verified').eq('username', username).maybeSingle()
+        ]);
+        const existingErr = emailCheck.error || usernameCheck.error;
+        const existingUser = emailCheck.data || usernameCheck.data;
 
         if (existingErr) {
             console.error('Error checking existing user:', existingErr);
@@ -1423,7 +1549,7 @@ app.post('/api/auth/resend-verification', authLimiter, async (req, res) => {
 });
 
 // Forgot password - request reset link
-app.post('/api/auth/forgot-password', authLimiter, async (req, res) => {
+app.post('/api/auth/forgot-password', passwordResetLimiter, async (req, res) => {
     try {
         const { email } = req.body;
         if (!email) return res.status(400).json({ error: 'Email required' });
@@ -1933,10 +2059,17 @@ app.get('/api/reviewers/public', requireAuth, async (req, res) => {
             .eq('is_public', true);
 
         if (search) {
-            query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+            // Escape special characters for ILIKE pattern matching
+            const escapedSearch = String(search).replace(/[%_\\]/g, '\\$&');
+            query = query.or(`title.ilike.%${escapedSearch}%,content.ilike.%${escapedSearch}%`);
         }
 
         if (student) {
+            // Validate student UUID
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            if (!uuidRegex.test(student)) {
+                return res.status(400).json({ error: 'Invalid student ID format' });
+            }
             query = query.eq('user_id', student);
         }
 
@@ -2827,15 +2960,25 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
             const other = req.query.with;
             if (!other) return res.status(400).json({ error: 'Missing "with" query param for private chat' });
 
+            // Validate UUIDs to prevent injection
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+            if (!uuidRegex.test(req.session.userId) || !uuidRegex.test(other)) {
+                return res.status(400).json({ error: 'Invalid user ID format' });
+            }
+
             // Fetch messages between current user and the other user using admin client
-            const { data: messages, error } = await supabaseAdmin
-                .from('messages')
-                .select('*, users:user_id (username, profile_picture_url)')
-                .or(
-                    `and(user_id.eq.${req.session.userId},recipient_id.eq.${other}),and(user_id.eq.${other},recipient_id.eq.${req.session.userId})`
-                )
-                .order('created_at', { ascending: false })
-                .limit(limit);
+            // Use separate queries and merge to avoid string interpolation in .or()
+            const [sentRes, receivedRes] = await Promise.all([
+                supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
+                    .eq('user_id', req.session.userId).eq('recipient_id', other)
+                    .order('created_at', { ascending: false }).limit(limit),
+                supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
+                    .eq('user_id', other).eq('recipient_id', req.session.userId)
+                    .order('created_at', { ascending: false }).limit(limit)
+            ]);
+            const error = sentRes.error || receivedRes.error;
+            const messages = [...(sentRes.data || []), ...(receivedRes.data || [])]
+                .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
 
                 if (error) {
                     console.error('Get messages error:', error);
@@ -2908,7 +3051,7 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
 });
 
 // Send message
-app.post('/api/messages', requireAuth, async (req, res) => {
+app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
     try {
         const { message, chat_type } = req.body;
         const recipient_id = req.body.recipient_id || null;
@@ -3443,7 +3586,7 @@ app.delete('/api/admin/messages/:id', requireAdmin, async (req, res) => {
 // POLICY MANAGEMENT ENDPOINTS (ADMIN ONLY)
 // =====================================================
 
-// Get all policies
+// Get all policies (cacheable - policies rarely change)
 app.get('/api/policies', async (req, res) => {
     try {
         const { data, error } = await supabaseAdmin
@@ -3453,6 +3596,8 @@ app.get('/api/policies', async (req, res) => {
 
         if (error) throw error;
 
+        // Cache for 5 minutes - policies are semi-static
+        res.set('Cache-Control', 'public, max-age=300');
         res.json(data || []);
     } catch (error) {
         console.error('Get policies error:', error);
@@ -3623,20 +3768,39 @@ app.get('/profile', (req, res) => {
 // ERROR HANDLING
 // =====================================================
 
-// 404 handler
+// 404 handler - distinguish between API and page requests
 app.use((req, res) => {
-    res.status(404).json({ error: 'Not found' });
+    if (req.path.startsWith('/api/')) {
+        return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    // For page requests, serve index or redirect to login
+    res.status(404).sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Error handler
+// Error handler with better logging
 app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    // If headers have already been sent (response partially handled), delegate to
-    // the default Express error handler to avoid "Cannot set headers after they are sent".
+    // Log error details (but not in production to avoid leaking info)
+    const isProd = process.env.NODE_ENV === 'production';
+    if (!isProd) {
+        console.error('Server error:', {
+            message: err.message,
+            stack: err.stack,
+            path: req.path,
+            method: req.method
+        });
+    } else {
+        console.error('Server error:', err.message || err);
+    }
+    
+    // If headers have already been sent, delegate to default handler
     if (res.headersSent) {
         return next(err);
     }
-    res.status(500).json({ error: 'Internal server error' });
+    
+    // Don't expose error details in production
+    const statusCode = err.status || err.statusCode || 500;
+    const message = isProd ? 'Internal server error' : (err.message || 'Internal server error');
+    res.status(statusCode).json({ error: message });
 });
 
 // =====================================================
