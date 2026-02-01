@@ -748,7 +748,7 @@ async function startPrivateChat(userId, username) {
     const closeBtn = document.getElementById('closePrivateBtn');
     if (closeBtn) {
         closeBtn.style.display = 'inline-block';
-        closeBtn.onclick = closePrivateChat;
+        closeBtn.onclick = backToContactList;
     }
 
     // Load messages for private chat
@@ -802,6 +802,9 @@ function switchChat(type) {
         // Clear any previously selected recipient so users must pick someone
         currentRecipientId = null;
         currentRecipientName = null;
+        // Show contact list view instead of chat
+        showContactList();
+        return;
     } else {
         currentChatType = type;
         // Leaving recipient null when switching to general
@@ -810,6 +813,12 @@ function switchChat(type) {
             currentRecipientName = null;
         }
     }
+
+    // Hide contact list and show chat view
+    const contactListView = document.getElementById('contactListView');
+    const chatView = document.getElementById('chatView');
+    if (contactListView) contactListView.style.display = 'none';
+    if (chatView) chatView.style.display = 'block';
 
     // Update tabs
     document.querySelectorAll('.chat-tab').forEach(tab => {
@@ -823,6 +832,7 @@ function switchChat(type) {
     // Update header
     const headerTitleText2 = document.getElementById('chatHeaderTitleText');
     const headerAvatar2 = document.getElementById('chatHeaderAvatar');
+    const closePrivateBtn = document.getElementById('closePrivateBtn');
     if (headerTitleText2) headerTitleText2.textContent = currentChatType === 'general' ? 'General Chat' : 'Personal Chat';
     if (currentChatType === 'general' && headerAvatar2) {
         headerAvatar2.style.display = 'none';
@@ -830,6 +840,7 @@ function switchChat(type) {
         headerAvatar2.title = '';
         headerAvatar2.style.cursor = '';
     }
+    if (closePrivateBtn) closePrivateBtn.style.display = 'none';
 
     // Load messages for the selected mode
     messages = [];
@@ -853,6 +864,190 @@ function switchChat(type) {
         }
         pollUnreadCounts();
     } catch (e) { /* ignore */ }
+}
+
+// Contact list functions for personal chat
+async function showContactList() {
+    // Show contact list view, hide chat view
+    const contactListView = document.getElementById('contactListView');
+    const chatView = document.getElementById('chatView');
+    if (contactListView) contactListView.style.display = 'block';
+    if (chatView) chatView.style.display = 'none';
+
+    // Update tabs
+    document.querySelectorAll('.chat-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    const personalTab = Array.from(document.querySelectorAll('.chat-tab')).find(tab => 
+        tab.textContent.includes('Personal')
+    );
+    if (personalTab) personalTab.classList.add('active');
+
+    // Load conversation list
+    await loadContactList();
+
+    // Mark personal tab as seen
+    try {
+        const now = new Date().toISOString();
+        setLastSeen(LAST_SEEN_PRIVATE_KEY, now);
+        pollUnreadCounts();
+    } catch (e) { /* ignore */ }
+}
+
+async function loadContactList() {
+    const contactList = document.getElementById('contactList');
+    if (!contactList) return;
+
+    try {
+        // Fetch recent private messages to determine conversation partners
+        const response = await fetch('/api/messages/private-inbox?limit=200', {
+            credentials: 'include'
+        });
+
+        if (!response.ok) {
+            throw new Error('Failed to fetch conversations');
+        }
+
+        const data = await response.json();
+        const messages = data.messages || [];
+
+        // Group messages by conversation partner
+        const conversationMap = new Map();
+        
+        for (const msg of messages) {
+            const partnerId = msg.user_id;
+            if (!partnerId || !currentUser || String(partnerId) === String(currentUser.id)) continue;
+            
+            if (!conversationMap.has(partnerId)) {
+                conversationMap.set(partnerId, {
+                    userId: partnerId,
+                    username: msg.username || (msg.users && msg.users.username) || 'User',
+                    avatarUrl: (msg.users && msg.users.profile_picture_url) || '/images/default-avatar.svg',
+                    lastMessage: msg.message,
+                    lastMessageTime: msg.created_at
+                });
+            }
+        }
+
+        // Also fetch messages sent by current user to find more conversations
+        const sentResponse = await fetch('/api/messages/general?limit=200', {
+            credentials: 'include'
+        });
+        
+        if (sentResponse.ok) {
+            const sentData = await sentResponse.json();
+            const sentMessages = (sentData.messages || []).filter(m => 
+                m.chat_type === 'private' && 
+                m.user_id && currentUser && 
+                String(m.user_id) === String(currentUser.id)
+            );
+
+            for (const msg of sentMessages) {
+                const partnerId = msg.recipient_id;
+                if (!partnerId || String(partnerId) === String(currentUser.id)) continue;
+                
+                // Try to get username from message or fetch it
+                const username = 'User';
+                const avatarUrl = '/images/default-avatar.svg';
+                
+                if (!conversationMap.has(partnerId)) {
+                    // Fetch user info
+                    try {
+                        const userResp = await fetch(`/api/users/${encodeURIComponent(partnerId)}`, {
+                            credentials: 'include'
+                        });
+                        if (userResp.ok) {
+                            const userData = await userResp.json();
+                            const user = userData.user;
+                            conversationMap.set(partnerId, {
+                                userId: partnerId,
+                                username: user.display_name || user.username || 'User',
+                                avatarUrl: user.profile_picture_url || '/images/default-avatar.svg',
+                                lastMessage: msg.message,
+                                lastMessageTime: msg.created_at
+                            });
+                        }
+                    } catch (e) {
+                        conversationMap.set(partnerId, {
+                            userId: partnerId,
+                            username: username,
+                            avatarUrl: avatarUrl,
+                            lastMessage: msg.message,
+                            lastMessageTime: msg.created_at
+                        });
+                    }
+                } else {
+                    // Update if this message is newer
+                    const existing = conversationMap.get(partnerId);
+                    if (new Date(msg.created_at) > new Date(existing.lastMessageTime)) {
+                        existing.lastMessage = msg.message;
+                        existing.lastMessageTime = msg.created_at;
+                    }
+                }
+            }
+        }
+
+        // Convert to array and sort by most recent
+        const conversations = Array.from(conversationMap.values())
+            .sort((a, b) => new Date(b.lastMessageTime) - new Date(a.lastMessageTime));
+
+        if (conversations.length === 0) {
+            contactList.innerHTML = `
+                <div class="contact-empty">
+                    <i class="bi bi-chat-dots"></i>
+                    <p>No conversations yet</p>
+                    <p style="font-size: 0.875rem; margin-top: 8px;">Start chatting with other users to see your conversations here</p>
+                </div>
+            `;
+            return;
+        }
+
+        // Render contact list
+        contactList.innerHTML = conversations.map(contact => `
+            <div class="contact-item" onclick="openConversation('${contact.userId}', '${escapeHtml(contact.username).replace(/'/g, '\\&#39;')}')">
+                <img src="${contact.avatarUrl}" 
+                     onerror="this.onerror=null;this.src='/images/default-avatar.svg'" 
+                     alt="${escapeHtml(contact.username)}" 
+                     class="contact-avatar">
+                <div class="contact-info">
+                    <div class="contact-name">${escapeHtml(contact.username)}</div>
+                    <div class="contact-preview">${escapeHtml(contact.lastMessage).substring(0, 60)}${contact.lastMessage.length > 60 ? '...' : ''}</div>
+                </div>
+                <div class="contact-time">${formatTime(contact.lastMessageTime)}</div>
+            </div>
+        `).join('');
+
+    } catch (error) {
+        console.error('Error loading contact list:', error);
+        contactList.innerHTML = `
+            <div class="contact-empty">
+                <i class="bi bi-exclamation-triangle"></i>
+                <p>Failed to load conversations</p>
+                <button onclick="loadContactList()" class="btn btn-primary" style="margin-top: 16px;">Retry</button>
+            </div>
+        `;
+    }
+}
+
+function openConversation(userId, username) {
+    // Hide contact list, show chat view
+    const contactListView = document.getElementById('contactListView');
+    const chatView = document.getElementById('chatView');
+    if (contactListView) contactListView.style.display = 'none';
+    if (chatView) chatView.style.display = 'block';
+
+    // Start private chat with selected user
+    startPrivateChat(userId, username);
+}
+
+function backToContactList() {
+    // Clear current conversation
+    currentRecipientId = null;
+    currentRecipientName = null;
+    currentChatType = 'private';
+    
+    // Show contact list
+    showContactList();
 }
 
 async function updateOnlineStatus() {

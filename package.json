@@ -18,23 +18,26 @@
   "license": "MIT",
   "dependencies": {
     "@supabase/supabase-js": "^2.93.3",
-    "compression": "^1.8.0",
-    "serverless-http": "^3.2.0",
     "bcryptjs": "^2.4.3",
+    "compression": "^1.8.0",
     "connect-pg-simple": "^10.0.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
-    "multer": "^1.4.5-lts.2",
     "dotenv": "^16.6.1",
     "express": "^4.22.1",
     "express-rate-limit": "^7.5.1",
     "express-session": "^1.18.1",
     "helmet": "^7.2.0",
+    "multer": "^1.4.5-lts.2",
+    "nodemailer": "^7.0.13",
     "pg": "^8.18.0",
-    "nodemailer": "^7.0.13"
+    "qrcode": "^1.5.4",
+    "speakeasy": "^2.0.0"
   },
   "dependenciesMeta": {
-    "serverless-http": { "optional": true }
+    "serverless-http": {
+      "optional": true
+    }
   },
   "engines": {
     "node": "24.x"

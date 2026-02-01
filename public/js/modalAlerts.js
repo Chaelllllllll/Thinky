@@ -24,6 +24,7 @@
         overlay.style.alignItems = 'center';
         overlay.style.justifyContent = 'center';
         overlay.style.zIndex = 9999;
+        overlay.style.pointerEvents = 'auto';
 
         const box = document.createElement('div');
         box.className = 'modal-content modal-helper-box';
@@ -36,6 +37,9 @@
         box.style.borderRadius = isSmall ? '12px' : '8px';
         box.style.boxShadow = '0 12px 40px rgba(0,0,0,0.25)';
         box.style.overflow = 'hidden';
+        box.style.pointerEvents = 'auto';
+        box.style.position = 'relative';
+        box.style.zIndex = 10000;
         if (isSmall) {
             // place near top on small screens for better ergonomics
             overlay.style.alignItems = 'flex-start';
@@ -52,6 +56,9 @@
         const body = document.createElement('div');
         body.className = 'modal-helper-body';
         body.style.padding = '18px';
+        body.style.overflow = 'visible';
+        body.style.maxHeight = 'none';
+        body.style.pointerEvents = 'auto';
         if(html) body.innerHTML = message || '';
         else body.textContent = message || '';
 
@@ -97,7 +104,8 @@
 
     window.showModal = function(message, title='Notice', opts={}){
         return new Promise(resolve => {
-            buildModal({title, message, html: opts.html||false, buttons:[{label:opts.okText||'OK', value:true, className: opts.okClass||'btn-primary'}], onClose: ()=>resolve(true), small: !!opts.small});
+            const buttons = opts.noButtons ? [] : [{label:opts.okText||'OK', value:true, className: opts.okClass||'btn-primary'}];
+            buildModal({title, message, html: opts.html||false, buttons, onClose: ()=>resolve(true), small: !!opts.small});
         });
     };
 

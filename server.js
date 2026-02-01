@@ -1615,6 +1615,38 @@ app.post('/api/auth/reset', authLimiter, async (req, res) => {
     }
 });
 
+// Send email verification code for 2FA
+async function sendEmail2FACode(userId, email, code) {
+    if (!mailTransporter) {
+        console.warn('No mail transporter configured; 2FA email not sent.');
+        return false;
+    }
+
+    try {
+        await mailTransporter.sendMail({
+            from: process.env.SMTP_FROM || 'noreply@thinky.app',
+            to: email,
+            subject: 'Your Thinky Login Verification Code',
+            html: `
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #ff9eb4;">Thinky Login Verification</h2>
+                    <p>Your verification code is:</p>
+                    <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #333;">
+                        ${code}
+                    </div>
+                    <p style="color: #666; margin-top: 20px;">This code will expire in 10 minutes.</p>
+                    <p style="color: #666;">If you didn't request this code, please ignore this email.</p>
+                </div>
+            `,
+            text: `Your Thinky verification code is: ${code}\n\nThis code will expire in 10 minutes.`
+        });
+        return true;
+    } catch (error) {
+        console.error('Failed to send 2FA email:', error);
+        return false;
+    }
+}
+
 // Login
 app.post('/api/auth/login', authLimiter, async (req, res) => {
     console.info('[req] POST /api/auth/login from', req.ip, 'headers:', { origin: req.get('origin') });
@@ -1678,6 +1710,70 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             }
         } catch (e) {
             console.warn('Error checking banned_until during login:', e);
+        }
+
+        // Check if 2FA is enabled
+        const requires2FA = user.two_factor_enabled || user.email_2fa_enabled;
+        
+        if (requires2FA) {
+            // Store userId in session temporarily for 2FA verification
+            req.session.pending2FAUserId = user.id;
+            
+            // If email 2FA is enabled AND Google/TOTP 2FA is NOT enabled, send the code
+                // Prefer Google/TOTP when both methods are enabled so we do not send unnecessary email codes.
+                if (user.email_2fa_enabled && !user.two_factor_enabled) {
+                // Delete any existing unused codes for this user to prevent multiple requests
+                await supabaseAdmin
+                    .from('email_2fa_codes')
+                    .delete()
+                    .eq('user_id', user.id)
+                    .eq('used', false);
+                
+                // Generate 6-digit code
+                const code = Math.floor(100000 + Math.random() * 900000).toString();
+                const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+                
+                // Store code in database (capture result and log errors)
+                try {
+                    const { data: insertData, error: insertErr } = await supabaseAdmin
+                        .from('email_2fa_codes')
+                        .insert({
+                            user_id: user.id,
+                            code: code,
+                            expires_at: expiresAt.toISOString()
+                        });
+
+                    if (insertErr) {
+                        console.error('Failed to insert email_2fa_codes row:', insertErr);
+                    } else {
+                        console.info('Inserted email_2fa_codes row:', insertData && insertData[0] ? insertData[0] : insertData);
+                    }
+                } catch (e) {
+                    console.error('Exception inserting email_2fa_codes:', e);
+                }
+
+                // Send email
+                const sent = await sendEmail2FACode(user.id, user.email, code);
+                if (!sent) console.warn('Email 2FA sendEmail2FACode reported failure for user', user.id);
+            }
+            
+            // Build a user-friendly message depending on which method is preferred
+            let message = '';
+            if (user.two_factor_enabled) {
+                message = 'Please enter your authenticator code';
+            } else if (user.email_2fa_enabled) {
+                message = 'Verification code sent to your email';
+            }
+
+            return res.json({
+                requires2FA: true,
+                userId: user.id,
+                methods: {
+                    google: user.two_factor_enabled,
+                    email: user.email_2fa_enabled
+                },
+                message
+            });
         }
 
         // Set session
@@ -3250,14 +3346,36 @@ app.post('/api/online-status', requireAuth, async (req, res) => {
     }
 });
 
-// Update current user's profile (username / display_name)
+// Update current user's profile (username / display_name / email)
 app.put('/api/auth/me', requireAuth, async (req, res) => {
     try {
-        const { username, display_name } = req.body;
+        const { username, display_name, email } = req.body;
 
         const updates = {};
-        if (username) updates.username = username;
+        if (username) {
+            if (!isValidUsername(username)) {
+                return res.status(400).json({ error: 'Invalid username format' });
+            }
+            updates.username = username;
+        }
         if (display_name !== undefined) updates.display_name = display_name;
+        if (email) {
+            if (!isValidEmail(email)) {
+                return res.status(400).json({ error: 'Invalid email format' });
+            }
+            // Check if email is already taken
+            const { data: existingUser } = await supabase
+                .from('users')
+                .select('id')
+                .eq('email', email)
+                .neq('id', req.session.userId)
+                .single();
+            
+            if (existingUser) {
+                return res.status(400).json({ error: 'Email already in use' });
+            }
+            updates.email = email;
+        }
 
         const { data: user, error } = await supabaseAdmin
             .from('users')
@@ -3373,6 +3491,349 @@ app.post('/api/auth/me/avatar', requireAuth, upload.single('avatar'), async (req
         res.json({ user });
     } catch (error) {
         console.error('Avatar upload error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// =====================================================
+// USER SETTINGS ROUTES
+// =====================================================
+
+// Get user settings (notifications and 2FA status)
+app.get('/api/auth/settings', requireAuth, async (req, res) => {
+    try {
+        const { data: user, error } = await supabase
+            .from('users')
+            .select('notif_general_chat, notif_private_messages, two_factor_enabled, email_2fa_enabled')
+            .eq('id', req.session.userId)
+            .single();
+
+        if (error) {
+            console.error('Get settings error:', error);
+            return res.status(500).json({ error: 'Failed to fetch settings' });
+        }
+
+        res.json({
+            settings: {
+                notif_general_chat: user.notif_general_chat ?? true,
+                notif_private_messages: user.notif_private_messages ?? true,
+                two_factor_enabled: user.two_factor_enabled ?? false,
+                email_2fa_enabled: user.email_2fa_enabled ?? false
+            }
+        });
+    } catch (error) {
+        console.error('Get settings error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Update notification preferences
+app.put('/api/auth/settings/notifications', requireAuth, async (req, res) => {
+    try {
+        const { notif_general_chat, notif_private_messages } = req.body;
+
+        if (typeof notif_general_chat !== 'boolean' || typeof notif_private_messages !== 'boolean') {
+            return res.status(400).json({ error: 'Invalid notification settings' });
+        }
+
+        const { error } = await supabaseAdmin
+            .from('users')
+            .update({
+                notif_general_chat,
+                notif_private_messages
+            })
+            .eq('id', req.session.userId);
+
+        if (error) {
+            console.error('Update notifications error:', error);
+            return res.status(500).json({ error: 'Failed to update notification settings' });
+        }
+
+        res.json({ message: 'Notification settings updated successfully' });
+    } catch (error) {
+        console.error('Update notifications error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Import speakeasy and qrcode for 2FA
+import speakeasy from 'speakeasy';
+import QRCode from 'qrcode';
+
+// Enable Google Authenticator (TOTP)
+app.post('/api/auth/2fa/google/enable', requireAuth, async (req, res) => {
+    try {
+        // Generate secret
+        const secret = speakeasy.generateSecret({
+            name: `Thinky (${req.session.username})`,
+            issuer: 'Thinky'
+        });
+
+        // Generate QR code
+        const qrCode = await QRCode.toDataURL(secret.otpauth_url);
+
+        // Store secret temporarily in session (will be saved to DB after verification)
+        req.session.pending2FASecret = secret.base32;
+
+        res.json({
+            secret: secret.base32,
+            qrCode: qrCode,
+            otpauth_url: secret.otpauth_url
+        });
+    } catch (error) {
+        console.error('Enable Google Auth error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Verify and activate Google Authenticator
+app.post('/api/auth/2fa/google/verify', requireAuth, async (req, res) => {
+    try {
+        const { code } = req.body;
+
+        if (!code || typeof code !== 'string' || code.length !== 6) {
+            return res.status(400).json({ error: 'Invalid verification code' });
+        }
+
+        const secret = req.session.pending2FASecret;
+        if (!secret) {
+            return res.status(400).json({ error: 'No pending 2FA setup found. Please start the setup again.' });
+        }
+
+        // Verify the code
+        const verified = speakeasy.totp.verify({
+            secret: secret,
+            encoding: 'base32',
+            token: code,
+            window: 2 // Allow 2 time windows for clock drift
+        });
+
+        if (!verified) {
+            return res.status(400).json({ error: 'Invalid verification code' });
+        }
+
+        // Save secret to database
+        const { error } = await supabaseAdmin
+            .from('users')
+            .update({
+                two_factor_enabled: true,
+                two_factor_secret: secret
+            })
+            .eq('id', req.session.userId);
+
+        if (error) {
+            console.error('Save 2FA secret error:', error);
+            return res.status(500).json({ error: 'Failed to enable 2FA' });
+        }
+
+        // Clear pending secret
+        delete req.session.pending2FASecret;
+
+        res.json({ message: 'Google Authenticator enabled successfully' });
+    } catch (error) {
+        console.error('Verify Google Auth error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Disable Google Authenticator
+app.post('/api/auth/2fa/google/disable', requireAuth, async (req, res) => {
+    try {
+        const { error } = await supabaseAdmin
+            .from('users')
+            .update({
+                two_factor_enabled: false,
+                two_factor_secret: null
+            })
+            .eq('id', req.session.userId);
+
+        if (error) {
+            console.error('Disable Google Auth error:', error);
+            return res.status(500).json({ error: 'Failed to disable 2FA' });
+        }
+
+        res.json({ message: 'Google Authenticator disabled successfully' });
+    } catch (error) {
+        console.error('Disable Google Auth error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Enable Email 2FA
+app.post('/api/auth/2fa/email/enable', requireAuth, async (req, res) => {
+    try {
+        const { error } = await supabaseAdmin
+            .from('users')
+            .update({
+                email_2fa_enabled: true
+            })
+            .eq('id', req.session.userId);
+
+        if (error) {
+            console.error('Enable Email 2FA error:', error);
+            return res.status(500).json({ error: 'Failed to enable email 2FA' });
+        }
+
+        res.json({ message: 'Email 2FA enabled successfully' });
+    } catch (error) {
+        console.error('Enable Email 2FA error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Disable Email 2FA
+app.post('/api/auth/2fa/email/disable', requireAuth, async (req, res) => {
+    try {
+        const { error } = await supabaseAdmin
+            .from('users')
+            .update({
+                email_2fa_enabled: false
+            })
+            .eq('id', req.session.userId);
+
+        if (error) {
+            console.error('Disable Email 2FA error:', error);
+            return res.status(500).json({ error: 'Failed to disable email 2FA' });
+        }
+
+        res.json({ message: 'Email 2FA disabled successfully' });
+    } catch (error) {
+        console.error('Disable Email 2FA error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Verify 2FA code (used during login)
+app.post('/api/auth/2fa/verify', async (req, res) => {
+    try {
+        let { userId, code, type } = req.body;
+
+        if (!userId || !code || !type) {
+            console.warn('/api/auth/2fa/verify missing fields', { userId, code, type });
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+
+        // Normalize code: ensure string, remove whitespace
+        try {
+            code = String(code).replace(/\s/g, '').trim();
+        } catch (e) {
+            console.warn('Failed to normalize 2FA code', e);
+        }
+
+        // Get user
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', userId)
+            .single();
+
+        if (userError || !user) {
+            return res.status(400).json({ error: 'Invalid user' });
+        }
+
+        let verified = false;
+
+        if (type === 'google' && user.two_factor_enabled && user.two_factor_secret) {
+            // Verify TOTP code
+            verified = speakeasy.totp.verify({
+                secret: user.two_factor_secret,
+                encoding: 'base32',
+                token: code,
+                window: 2
+            });
+        } else if (type === 'email' && user.email_2fa_enabled) {
+            // Verify email code from database
+            console.log('Email 2FA verification requested for user:', userId, 'code:', code, 'type:', typeof code);
+            
+            // Fetch the latest unused code matching user and code, then validate expiry in server-side JS
+            // Use admin client for this lookup to avoid RLS/permission issues
+            const { data: codeRecord, error: codeError } = await supabaseAdmin
+                .from('email_2fa_codes')
+                .select('*')
+                .eq('user_id', userId)
+                .eq('code', code)
+                .eq('used', false)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            console.log('Code lookup result:', { 
+                found: !!codeRecord, 
+                error: codeError, 
+                searchCode: code,
+                dbCode: codeRecord?.code,
+                codesMatch: codeRecord?.code === code,
+                userId: userId,
+                dbUserId: codeRecord?.user_id,
+                used: codeRecord?.used
+            });
+
+            if (!codeError && codeRecord) {
+                try {
+                    const expiresAt = new Date(codeRecord.expires_at);
+                    const now = new Date();
+                    console.log('Expiry check:', { expiresAt: expiresAt.toISOString(), now: now.toISOString(), valid: expiresAt > now });
+                    
+                    if (!isNaN(expiresAt.getTime()) && expiresAt > now) {
+                        verified = true;
+                        console.log('Email 2FA code verified successfully');
+                        // Mark code as used
+                        await supabaseAdmin
+                            .from('email_2fa_codes')
+                            .update({ used: true })
+                            .eq('id', codeRecord.id);
+                    } else {
+                        console.log('Email 2FA code expired or invalid date');
+                    }
+                } catch (e) {
+                    console.warn('Error parsing expires_at for email_2fa_codes:', e);
+                }
+            } else {
+                console.log('No matching email 2FA code found or DB error');
+                try {
+                    const { data: recentCodes, error: recentErr } = await supabaseAdmin
+                        .from('email_2fa_codes')
+                        .select('*')
+                        .eq('user_id', userId)
+                        .order('created_at', { ascending: false })
+                        .limit(10);
+
+                    console.log('Recent codes for user (debug):', { recentErr, recentCodes });
+                } catch (dbgE) {
+                    console.warn('Failed to fetch recent email_2fa_codes for debug:', dbgE);
+                }
+            }
+        }
+
+        if (!verified) {
+            console.warn('2FA verify failed for user:', userId, 'type:', type);
+            // Provide a helpful-but-safe error for debugging
+            return res.status(400).json({ error: 'Invalid verification code' });
+        }
+
+        // Set session
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        req.session.role = user.role;
+
+        await new Promise((resolve) => {
+            req.session.save((err) => {
+                if (err) console.warn('Session save error during 2FA login:', err);
+                resolve();
+            });
+        });
+
+        res.json({
+            message: '2FA verification successful',
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.username,
+                role: user.role
+            }
+        });
+    } catch (error) {
+        console.error('2FA verify error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -3761,6 +4222,18 @@ app.get('/moderator', (req, res) => {
 app.get('/profile', (req, res) => {
     if (!req.session.userId) return res.redirect('/login');
     res.sendFile(path.join(__dirname, 'public', 'profile.html'));
+});
+
+// Settings page (protected)
+app.get('/settings', (req, res) => {
+    if (!req.session.userId) return res.redirect('/login');
+    res.sendFile(path.join(__dirname, 'public', 'settings.html'));
+});
+
+// Also serve explicit settings.html path
+app.get('/settings.html', (req, res) => {
+    if (!req.session.userId) return res.redirect('/login');
+    res.sendFile(path.join(__dirname, 'public', 'settings.html'));
 });
 
 

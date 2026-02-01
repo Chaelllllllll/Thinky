@@ -783,30 +783,43 @@ textarea.form-control {
 @media (max-width: 480px) {
     .modal {
         align-items: flex-start; /* let modal content sit near top on small screens */
-        padding: 12px 8px;      /* small outer inset */
+        padding: 8px;      /* small outer inset */
     }
 
     .modal-content {
         width: calc(100% - 16px) !important;
         max-width: calc(100% - 16px) !important;
-        height: 94vh !important;
-        max-height: 94vh !important;
+        height: auto !important;
+        max-height: calc(100vh - 16px) !important;
         border-radius: 12px !important;
         overflow: hidden;
-        margin-top: 12px;
+        margin-top: 8px;
         display: flex;
         flex-direction: column;
     }
 
+    /* Reviewer modal specific constraints */
+    .modal-content.reviewer-modal {
+        max-height: calc(100vh - 16px) !important;
+        height: auto !important;
+    }
+
     .modal-header {
         padding: 10px 12px;
+        flex-shrink: 0;
+    }
+
+    .modal-title {
+        font-size: 1.1rem !important;
     }
 
     .modal-body {
         padding: 10px 12px;
         flex: 1 1 auto;
-        overflow: auto; /* allow body content to scroll */
+        overflow-y: auto !important;
+        overflow-x: hidden;
         -webkit-overflow-scrolling: touch;
+        max-height: none !important;
     }
 
     /* Ensure flashcard viewer body gives the card room to expand */
@@ -815,28 +828,51 @@ textarea.form-control {
     .modal-footer {
         padding: 10px 12px;
         display: flex;
-        flex-direction: row;
+        flex-direction: column !important;
         gap: 8px;
-        align-items: center;
-        justify-content: space-between;
-        flex-wrap: wrap;
+        align-items: stretch !important;
+        flex-shrink: 0;
+        border-top: 1px solid rgba(0,0,0,0.05);
     }
 
-    /* Keep buttons an appropriate size in a row on mobile */
-    .modal-footer .btn {
-        width: auto;
-        flex: 1 1 auto;
-        min-width: 84px;
-        box-sizing: border-box;
+    .modal-footer.custom-footer {
+        flex-direction: column !important;
     }
 
-    /* Grouped actions layout: allow wrapping but keep buttons in a row */
-    .modal-footer > div {
-        width: auto;
+    .modal-footer.custom-footer > div {
+        width: 100%;
         display: flex;
-        gap: 8px;
-        justify-content: flex-start;
+        gap: 6px;
+        justify-content: center;
+    }
+
+    .modal-footer .right-actions {
+        width: 100%;
+        display: flex !important;
+        flex-direction: row !important;
         flex-wrap: wrap;
+        gap: 6px !important;
+        justify-content: center;
+    }
+
+    /* Adjust button sizing in footer */
+    .modal-footer .btn {
+        flex: 1 1 auto;
+        min-width: 70px;
+        padding: 8px 10px !important;
+        font-size: 0.85rem !important;
+        white-space: nowrap;
+    }
+
+    .modal-footer .heart-btn {
+        padding: 8px 12px !important;
+    }
+
+    /* Hide text on danger button, show icon only */
+    .modal-footer .btn-danger {
+        min-width: 42px !important;
+        flex: 0 0 42px !important;
+        padding: 8px !important;
     }
 
     /* Reduce card rounding/padding so content uses space */
@@ -1127,6 +1163,14 @@ textarea.form-control {
 
 .sidebar-toggle {
     display: none;
+}
+
+/* Ensure settings links placed in the left sidebar look identical to other sidebar links */
+.sidebar-link.settings-sidebar-link {
+    padding: 12px 16px;
+    gap: var(--spacing-sm);
+    border-radius: var(--radius-md);
+    width: 100%;
 }
 
 /* =====================================================

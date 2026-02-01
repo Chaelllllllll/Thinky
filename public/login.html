@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="/css/style.css">
     <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
     <script src="/js/modalAlerts.js"></script>
+    <script src="/js/alerts.js"></script>
     <style>
         .auth-container {
             min-height: 100vh;
@@ -201,6 +202,13 @@
                     </div>
                 </div>
 
+                <!-- Inline 2FA code input (hidden until needed) -->
+                <div class="form-group" id="twoFAContainer" style="display:none;margin-top:12px;">
+                    <label for="twoFACode" class="form-label">Two-Factor Code</label>
+                    <input id="twoFACode" type="text" class="form-control" placeholder="000000" maxlength="6" style="text-align:center;font-size:1.5rem;letter-spacing:8px;">
+                    <div id="twoFAStatus" style="font-size:0.9rem;color:var(--dark-gray);margin-top:8px;"></div>
+                </div>
+
                 <!-- Forgot password modal placeholder (moved below form to avoid nested forms) -->
 
                 <div class="text-right" style="margin-top:8px;margin-bottom:8px;">
@@ -264,7 +272,38 @@
 
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
+            const twoFACodeEl = document.getElementById('twoFACode');
+            const twoFAContainer = document.getElementById('twoFAContainer');
 
+                // If we're in the pending 2FA state, submit the code to verify endpoint
+            if (window.pending2FA && twoFACodeEl) {
+                const code = (twoFACodeEl.value || '').replace(/\s/g, '').trim();
+                
+                if (!code || code.length !== 6) {
+                    window.showAlert('error', 'Please enter a valid 6-digit code');
+                    return;
+                }
+
+                // Show quick loading state on button
+                document.getElementById('btnText').textContent = 'Verifying...';
+                document.getElementById('btnSpinner').style.display = 'inline-block';
+                document.getElementById('submitBtn').disabled = true;
+
+                // If both methods enabled, prefer Google Auth; otherwise use what's available
+                const type = (window.pending2FA.methods && window.pending2FA.methods.google) ? 'google' : 'email';
+                try {
+                    await verify2FA(window.pending2FA.userId, code, type);
+                } finally {
+                    // reset UI handled by verify2FA on success; re-enable on error
+                    document.getElementById('btnText').textContent = 'Log In';
+                    document.getElementById('btnSpinner').style.display = 'none';
+                    document.getElementById('submitBtn').disabled = false;
+                }
+
+                return;
+            }
+
+            // First-step login (email + password)
             // Show loading state
             document.getElementById('btnText').textContent = 'Logging in...';
             document.getElementById('btnSpinner').style.display = 'inline-block';
@@ -283,9 +322,163 @@
                 const data = await response.json();
 
                 if (response.ok) {
-                    showAlert('Login successful! Redirecting...', 'success');
+                    // Check if 2FA is required
+                        if (data.requires2FA) {
+                        // Store pending info and reveal inline code input
+                        window.pending2FA = { userId: data.userId, methods: data.methods || {} };
+                        if (twoFAContainer) {
+                            twoFAContainer.style.display = 'block';
+                            
+                            const hasEmail = data.methods && data.methods.email;
+                            const hasGoogle = data.methods && data.methods.google;
+                            
+                            // Prefer Google Auth if both are enabled
+                            if (hasGoogle) {
+                                document.getElementById('twoFAStatus').textContent = 'Enter the 6-digit code from your Google Authenticator app.';
+                            } else if (hasEmail) {
+                                document.getElementById('twoFAStatus').textContent = data.message || 'Verification code sent. Enter it below and click Log In again.';
+                                window.showAlert('info', data.message || 'Verification code sent to your email');
+                            }
+                            
+                            document.getElementById('twoFACode').focus();
+                        }
+
+                        resetButton();
+                    } else {
+                        window.showAlert('success', 'Login successful! Redirecting...');
+
+                        // Redirect based on role (admin, moderator, student)
+                        setTimeout(() => {
+                            if (data.user.role === 'admin') {
+                                window.location.href = '/admin';
+                            } else if (data.user.role === 'moderator') {
+                                window.location.href = '/moderator';
+                            } else {
+                                window.location.href = '/dashboard';
+                            }
+                        }, 800);
+                    }
+                } else {
+                    window.showAlert('error', data.error || 'Login failed');
+                    resetButton();
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                window.showAlert('error', 'An error occurred. Please try again.');
+                resetButton();
+            }
+        });
+
+        async function show2FAModal(data) {
+            const methods = data.methods || {};
+            const userId = data.userId;
+            
+            let methodHtml = '';
+            if (methods.google) {
+                methodHtml += `
+                    <div class="form-group">
+                        <label for="googleCode">Google Authenticator Code</label>
+                        <input type="text" id="googleCode" class="form-control" placeholder="000000" maxlength="6" style="text-align:center;font-size:1.5rem;letter-spacing:8px;">
+                        <button id="verifyGoogleBtn" class="btn btn-primary" style="margin-top:12px;width:100%;">Verify with Google Authenticator</button>
+                    </div>
+                `;
+            }
+            
+            if (methods.email) {
+                methodHtml += `
+                    <div class="form-group" style="margin-top:${methods.google ? '20px' : '0'};">
+                        <label for="emailCode">Email Verification Code</label>
+                        <p style="color:var(--dark-gray);font-size:0.9rem;margin-bottom:12px;">${data.message || 'A code has been sent to your email'}</p>
+                        <input type="text" id="emailCode" class="form-control" placeholder="000000" maxlength="6" style="text-align:center;font-size:1.5rem;letter-spacing:8px;">
+                        <button id="verifyEmailBtn" class="btn btn-primary" style="margin-top:12px;width:100%;">Verify with Email Code</button>
+                    </div>
+                `;
+            }
+
+            const modalContent = `
+                <div style="padding:20px;">
+                    <h3 style="margin-bottom:16px;text-align:center;">Two-Factor Authentication</h3>
+                    <p style="color:var(--dark-gray);text-align:center;margin-bottom:24px;">Choose a verification method:</p>
+                    ${methodHtml}
+                </div>
+            `;
+
+            await window.showModal(modalContent, 'Verify Your Identity', { small: false, html: true, noButtons: true });
+
+            // Add handlers after a short delay to ensure DOM is ready
+            setTimeout(() => {
+                if (methods.google) {
+                    const googleBtn = document.getElementById('verifyGoogleBtn');
+                    const googleCode = document.getElementById('googleCode');
+                    if (googleBtn && googleCode) {
+                        googleBtn.onclick = async (e) => {
+                            e.preventDefault();
+                            googleBtn.disabled = true;
+                            googleBtn.textContent = 'Verifying...';
+                            try {
+                                await verify2FA(userId, googleCode.value.trim(), 'google');
+                            } catch (err) {
+                                googleBtn.disabled = false;
+                                googleBtn.textContent = 'Verify with Google Authenticator';
+                            }
+                        };
+                    }
+                }
+
+                if (methods.email) {
+                    const emailBtn = document.getElementById('verifyEmailBtn');
+                    const emailCode = document.getElementById('emailCode');
+                    if (emailBtn && emailCode) {
+                        emailBtn.onclick = async (e) => {
+                            e.preventDefault();
+                            emailBtn.disabled = true;
+                            emailBtn.textContent = 'Verifying...';
+                            console.log('Verify button clicked, code:', emailCode.value.trim());
+                            try {
+                                await verify2FA(userId, emailCode.value.trim(), 'email');
+                            } catch (err) {
+                                console.error('Verify error:', err);
+                                emailBtn.disabled = false;
+                                emailBtn.textContent = 'Verify with Email Code';
+                            }
+                        };
+                        console.log('Email verify button handler attached');
+                    } else {
+                        console.error('Email button or code input not found');
+                    }
+                }
+            }, 150);
+        }
+
+        async function verify2FA(userId, code, type) {
+            // Strip all whitespace from code
+            code = (code || '').replace(/\s/g, '').trim();
+            
+            if (!code || code.length !== 6) {
+                await window.showModal('Please enter a valid 6-digit code', 'Error', { small: true });
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/2fa/verify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ userId, code, type })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Close any modal helper UI if present
+                    const modalHelperContainer = document.getElementById('modalHelperContainer');
+                    if (modalHelperContainer) modalHelperContainer.innerHTML = '';
+
+                    // Clear pending state
+                    window.pending2FA = null;
+
+                    window.showAlert('success', 'Login successful! Redirecting...');
                     
-                    // Redirect based on role (admin, moderator, student)
                     setTimeout(() => {
                         if (data.user.role === 'admin') {
                             window.location.href = '/admin';
@@ -296,15 +489,13 @@
                         }
                     }, 800);
                 } else {
-                    showAlert(data.error || 'Login failed', 'error');
-                    resetButton();
+                    window.showAlert('error', data.error || 'Invalid verification code');
                 }
             } catch (error) {
-                console.error('Login error:', error);
-                showAlert('An error occurred. Please try again.', 'error');
-                resetButton();
+                console.error('2FA verification error:', error);
+                await window.showModal('Verification failed. Please try again.', 'Error', { small: true });
             }
-        });
+        }
 
         function resetButton() {
             document.getElementById('btnText').textContent = 'Log In';
@@ -343,6 +534,7 @@
         // Use click handler on the button to avoid form submit interfering with underlying page
         const forgotBtn = document.getElementById('forgotSubmit');
         forgotBtn.type = 'button';
+
         forgotBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -369,27 +561,6 @@
                 btn.disabled = false; btn.textContent = 'Send reset link';
             }
         });
-
-        function showAlert(message, type) {
-            const title = type === 'success' ? 'Success' : (type === 'error' ? 'Error' : 'Notice');
-            if (window.showModal) {
-                window.showModal(message, title);
-            } else {
-                // fallback to simple inline alert container
-                const alertContainer = document.getElementById('alertContainer');
-                const alert = document.createElement('div');
-                alert.className = `alert alert-${type}`;
-                alert.innerHTML = `
-                    <i class="bi bi-${type === 'success' ? 'check-circle' : 'exclamation-circle'}"></i>
-                    <span>${message}</span>
-                `;
-                alertContainer.innerHTML = '';
-                alertContainer.appendChild(alert);
-                if (type === 'success') {
-                    setTimeout(() => { alert.remove(); }, 3000);
-                }
-            }
-        }
     </script>
 </body>
 </html>

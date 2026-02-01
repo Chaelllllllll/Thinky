@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reviewer - Thinky</title>
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        .reviewer-detail-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .reviewer-header {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-sm);
+        }
+        .reviewer-header-top {
+            display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;
+        }
+        .reviewer-title { margin:0; font-size:2rem; }
+        .reviewer-date { color:var(--dark-gray); font-size:0.95rem; }
+        .reviewer-meta-row { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap; }
+        .meta-left { display:flex;align-items:center;gap:12px;min-width:0 }
+        .meta-left a { display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:inherit;min-width:0 }
+        .meta-left img { width:44px;height:44px;border-radius:999px;object-fit:cover;flex:0 0 44px }
+        .meta-info { display:flex;flex-direction:column;min-width:0 }
+        .meta-top { display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0 }
+            .meta-top { display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0; }
+            .meta-name { color: #222; font-weight: 400; font-size:1rem; }
+        .meta-right { display:flex;align-items:center;gap:8px;color:var(--dark-gray);white-space:nowrap }
+            .subject-name { color:var(--dark-gray); font-size:0.95rem; margin-top:4px; }
+            .school-icon { color:var(--dark-gray); font-size:1rem; vertical-align:middle; }
+            .school-name { color:var(--dark-gray); margin-left:6px; }
+        .reviewer-content {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-sm);
+            line-height: 1.8;
+        }
+        .reviewer-actions {
+            background: white;
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: var(--shadow-sm);
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .reviewer-meta {
+            display: block;
+        }
+        .reviewer-meta .meta-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .reviewer-meta img {
+            width:44px; height:44px; border-radius:999px; object-fit:cover;
+            flex: 0 0 44px;
+        }
+        .reviewer-meta .meta-info {
+            display:flex; flex-direction:column; min-width:0;
+        }
+        .reviewer-meta .meta-top {
+            display:flex; align-items:center; gap:8px; flex-wrap:wrap; min-width:0;
+        }
+        .reviewer-meta .subject-badge { white-space: normal; }
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--primary-pink);
+            text-decoration: none;
+            margin-bottom: 16px;
+            font-weight: 500;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        @media (max-width: 600px) {
+            .reviewer-detail-container {
+                padding: 12px;
+            }
+            .reviewer-header, .reviewer-content, .reviewer-actions {
+                padding: 16px;
+            }
+            .reviewer-actions {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .reviewer-header { padding: 16px; }
+            .reviewer-meta .meta-row { gap:8px; }
+            .reviewer-actions > div {
+                width: 100%;
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+            }
+            .reviewer-actions .btn {
+                flex: 1 1 auto;
+            }
+            /* On small screens show only the school icon and hide the full school name */
+            .meta-right .school-name { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="reviewer-detail-container">
+        <a href="javascript:history.back()" class="back-link">
+            <i class="bi bi-arrow-left"></i> Back
+        </a>
+
+        <div class="reviewer-header">
+            <div class="reviewer-header-top">
+                <h1 id="reviewerTitle" class="reviewer-title"></h1>
+                <div id="reviewerDate" class="reviewer-date"></div>
+            </div>
+            <div id="reviewerMeta" class="reviewer-meta-row">
+                <div class="meta-left">
+                    <!-- avatar + username + subject -->
+                    <a id="metaUploaderLink" href="#" aria-label="View uploader profile">
+                        <img id="metaAvatar" src="/images/default-avatar.svg" alt="uploader avatar">
+                        <div class="meta-info">
+                            <div id="metaDisplayName" class="meta-name"></div>
+                            <div id="metaSubject" class="subject-name"></div>
+                        </div>
+                    </a>
+                </div>
+                <div class="meta-right" id="metaRight">
+                    <span id="metaSchool"><i class="bi bi-building school-icon" aria-hidden="true"></i> <span class="school-name"></span></span>
+                </div>
+            </div>
+        </div>
+
+        <div class="reviewer-content">
+            <div id="reviewerContent"></div>
+            <div id="reviewerFlashcard" style="margin-top: 16px;"></div>
+        </div>
+
+        <div class="reviewer-actions">
+            <div>
+                <button id="heartBtn" class="heart-btn" title="React">
+                    <i id="heartIcon" class="bi bi-heart"></i>
+                    <span id="heartCount" style="font-weight:600;margin-left:6px;">0</span>
+                </button>
+            </div>
+            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                <button class="btn btn-outline" id="savePdfBtn" onclick="saveAsPdf()">
+                    <i class="bi bi-file-pdf"></i> Save as PDF
+                </button>
+                <button class="btn btn-light" onclick="openFlashcardsForReviewer()">
+                    <i class="bi bi-lightning"></i> Open Flashcards
+                </button>
+                <button class="btn btn-danger" id="reportBtn" style="display:inline-flex;align-items:center;gap:8px;">
+                    <i class="bi bi-exclamation-triangle-fill"></i> Report
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/alerts.js"></script>
+    <script src="/js/chatNotifier.js"></script>
+    <script src="/js/flashcards.js"></script>
+    <script src="/js/modalAlerts.js"></script>
+    <script src="/js/moderation.js"></script>
+    <script>
+        let currentReviewer = null;
+
+        async function loadReviewer() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const reviewerId = urlParams.get('id');
+            
+            if (!reviewerId) {
+                window.showAlert('error', 'No reviewer ID specified');
+                setTimeout(() => history.back(), 1500);
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/reviewers/${reviewerId}`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    throw new Error('Failed to load reviewer');
+                }
+
+                const { reviewer } = await response.json();
+                currentReviewer = reviewer;
+                displayReviewer(reviewer);
+                loadReactions(reviewerId);
+            } catch (error) {
+                console.error('Error loading reviewer:', error);
+                window.showAlert('error', 'Failed to load reviewer');
+                setTimeout(() => history.back(), 1500);
+            }
+        }
+
+        async function displayReviewer(reviewer) {
+            document.title = `${reviewer.title} - Thinky`;
+            document.getElementById('reviewerTitle').textContent = reviewer.title;
+
+            // Determine subject name from the joined subject object
+            const subjectName = (reviewer.subjects && reviewer.subjects.name) ? reviewer.subjects.name : (reviewer.subject || 'General');
+
+            // Default avatar and username
+            let avatarUrl = '/images/default-avatar.svg';
+            let displayName = 'Anonymous';
+
+            // Pull uploader id from reviewer (user_id)
+            const uploaderId = reviewer.user_id || null;
+            if (uploaderId) {
+                try {
+                    const uresp = await fetch(`/api/users/${uploaderId}`);
+                    if (uresp.ok) {
+                        const body = await uresp.json();
+                        const udata = (body && body.user) ? body.user : body;
+                        if (udata) {
+                            displayName = udata.display_name || udata.username || displayName;
+                            if (udata.profile_picture_url) avatarUrl = udata.profile_picture_url;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Failed to fetch uploader public profile', e);
+                }
+            } else if (reviewer.users && reviewer.users.username) {
+                displayName = reviewer.users.username;
+            }
+
+            // Fill the existing meta elements (we render HTML in the template)
+            const avatarEl = document.getElementById('metaAvatar');
+            const displayNameEl = document.getElementById('metaDisplayName');
+            const subjectEl = document.getElementById('metaSubject');
+            const uploaderLink = document.getElementById('metaUploaderLink');
+            const metaSchoolEl = document.getElementById('metaSchool');
+
+            if (avatarEl) avatarEl.src = avatarUrl || '/images/default-avatar.svg';
+            if (displayNameEl) displayNameEl.textContent = displayName || '';
+            if (subjectEl) subjectEl.textContent = subjectName || '';
+            if (uploaderLink) {
+                if (uploaderId) {
+                    uploaderLink.href = `/user.html?user=${encodeURIComponent(uploaderId)}`;
+                    uploaderLink.setAttribute('aria-label', `View profile of ${displayName}`);
+                } else {
+                    uploaderLink.removeAttribute('href');
+                    uploaderLink.setAttribute('aria-disabled', 'true');
+                }
+            }
+
+            // Try to resolve school name if subject references a school UUID
+            const schoolId = reviewer.subjects && reviewer.subjects.school;
+            if (metaSchoolEl) {
+                const nameSpan = metaSchoolEl.querySelector('.school-name');
+                if (nameSpan) nameSpan.textContent = '';
+                metaSchoolEl.title = '';
+            }
+            if (schoolId) {
+                try {
+                    const sresp = await fetch('/api/schools', { credentials: 'include' });
+                    if (sresp.ok) {
+                        const sdata = await sresp.json();
+                        const found = (sdata.schools || []).find(s => s.id === schoolId);
+                        if (found && metaSchoolEl) {
+                            const nameSpan = metaSchoolEl.querySelector('.school-name');
+                            if (nameSpan) nameSpan.textContent = found.name;
+                            metaSchoolEl.title = found.name;
+                        }
+                    }
+                } catch (e) {
+                    // ignore
+                }
+            }
+
+            // Date
+            if (reviewer.created_at) {
+                const date = new Date(reviewer.created_at);
+                document.getElementById('reviewerDate').textContent = date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                });
+            }
+
+            // Content
+            document.getElementById('reviewerContent').innerHTML = reviewer.content || '';
+
+            // Flashcard preview
+            if (reviewer.flashcard_data && reviewer.flashcard_data.length > 0) {
+                document.getElementById('reviewerFlashcard').innerHTML = `
+                    <div style="padding: 12px; background: rgba(255,158,180,0.08); border-radius: 8px; border-left: 4px solid var(--primary-pink);">
+                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                            <i class="bi bi-lightning-fill" style="color: var(--primary-pink);"></i>
+                            <strong>Flashcards available</strong>
+                        </div>
+                        <p style="margin: 0; color: var(--dark-gray); font-size: 0.95rem;">
+                            ${reviewer.flashcard_data.length} flashcard${reviewer.flashcard_data.length !== 1 ? 's' : ''} included with this reviewer
+                        </p>
+                    </div>
+                `;
+            }
+
+            // Report button
+            const reportBtn = document.getElementById('reportBtn');
+            reportBtn.onclick = () => openReportModal(reviewer.id);
+        }
+
+        async function loadReactions(reviewerId) {
+            try {
+                const response = await fetch(`/api/reviewers/${reviewerId}/reactions`, {
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateHeartButton(data.count || 0, data.userReacted || false);
+                }
+            } catch (error) {
+                console.error('Error loading reactions:', error);
+            }
+        }
+
+        function updateHeartButton(count, userReacted) {
+            const heartIcon = document.getElementById('heartIcon');
+            const heartCount = document.getElementById('heartCount');
+            const heartBtn = document.getElementById('heartBtn');
+
+            heartCount.textContent = count;
+            
+            if (userReacted) {
+                heartIcon.classList.remove('bi-heart');
+                heartIcon.classList.add('bi-heart-fill');
+                heartBtn.classList.add('reacted');
+            } else {
+                heartIcon.classList.remove('bi-heart-fill');
+                heartIcon.classList.add('bi-heart');
+                heartBtn.classList.remove('reacted');
+            }
+        }
+
+        // Heart button click handler
+        document.getElementById('heartBtn').addEventListener('click', async function() {
+            if (!currentReviewer) return;
+
+            try {
+                const response = await fetch(`/api/reviewers/${currentReviewer.id}/reactions`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reaction: 'heart' })
+                });
+
+                if (response.status === 401) {
+                    return window.location.href = '/login';
+                }
+
+                let data = null;
+                try { data = await response.json(); } catch (e) { data = null; }
+
+                if (response.ok) {
+                    updateHeartButton(data.count, data.reacted);
+                } else if (response.status === 403) {
+                    window.showAlert && window.showAlert('error', 'You cannot react to your own reviewer', 3000);
+                    if (data && typeof data.count !== 'undefined') updateHeartButton(data.count, data.reacted);
+                } else {
+                    console.error('Error toggling reaction:', response.status, data);
+                    window.showAlert && window.showAlert('error', 'Failed to toggle reaction');
+                }
+            } catch (error) {
+                console.error('Error toggling reaction:', error);
+            }
+        });
+
+        function saveAsPdf() {
+            if (!currentReviewer) return;
+            window.print();
+        }
+
+        function openFlashcardsForReviewer() {
+            if (!currentReviewer || !currentReviewer.flashcard_data || currentReviewer.flashcard_data.length === 0) {
+                window.showAlert('info', 'No flashcards available for this reviewer');
+                return;
+            }
+            
+            if (typeof openFlashcardViewer === 'function') {
+                openFlashcardViewer(currentReviewer.flashcard_data);
+            }
+        }
+
+        // Load reviewer on page load
+        loadReviewer();
+    </script>
+</body>
+</html>

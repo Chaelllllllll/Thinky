@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Thinky</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+    <style>
+        body {
+            background: var(--light-gray);
+        }
+
+        .settings-header {
+            background: var(--gradient-primary);
+            color: white;
+            padding: 32px;
+            margin-bottom: 32px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+        }
+
+        .settings-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .settings-subtitle {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        .settings-container {
+            display: flex;
+            gap: 24px;
+            align-items: flex-start;
+        }
+
+        .settings-sidebar {
+            width: 250px;
+            background: white;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            padding: 16px;
+            position: sticky;
+            top: 24px;
+        }
+
+        .settings-sidebar-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: var(--radius-md);
+            color: var(--text-dark);
+            text-decoration: none;
+            transition: all var(--transition-base);
+            cursor: pointer;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+            font-size: 1rem;
+        }
+
+        .settings-sidebar-link:hover {
+            background: var(--secondary-pink);
+            color: var(--primary-pink);
+        }
+
+        .settings-sidebar-link.active {
+            background: var(--gradient-primary);
+            color: white;
+        }
+
+        .settings-sidebar-link i {
+            font-size: 1.2rem;
+        }
+
+        .settings-content {
+            flex: 1;
+            background: white;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            padding: 32px;
+        }
+
+        .settings-section {
+            margin-bottom: 32px;
+        }
+
+        .settings-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-section-title {
+            font-size: 1.3rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-dark);
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--light-gray);
+        }
+
+        .settings-divider {
+            height: 1px;
+            background: var(--medium-gray);
+            margin: 24px 0;
+        }
+
+        .settings-toggle {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 0;
+            border-bottom: 1px solid var(--light-gray);
+        }
+
+        .settings-toggle:last-child {
+            border-bottom: none;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 52px;
+            height: 28px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--medium-gray);
+            transition: 0.3s;
+            border-radius: 28px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background-color: var(--primary-pink);
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(24px);
+        }
+
+        /* Mobile adjustments for toggle size and alignment */
+        @media (max-width: 480px) {
+            .toggle-switch {
+                width: 44px;
+                height: 24px;
+            }
+
+            .toggle-slider {
+                border-radius: 24px;
+            }
+
+            .toggle-slider:before {
+                height: 18px;
+                width: 18px;
+                left: 3px;
+                bottom: 3px;
+            }
+
+            .toggle-switch input:checked + .toggle-slider:before {
+                transform: translateX(20px);
+            }
+
+            .settings-toggle {
+                align-items: center;
+                gap: 12px;
+            }
+        }
+
+        /* Further mobile tweaks: keep the switch at the far right, prevent shrinking
+           and ensure consistent vertical alignment and padding. */
+        @media (max-width: 480px) {
+            .settings-toggle {
+                padding: 10px 0;
+            }
+
+            .settings-toggle label.toggle-switch {
+                margin-left: auto;
+                flex-shrink: 0;
+            }
+
+            .toggle-switch {
+                display: inline-block;
+                vertical-align: middle;
+            }
+        }
+
+        .settings-2fa-option {
+            background: var(--light-gray);
+            padding: 20px;
+            border-radius: var(--radius-md);
+            margin-bottom: 16px;
+        }
+
+        .settings-2fa-option:last-child {
+            margin-bottom: 0;
+        }
+
+        .profile-avatar-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            padding: 24px;
+            background: var(--light-gray);
+            border-radius: var(--radius-md);
+        }
+
+        .profile-avatar {
+            position: relative;
+            cursor: pointer;
+        }
+
+        .profile-avatar img {
+            width: 120px;
+            height: 120px;
+            border-radius: 999px;
+            object-fit: cover;
+            border: 4px solid rgba(0,0,0,0.04);
+            box-shadow: 0 6px 18px rgba(25,20,40,0.06);
+        }
+
+        .profile-avatar-placeholder {
+            width: 120px;
+            height: 120px;
+            border-radius: 999px;
+            background: linear-gradient(135deg,#ff9eb4,#ffd4e0);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 28px;
+        }
+
+        .profile-avatar-overlay {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            background: white;
+            border-radius: 999px;
+            padding: 8px;
+            border: 1px solid rgba(0,0,0,0.06);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .profile-avatar-overlay i {
+            color: var(--primary-pink);
+        }
+
+        .save-button-container {
+            padding-top: 24px;
+            border-top: 2px solid var(--light-gray);
+            margin-top: 32px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .settings-container {
+                flex-direction: column;
+            }
+
+            .settings-sidebar {
+                width: 100%;
+                position: static;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2 class="sidebar-brand">Thinky</h2>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/dashboard" class="sidebar-link">
+                <i class="bi bi-grid"></i>
+                <span>Dashboard</span>
+            </a>
+            <div style="margin-top: auto; padding-top: 12px; display:flex;flex-direction:column;gap:8px;">
+                <a href="#" class="sidebar-link settings-sidebar-link active" onclick="switchSettingsSection('profile'); return false;" data-section="profile">
+                    <i class="bi bi-person"></i>
+                    <span>Profile</span>
+                </a>
+                <a href="#" class="sidebar-link settings-sidebar-link" onclick="switchSettingsSection('notifications'); return false;" data-section="notifications">
+                    <i class="bi bi-bell"></i>
+                    <span>Notifications</span>
+                </a>
+                <a href="#" class="sidebar-link settings-sidebar-link" onclick="switchSettingsSection('security'); return false;" data-section="security">
+                    <i class="bi bi-shield-lock"></i>
+                    <span>Security</span>
+                </a>
+                <button onclick="logout()" class="sidebar-link w-100" style="border: none; background: none; text-align: left;">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Mobile Toggle -->
+    <button class="sidebar-toggle" onclick="toggleSidebar()">
+        <i class="bi bi-list"></i>
+    </button>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Settings Header removed per design request -->
+
+        <!-- Settings Container -->
+        <div class="settings-container">
+            <!-- (Right-hand settings sidebar removed — using left sidebar links instead) -->
+
+            <!-- Settings Content -->
+            <div class="settings-content">
+                <!-- Profile Section -->
+                <div id="profileSection" class="settings-section-content">
+                    <h2 class="settings-section-title">Profile</h2>
+                    
+                    <div class="profile-avatar-section bg-none">
+                        <div class="profile-avatar" onclick="document.getElementById('avatarInput').click()">
+                            <input type="file" id="avatarInput" accept="image/*" style="display:none;">
+                            <img id="avatarPreview" src="/images/default-avatar.svg" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar">
+                            <div id="avatarPlaceholder" class="profile-avatar-placeholder">JD</div>
+                            <div class="profile-avatar-overlay">
+                                <i class="bi bi-camera"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form id="profileForm">
+                        <div class="form-group">
+                            <label for="displayName">Display Name</label>
+                            <input id="displayName" class="form-control" placeholder="Your display name">
+                        </div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <label for="settingsUsername">Username</label>
+                            <input id="settingsUsername" class="form-control" placeholder="username">
+                        </div>
+                        <div class="form-group" style="margin-top:16px;">
+                            <label for="settingsEmail">Email Address</label>
+                            <input type="email" id="settingsEmail" class="form-control" placeholder="your@email.com">
+                        </div>
+                    </form>
+
+                    <div class="save-button-container">
+                        <button type="button" class="btn btn-primary" onclick="saveProfileSettings()">
+                            <i class="bi bi-check-circle"></i> Save Changes
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Notifications Section -->
+                <div id="notificationsSection" class="settings-section-content" style="display:none;">
+                    <h2 class="settings-section-title">Notification</h2>
+                    
+                    <div class="settings-section">
+                        <h4 style="font-weight:600;margin-bottom:16px;">Message Notifications</h4>
+                        <div class="settings-toggle">
+                            <div>
+                                <div style="font-weight:500;">General Chat Messages</div>
+                                <div style="font-size:0.9rem;color:var(--dark-gray);margin-top:4px;">Receive notifications from general chat</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="notifGeneralChat" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="settings-toggle">
+                            <div>
+                                <div style="font-weight:500;">Private Messages</div>
+                                <div style="font-size:0.9rem;color:var(--dark-gray);margin-top:4px;">Receive notifications from private messages</div>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="notifPrivateMessages" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="save-button-container">
+                        <button type="button" class="btn btn-primary" onclick="saveNotificationSettings()">
+                            <i class="bi bi-check-circle"></i> Save Changes
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Security Section -->
+                <div id="securitySection" class="settings-section-content" style="display:none;">
+                    <h2 class="settings-section-title">Security</h2>
+                    
+                    <div class="settings-section">
+                        <h4 style="font-weight:600;margin-bottom:8px;">Two-Factor Authentication (2FA)</h4>
+                        <p style="color:var(--dark-gray);font-size:0.95rem;margin-bottom:20px;">
+                            Add an extra layer of security to your account by enabling two-factor authentication.
+                        </p>
+                        
+                        <div class="settings-2fa-option">
+                            <div style="display:flex;align-items:start;gap:12px;margin-bottom:12px;">
+                                <div style="width:48px;height:48px;border-radius:var(--radius-md);background:linear-gradient(135deg,#4285F4,#34A853);display:flex;align-items:center;justify-content:center;color:white;font-size:1.5rem;flex-shrink:0;">
+                                    <i class="bi bi-google"></i>
+                                </div>
+                                <div style="flex:1;">
+                                    <div style="font-weight:600;margin-bottom:4px;">Authenticator App (Google Authenticator)</div>
+                                    <div style="font-size:0.9rem;color:var(--dark-gray);margin-bottom:12px;">Use an authenticator app like Google Authenticator to generate verification codes</div>
+                                    <div id="googleAuthStatus" style="padding:8px 12px;background:white;border:1px solid rgba(0,0,0,0.08);border-radius:var(--radius-md);font-size:0.875rem;margin-bottom:12px;">
+                                        <i class="bi bi-circle"></i> <span>Not enabled</span>
+                                    </div>
+                                    <button id="enableGoogleAuthBtn" class="btn btn-primary">Enable Google Authenticator</button>
+                                    <button id="disableGoogleAuthBtn" class="btn btn-light" style="display:none;margin-left:8px;">Disable</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="settings-divider"></div>
+
+                        <div class="settings-2fa-option">
+                            <div style="display:flex;align-items:start;gap:12px;">
+                                <div style="width:48px;height:48px;border-radius:var(--radius-md);background:linear-gradient(135deg,var(--primary-pink),var(--secondary-pink));display:flex;align-items:center;justify-content:center;color:white;font-size:1.5rem;flex-shrink:0;">
+                                    <i class="bi bi-envelope"></i>
+                                </div>
+                                <div style="flex:1;">
+                                    <div style="font-weight:600;margin-bottom:4px;">Email Verification Code</div>
+                                    <div style="font-size:0.9rem;color:var(--dark-gray);margin-bottom:12px;">Receive a verification code via email each time you log in</div>
+                                    <div id="emailAuthStatus" style="padding:8px 12px;background:white;border:1px solid rgba(0,0,0,0.08);border-radius:var(--radius-md);font-size:0.875rem;margin-bottom:12px;">
+                                        <i class="bi bi-circle"></i> <span>Not enabled</span>
+                                    </div>
+                                    <button id="enableEmailAuthBtn" class="btn btn-primary">Enable Email 2FA</button>
+                                    <button id="disableEmailAuthBtn" class="btn btn-light" style="display:none;margin-left:8px;">Disable</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/modalAlerts.js"></script>
+    <script src="/js/alerts.js"></script>
+    <script src="/js/logoutHelper.js"></script>
+    <script src="/js/settings.js"></script>
+    <script>
+        // Sidebar toggle — match other pages by toggling the "show" class
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('show');
+        }
+
+        // Switch settings sections
+        function switchSettingsSection(section) {
+            // Update sidebar links
+            document.querySelectorAll('.settings-sidebar-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            document.querySelector(`[data-section="${section}"]`).classList.add('active');
+
+            // Update content sections
+            document.querySelectorAll('.settings-section-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById(`${section}Section`).style.display = 'block';
+        }
+
+        // Logout function
+        async function logout() {
+            try {
+                const response = await fetch('/api/auth/logout', {
+                    method: 'POST',
+                    credentials: 'include'
+                });
+
+                if (response.ok) {
+                    window.location.href = '/login';
+                } else {
+                    alert('Logout failed');
+                }
+            } catch (error) {
+                console.error('Logout error:', error);
+                alert('An error occurred during logout');
+            }
+        }
+
+        // Load user data on page load
+        async function loadUserData() {
+            try {
+                const response = await fetch('/api/auth/me', {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    window.location.href = '/login';
+                    return;
+                }
+
+                const { user } = await response.json();
+                
+                // Update profile fields
+                document.getElementById('displayName').value = user.display_name || '';
+                document.getElementById('settingsUsername').value = user.username || '';
+                document.getElementById('settingsEmail').value = user.email || '';
+                
+                // Update avatar
+                if (user.profile_picture_url) {
+                    document.getElementById('avatarPreview').src = user.profile_picture_url;
+                    document.getElementById('avatarPlaceholder').style.display = 'none';
+                } else {
+                    const initials = (user.display_name || user.username || 'U').substring(0, 2).toUpperCase();
+                    document.getElementById('avatarPlaceholder').textContent = initials;
+                }
+
+                // Load settings preferences
+                loadSettingsPreferences();
+            } catch (error) {
+                console.error('Load user data error:', error);
+            }
+        }
+
+        // Avatar preview
+        document.getElementById('avatarInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    document.getElementById('avatarPreview').src = event.target.result;
+                    document.getElementById('avatarPreview').style.display = 'block';
+                    document.getElementById('avatarPlaceholder').style.display = 'none';
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadUserData();
+            
+            // Wire up 2FA button handlers
+            const enableGoogleAuthBtn = document.getElementById('enableGoogleAuthBtn');
+            const disableGoogleAuthBtn = document.getElementById('disableGoogleAuthBtn');
+            const enableEmailAuthBtn = document.getElementById('enableEmailAuthBtn');
+            const disableEmailAuthBtn = document.getElementById('disableEmailAuthBtn');
+            
+            if (enableGoogleAuthBtn) {
+                enableGoogleAuthBtn.addEventListener('click', async function() {
+                    await window.enableGoogleAuth();
+                });
+            }
+            
+            if (disableGoogleAuthBtn) {
+                disableGoogleAuthBtn.addEventListener('click', async function() {
+                    await window.disableGoogleAuth();
+                });
+            }
+            
+            if (enableEmailAuthBtn) {
+                enableEmailAuthBtn.addEventListener('click', async function() {
+                    await window.enableEmailAuth();
+                });
+            }
+            
+            if (disableEmailAuthBtn) {
+                disableEmailAuthBtn.addEventListener('click', async function() {
+                    await window.disableEmailAuth();
+                });
+            }
+        });
+    </script>
+</body>
+</html>

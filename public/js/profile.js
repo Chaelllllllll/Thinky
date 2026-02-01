@@ -46,13 +46,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             </div>`;
         }).join('');
 
-        // Wire click handlers to open reviewer modal instead of redirecting
+        // Wire click handlers to navigate to reviewer page
         container.querySelectorAll('.reviewer-card').forEach(el => {
             el.addEventListener('click', () => {
                 const rid = el.getAttribute('data-rid');
                 if (!rid) return;
-                const rvObj = reviewers.find(r => String(r.id) === String(rid));
-                if (rvObj) openReviewerModal(rvObj);
+                window.location.href = `/reviewer.html?id=${rid}`;
             });
         });
 
