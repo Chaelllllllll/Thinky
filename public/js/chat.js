@@ -344,10 +344,19 @@ async function loadMessages(silent = false) {
                         // skip notifications for messages sent by the current user
                         if (currentUser && String(msg.user_id) === String(currentUser.id)) return;
 
+                        // Check if this is a private message to current user
+                        const isPrivateToMe = msg.recipient_id && String(msg.recipient_id) === String(currentUser.id);
+                        
+                        // Check if this is a reply to current user's message
+                        const isReplyToMe = msg.reply_to_meta && String(msg.reply_to_meta.user_id) === String(currentUser.id);
+                        
+                        // Only show notification if: general message, private to me, or reply to me
+                        const chatType = msg.chat_type || (msg.recipient_id ? 'private' : 'general');
+                        if (chatType !== 'general' && !isPrivateToMe && !isReplyToMe) return;
+
                         const avatarUrl = (msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg';
                         const username = msg.username || msg.display_name || 'User';
                         const body = msg.message || '';
-                        const chatType = msg.chat_type || (msg.recipient_id ? 'private' : 'general');
 
                         try {
                             window.showChatNotification({ avatar: avatarUrl, username, message: body, chatType, msgId: msg.id, recipientId: msg.recipient_id });
@@ -449,6 +458,8 @@ function displayMessages(preserveScroll = false) {
     try {
         const msgEls = container.querySelectorAll('.chat-message');
         msgEls.forEach(el => {
+            const mid = el.getAttribute('id');
+            const msg = (mid && mid.startsWith('msg-')) ? messages.find(m => String(m.id) === mid.replace(/^msg-/, '')) : null;
             el.addEventListener('click', (e) => {
                 e.stopPropagation();
                 // deselect others
@@ -473,7 +484,7 @@ function displayMessages(preserveScroll = false) {
                 // try to set avatar for reply (best-effort: fetch user avatar if available)
                 (async () => {
                     try {
-                        const rt = msg.reply_to_meta;
+                        const rt = msg && msg.reply_to_meta;
                         const img = preview.querySelector('.reply-avatar');
                         if (img && rt && rt.user_id) {
                             const r = await fetch('/api/users/' + encodeURIComponent(rt.user_id));
@@ -503,18 +514,16 @@ function displayMessages(preserveScroll = false) {
             if (replyBtn) {
                 replyBtn.addEventListener('click', (ev) => {
                     ev.stopPropagation();
-                    // Prefill the input with @username and focus and set reply target
-                        const author = el.getAttribute('data-username') || '';
-                    const input = document.getElementById('messageInput');
-                    if (input) {
-                        input.value = `@${author} `;
-                        input.focus();
-                    }
-                    // remember reply target id
+                    // Show reply banner and set reply target
+                    const author = el.getAttribute('data-username') || '';
+                    const messageText = msg ? (msg.message || '') : '';
                     const mid = el.getAttribute('id'); // id like msg-<safeId>
                     if (mid && mid.startsWith('msg-')) {
                         currentReplyTo = mid.replace(/^msg-/, '');
+                        if (typeof showReplyBanner === 'function') showReplyBanner(author, messageText);
                     }
+                    const input = document.getElementById('messageInput');
+                    if (input) input.focus();
                     // close menu
                     if (menu) menu.classList.remove('show');
                 });
@@ -674,6 +683,7 @@ async function sendMessage() {
 
         input.value = '';
         currentReplyTo = null;
+        hideReplyBanner();
 
         // Immediately reload messages
         await loadMessages();
@@ -974,6 +984,28 @@ window.openMessageReportModal = async function(messageId) {
 
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('show');
+}
+
+function showReplyBanner(username, message) {
+    const banner = document.getElementById('replyBanner');
+    const usernameEl = document.getElementById('replyUsername');
+    const messageEl = document.getElementById('replyMessage');
+    
+    if (banner && usernameEl && messageEl) {
+        usernameEl.textContent = username;
+        messageEl.textContent = message;
+        banner.style.display = 'block';
+    }
+}
+
+function hideReplyBanner() {
+    const banner = document.getElementById('replyBanner');
+    if (banner) banner.style.display = 'none';
+}
+
+function cancelReply() {
+    currentReplyTo = null;
+    hideReplyBanner();
 }
 
 async function logout() {

@@ -47,35 +47,35 @@
                         if (!n) return;
                         if (currentUser && String(n.user_id) === String(currentUser.id)) return; // skip our own
 
-                        // Only show notification if:
-                        // 1. General message (notify everyone except sender)
-                        // 2. Private message TO current user (recipient_id matches)
-                        // 3. Reply TO current user (reply_to references a message from current user)
-                        const isPrivateToMe = n.chat_type === 'private' && currentUser && String(n.recipient_id) === String(currentUser.id);
-                        const isGeneral = n.chat_type === 'general';
-                        let isReplyToMe = false;
+                        // Check if this is a private message to current user
+                        const isPrivateToMe = n.recipient_id && currentUser && String(n.recipient_id) === String(currentUser.id);
+                        
+                        // Check if this is a reply to current user's message
+                        const isReplyToMe = n.reply_to && currentUser; // will verify in fetch below
+                        
+                        // Show notification if: general message, private to me, or potentially a reply to me
+                        if (!isPrivateToMe && !isReplyToMe && n.chat_type !== 'general') return;
 
-                        // Check if this is a reply to one of my messages
-                        if (n.reply_to && currentUser) {
+                        // For replies, verify it's actually replying to current user
+                        if (isReplyToMe && n.reply_to) {
                             try {
-                                const replyResp = await fetch(`/api/messages/general?limit=500`, { credentials: 'include' });
+                                const replyResp = await fetch(`/api/messages/${encodeURIComponent(n.reply_to)}`, { credentials: 'include' });
                                 if (replyResp.ok) {
                                     const replyData = await replyResp.json();
-                                    const originalMsg = (replyData.messages || []).find(m => String(m.id) === String(n.reply_to));
-                                    if (originalMsg && String(originalMsg.user_id) === String(currentUser.id)) {
-                                        isReplyToMe = true;
+                                    const originalMsg = replyData && replyData.message;
+                                    if (!originalMsg || String(originalMsg.user_id) !== String(currentUser.id)) {
+                                        // Not replying to current user
+                                        if (!isPrivateToMe && n.chat_type !== 'general') return;
                                     }
                                 }
-                            } catch (e) { /* ignore */ }
+                            } catch (e) { /* ignore verification error */ }
                         }
-
-                        if (!isGeneral && !isPrivateToMe && !isReplyToMe) return; // skip if not relevant
 
                         const avatar = (n.profile_picture_url) ? n.profile_picture_url : (n.avatar_url || '/images/default-avatar.svg');
                         const username = n.username || n.display_name || ('User ' + String(n.user_id));
                         const text = n.message || '';
                         const chatType = n.chat_type || (n.recipient_id ? 'private' : 'general');
-                        console.debug('chatNotifier: emitting toast for realtime message', { username, chatType, textPreview: text.slice(0,60), isReplyToMe });
+                        console.debug('chatNotifier: emitting toast for realtime message', { username, chatType, textPreview: text.slice(0,60) });
                         window.showChatNotification({ avatar, username, message: text, chatType, msgId: n.id, recipientId: n.recipient_id }, 6000);
                     } catch (e) { /* ignore */ }
                 })
@@ -99,89 +99,72 @@
     let lastPrivate = new Date().toISOString();
     const seenMessageIds = new Set();
 
-    // New simplified poll: request messages created after `lastGeneral` every 10s
+    // Poll for both general and private messages, plus check for replies to current user
     async function poll() {
         try {
             // Poll general messages
-            const since = encodeURIComponent(lastGeneral);
-            const url = `/api/messages/general?since=${since}&limit=100&_=${Date.now()}`;
-            console.debug('chatNotifier: scanning messages URL', url);
-            const resp = await fetch(url, { credentials: 'include', cache: 'no-store' });
-            if (!resp.ok) { console.debug('chatNotifier: scan fetch not ok', resp.status, resp.statusText); return; }
-            const d = await resp.json();
-            const msgs = d && d.messages ? d.messages : [];
-
-            // Also poll private messages sent TO this user
-            let privateMsgs = [];
-            if (currentUser && currentUser.id) {
-                try {
-                    const privResp = await fetch(`/api/messages/private?with=${currentUser.id}&limit=100&_=${Date.now()}`, { credentials: 'include', cache: 'no-store' });
-                    if (privResp.ok) {
-                        const privData = await privResp.json();
-                        const allPriv = privData && privData.messages ? privData.messages : [];
-                        // Filter for messages TO current user that are newer than lastPrivate
-                        privateMsgs = allPriv.filter(m => 
-                            String(m.recipient_id) === String(currentUser.id) && 
-                            new Date(m.created_at) > new Date(lastPrivate)
-                        );
+            const sinceGeneral = encodeURIComponent(lastGeneral);
+            const urlGeneral = `/api/messages/general?since=${sinceGeneral}&limit=100&_=${Date.now()}`;
+            console.debug('chatNotifier: scanning general messages URL', urlGeneral);
+            const respGeneral = await fetch(urlGeneral, { credentials: 'include', cache: 'no-store' });
+            if (respGeneral.ok) {
+                const d = await respGeneral.json();
+                const msgs = d && d.messages ? d.messages : [];
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                    const ordered = msgs.slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+                    let newestTs = lastGeneral;
+                    for (const m of ordered) {
+                        if (!m || !m.id) continue;
+                        if (seenMessageIds.has(m.id)) continue;
+                        seenMessageIds.add(m.id);
+                        if (currentUser && String(m.user_id) === String(currentUser.id)) continue; // skip our own
+                        
+                        // Check if this is a reply to current user's message
+                        let isReplyToMe = false;
+                        if (m.reply_to && m.reply_to_meta && currentUser) {
+                            isReplyToMe = String(m.reply_to_meta.user_id) === String(currentUser.id);
+                        }
+                        
+                        // Show notification for general messages or replies to me
+                        if (m.chat_type === 'general' || isReplyToMe) {
+                            console.debug('chatNotifier: scanning -> notifying general message', { id: m.id, user_id: m.user_id, isReplyToMe, preview: (m.message||'').slice(0,60) });
+                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general', msgId: m.id, recipientId: m.recipient_id }, 6000);
+                        }
+                        
+                        if (m.created_at) newestTs = (new Date(m.created_at) > new Date(newestTs)) ? m.created_at : newestTs;
                     }
-                } catch (e) { console.debug('chatNotifier: private poll error', e && e.message); }
-            }
-
-            const allMsgs = [...msgs, ...privateMsgs];
-            if (allMsgs.length === 0) {
-                // no new messages
-                return;
-            }
-
-            // messages are returned newest-first by server; process oldest->newest
-            const ordered = allMsgs.slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-            let newestGeneral = lastGeneral;
-            let newestPrivate = lastPrivate;
-
-            for (const m of ordered) {
-                if (!m || !m.id) continue;
-                if (seenMessageIds.has(m.id)) continue;
-                seenMessageIds.add(m.id);
-                if (currentUser && String(m.user_id) === String(currentUser.id)) continue; // skip our own
-
-                // Check if this is a reply to me
-                let isReplyToMe = false;
-                if (m.reply_to && currentUser) {
-                    // Check if reply_to_meta exists and belongs to current user
-                    if (m.reply_to_meta && String(m.reply_to_meta.user_id) === String(currentUser.id)) {
-                        isReplyToMe = true;
-                    }
-                }
-
-                const isPrivateToMe = m.chat_type === 'private' && currentUser && String(m.recipient_id) === String(currentUser.id);
-                const isGeneral = m.chat_type === 'general';
-
-                if (!isGeneral && !isPrivateToMe && !isReplyToMe) continue; // skip if not relevant to me
-
-                const chatTypeLabel = isPrivateToMe ? 'private' : (m.chat_type || 'general');
-                console.debug('chatNotifier: scanning -> notifying message', { id: m.id, user_id: m.user_id, chatType: chatTypeLabel, isReplyToMe, preview: (m.message||'').slice(0,60) });
-                window.showChatNotification({ 
-                    avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', 
-                    username: m.username || 'User', 
-                    message: m.message, 
-                    chatType: chatTypeLabel, 
-                    msgId: m.id, 
-                    recipientId: m.recipient_id 
-                }, 6000);
-
-                if (m.created_at) {
-                    if (m.chat_type === 'private') {
-                        newestPrivate = (new Date(m.created_at) > new Date(newestPrivate)) ? m.created_at : newestPrivate;
-                    } else {
-                        newestGeneral = (new Date(m.created_at) > new Date(newestGeneral)) ? m.created_at : newestGeneral;
-                    }
+                    lastGeneral = newestTs || new Date().toISOString();
                 }
             }
-
-            // Advance timestamps
-            lastGeneral = newestGeneral;
-            lastPrivate = newestPrivate;
+            
+            // Poll private messages
+            const sincePrivate = encodeURIComponent(lastPrivate);
+            const urlPrivate = `/api/messages/private-inbox?since=${sincePrivate}&limit=100&_=${Date.now()}`;
+            console.debug('chatNotifier: scanning private messages URL', urlPrivate);
+            const respPrivate = await fetch(urlPrivate, { credentials: 'include', cache: 'no-store' });
+            if (respPrivate.ok) {
+                const d = await respPrivate.json();
+                const msgs = d && d.messages ? d.messages : [];
+                if (Array.isArray(msgs) && msgs.length > 0) {
+                    const ordered = msgs.slice().sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+                    let newestTs = lastPrivate;
+                    for (const m of ordered) {
+                        if (!m || !m.id) continue;
+                        if (seenMessageIds.has(m.id)) continue;
+                        seenMessageIds.add(m.id);
+                        if (currentUser && String(m.user_id) === String(currentUser.id)) continue; // skip our own
+                        
+                        // Only notify if this private message is TO current user
+                        if (m.recipient_id && currentUser && String(m.recipient_id) === String(currentUser.id)) {
+                            console.debug('chatNotifier: scanning -> notifying private message', { id: m.id, user_id: m.user_id, recipient_id: m.recipient_id, preview: (m.message||'').slice(0,60) });
+                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'private', msgId: m.id, recipientId: m.recipient_id }, 6000);
+                        }
+                        
+                        if (m.created_at) newestTs = (new Date(m.created_at) > new Date(newestTs)) ? m.created_at : newestTs;
+                    }
+                    lastPrivate = newestTs || new Date().toISOString();
+                }
+            }
         } catch (e) { console.debug('chatNotifier: poll() error', e && (e.message || e)); }
     }
 

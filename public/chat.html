@@ -234,6 +234,15 @@
                             <p style="margin-top: 16px;">Loading messages...</p>
                         </div>
                     </div>
+                    <div id="replyBanner" style="display:none;padding:10px 16px;background:#f8f9fa;border-left:3px solid var(--primary-pink);margin-bottom:8px;border-radius:6px;">
+                        <div style="display:flex;justify-content:space-between;align-items:start;">
+                            <div>
+                                <div style="font-size:0.85rem;color:var(--dark-gray);margin-bottom:4px;">Replying to <strong id="replyUsername"></strong></div>
+                                <div id="replyMessage" style="font-size:0.9rem;color:var(--text-dark);max-height:60px;overflow:hidden;text-overflow:ellipsis;"></div>
+                            </div>
+                            <button onclick="cancelReply()" style="background:none;border:none;cursor:pointer;padding:4px 8px;color:var(--dark-gray);font-size:1.2rem;" title="Cancel reply">&times;</button>
+                        </div>
+                    </div>
                     <div class="chat-input-container">
                         <input 
                             type="text" 

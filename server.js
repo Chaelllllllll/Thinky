@@ -2775,6 +2775,47 @@ app.put('/api/admin/moderation/:id/action', requireModerator, async (req, res) =
 // CHAT ROUTES
 // =====================================================
 
+// Get private inbox messages addressed to current user (supports since)
+// MUST come before /api/messages/:chatType to match first
+app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const since = req.query.since || null;
+
+        let q = supabaseAdmin
+            .from('messages')
+            .select('*, users:user_id (username, profile_picture_url)')
+            .eq('chat_type', 'private')
+            .eq('recipient_id', req.session.userId)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (since) q = q.gt('created_at', since);
+
+        const { data: messages, error } = await q;
+        if (error) {
+            console.error('Get private-inbox messages error:', error);
+            return res.status(500).json({ error: 'Failed to fetch private messages' });
+        }
+
+        try {
+            const msgs = messages.reverse();
+            const replyIds = msgs.map(m => m.reply_to).filter(Boolean);
+            if (replyIds.length > 0) {
+                const { data: replies } = await supabaseAdmin.from('messages').select('id, message, user_id, username').in('id', replyIds);
+                const map = (replies || []).reduce((acc, r) => { acc[r.id] = r; return acc; }, {});
+                msgs.forEach(m => { if (m.reply_to && map[m.reply_to]) m.reply_to_meta = map[m.reply_to]; });
+            }
+            return res.json({ messages: msgs });
+        } catch (e) {
+            return res.json({ messages: messages.reverse() });
+        }
+    } catch (error) {
+        console.error('Get private-inbox messages error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Get messages
 app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
     try {
