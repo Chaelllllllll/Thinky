@@ -2441,8 +2441,32 @@ app.get('/api/admin/moderation', requireModerator, async (req, res) => {
             return res.status(500).json({ error: 'Failed to load reports' });
         }
 
+        // Enrich reviewer reports with reviewer owner username when possible
+        const reviewerReportsWithUser = (reviewerReports || []);
+        try {
+            const userIds = Array.from(new Set(reviewerReportsWithUser.map(rr => rr.reviewers?.user_id).filter(Boolean)));
+            if (userIds.length > 0) {
+                const { data: usersData, error: uerr } = await supabaseAdmin
+                    .from('users')
+                    .select('id,username')
+                    .in('id', userIds);
+
+                if (!uerr && usersData) {
+                    const userMap = new Map(usersData.map(u => [u.id, u]));
+                    reviewerReportsWithUser.forEach(rr => {
+                        const uid = rr.reviewers?.user_id;
+                        if (uid && userMap.has(uid)) {
+                            rr.reviewers.users = userMap.get(uid);
+                        }
+                    });
+                }
+            }
+        } catch (e) {
+            console.error('Error enriching reviewer reports with user data:', e);
+        }
+
         // Normalize and combine report types for the admin UI
-        const normalizedReviewer = (reviewerReports || []).map(r => ({ ...r, report_type: r.report_type, type: 'reviewer' }));
+        const normalizedReviewer = reviewerReportsWithUser.map(r => ({ ...r, report_type: r.report_type, type: 'reviewer' }));
         const normalizedChat = (chatReports || []).map(r => ({ ...r, report_type: r.report_type, type: 'chat' }));
 
         const reports = normalizedReviewer.concat(normalizedChat).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
@@ -2535,28 +2559,41 @@ app.put('/api/admin/moderation/:id/action', requireModerator, async (req, res) =
             }
         }
 
-        // Message moderation actions
-        if (action === 'delete_message' && reportTable === 'chat_reports') {
-            // Delete the message
-            await supabaseAdmin.from('messages').delete().eq('id', rdata.message_id);
-        } else if (action === 'mute' || action === 'ban_chat') {
-            // Mute/ban user from chat
-            await supabaseAdmin.from('users').update({ banned_until: effectiveUntil }).eq('id', reportedUserId);
-        } else if (action === 'warn_message') {
-            // Warning - no database action needed, email will be sent
+        // Message moderation actions (only for chat_reports)
+        if (reportTable === 'chat_reports') {
+            if (action === 'delete_message') {
+                // Delete the message
+                await supabaseAdmin.from('messages').delete().eq('id', rdata.message_id);
+            } else if (action === 'mute') {
+                // Mute user from chat temporarily - use chat_muted_until for temporary chat restrictions
+                await supabaseAdmin.from('users').update({ chat_muted_until: effectiveUntil }).eq('id', reportedUserId);
+            } else if (action === 'ban_chat') {
+                // Ban user completely from the platform (account-level ban)
+                await supabaseAdmin.from('users').update({ banned_until: effectiveUntil }).eq('id', reportedUserId);
+            } else if (action === 'warn_message') {
+                // Warning - no database action needed, email will be sent
+            } else if (!['dismiss', 'ban', 'restrict', 'delete_user'].includes(action)) {
+                // Invalid action for chat reports
+                console.warn(`Invalid action '${action}' for chat report`);
+            }
         }
-        // Reviewer moderation actions
-        else if (action === 'hide_content' && reportTable === 'reviewer_reports') {
-            // Hide reviewer (make it private)
-            await supabaseAdmin.from('reviewers').update({ is_public: false }).eq('id', rdata.reviewer_id);
-        } else if (action === 'delete_content' && reportTable === 'reviewer_reports') {
-            // Delete reviewer
-            await supabaseAdmin.from('reviewers').delete().eq('id', rdata.reviewer_id);
-        } else if (action === 'suspend_author') {
-            // Suspend user from creating content
-            await supabaseAdmin.from('users').update({ blocked_from_creating_until: effectiveUntil }).eq('id', reportedUserId);
-        } else if (action === 'warn_reviewer') {
-            // Warning - no database action needed, email will be sent
+        // Reviewer moderation actions (only for reviewer_reports)
+        else if (reportTable === 'reviewer_reports') {
+            if (action === 'hide_content') {
+                // Hide reviewer (make it private)
+                await supabaseAdmin.from('reviewers').update({ is_public: false }).eq('id', rdata.reviewer_id);
+            } else if (action === 'delete_content') {
+                // Delete reviewer
+                await supabaseAdmin.from('reviewers').delete().eq('id', rdata.reviewer_id);
+            } else if (action === 'suspend_author') {
+                // Suspend user from creating content
+                await supabaseAdmin.from('users').update({ blocked_from_creating_until: effectiveUntil }).eq('id', reportedUserId);
+            } else if (action === 'warn_reviewer') {
+                // Warning - no database action needed, email will be sent
+            } else if (!['dismiss', 'ban', 'restrict', 'delete_user'].includes(action)) {
+                // Invalid action for reviewer reports
+                console.warn(`Invalid action '${action}' for reviewer report`);
+            }
         }
         // Legacy actions for backward compatibility
         else if (action === 'ban') {
@@ -2597,19 +2634,33 @@ app.put('/api/admin/moderation/:id/action', requireModerator, async (req, res) =
             // Message moderation decisions
             else if (action === 'delete_message') {
                 decision = 'Message removed from chat';
-            } else if (action === 'mute' || action === 'ban_chat') {
+            } else if (action === 'mute') {
                 if (effectiveUntil) {
                     const dt = new Date(effectiveUntil);
                     const now = new Date();
                     if (!isNaN(dt.getTime()) && (dt.getFullYear() - now.getFullYear()) >= 50) {
-                        decision = 'Permanently banned from chat';
+                        decision = 'Permanently muted from chat';
                     } else if (!isNaN(dt.getTime())) {
-                        decision = `Chat access suspended until ${dt.toLocaleString()}`;
+                        decision = `Muted from chat until ${dt.toLocaleString()}`;
                     } else {
-                        decision = 'Chat access suspended';
+                        decision = 'Muted from chat';
                     }
                 } else {
-                    decision = 'Chat access suspended';
+                    decision = 'Muted from chat';
+                }
+            } else if (action === 'ban_chat') {
+                if (effectiveUntil) {
+                    const dt = new Date(effectiveUntil);
+                    const now = new Date();
+                    if (!isNaN(dt.getTime()) && (dt.getFullYear() - now.getFullYear()) >= 50) {
+                        decision = 'Permanently banned from platform';
+                    } else if (!isNaN(dt.getTime())) {
+                        decision = `Banned from platform until ${dt.toLocaleString()}`;
+                    } else {
+                        decision = 'Banned from platform';
+                    }
+                } else {
+                    decision = 'Banned from platform';
                 }
             } else if (action === 'warn_message') {
                 decision = 'Warning issued for chat message';
@@ -2824,6 +2875,40 @@ app.post('/api/messages', requireAuth, async (req, res) => {
 
         if (!message || !chat_type) {
             return res.status(400).json({ error: 'Message and chat type are required' });
+        }
+
+        // Check if user is muted or banned
+        const { data: user, error: userError } = await supabaseAdmin
+            .from('users')
+            .select('chat_muted_until, banned_until')
+            .eq('id', req.session.userId)
+            .single();
+
+        if (userError) {
+            console.error('Failed to check user moderation status:', userError);
+            return res.status(500).json({ error: 'Server error' });
+        }
+
+        // Check if user is currently banned
+        if (user.banned_until) {
+            const bannedUntil = new Date(user.banned_until);
+            if (bannedUntil > new Date()) {
+                return res.status(403).json({ 
+                    error: 'You are currently banned from the platform', 
+                    banned_until: user.banned_until 
+                });
+            }
+        }
+
+        // Check if user is currently muted from chat
+        if (user.chat_muted_until) {
+            const mutedUntil = new Date(user.chat_muted_until);
+            if (mutedUntil > new Date()) {
+                return res.status(403).json({ 
+                    error: 'You are currently muted from sending chat messages', 
+                    muted_until: user.chat_muted_until 
+                });
+            }
         }
 
         // Server-side sanitization: trim and limit length
@@ -3310,6 +3395,123 @@ app.delete('/api/admin/messages/:id', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('Delete message error:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// =====================================================
+// POLICY MANAGEMENT ENDPOINTS (ADMIN ONLY)
+// =====================================================
+
+// Get all policies
+app.get('/api/policies', async (req, res) => {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('policies')
+            .select('*')
+            .order('id', { ascending: true });
+
+        if (error) throw error;
+
+        res.json(data || []);
+    } catch (error) {
+        console.error('Get policies error:', error);
+        res.status(500).json({ error: 'Failed to fetch policies' });
+    }
+});
+
+// Get last updated timestamp for policies
+app.get('/api/policies/last-updated', async (req, res) => {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('policies')
+            .select('updated_at')
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+
+        res.json({ lastUpdated: data?.updated_at || null });
+    } catch (error) {
+        console.error('Get policies last updated error:', error);
+        res.status(500).json({ error: 'Failed to fetch last updated' });
+    }
+});
+
+// Create new policy (admin only)
+app.post('/api/admin/policies', requireAdmin, async (req, res) => {
+    try {
+        const { title, description, category } = req.body;
+
+        if (!title || !description || !category) {
+            return res.status(400).json({ error: 'Title, description, and category are required' });
+        }
+
+        if (!['reviewer', 'message', 'both'].includes(category)) {
+            return res.status(400).json({ error: 'Category must be reviewer, message, or both' });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('policies')
+            .insert([{ title, description, category }])
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.json(data);
+    } catch (error) {
+        console.error('Create policy error:', error);
+        res.status(500).json({ error: 'Failed to create policy' });
+    }
+});
+
+// Update policy (admin only)
+app.put('/api/admin/policies/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { title, description, category } = req.body;
+
+        if (!title || !description || !category) {
+            return res.status(400).json({ error: 'Title, description, and category are required' });
+        }
+
+        if (!['reviewer', 'message', 'both'].includes(category)) {
+            return res.status(400).json({ error: 'Category must be reviewer, message, or both' });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('policies')
+            .update({ title, description, category, updated_at: new Date().toISOString() })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.json(data);
+    } catch (error) {
+        console.error('Update policy error:', error);
+        res.status(500).json({ error: 'Failed to update policy' });
+    }
+});
+
+// Delete policy (admin only)
+app.delete('/api/admin/policies/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { error } = await supabaseAdmin
+            .from('policies')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+
+        res.json({ message: 'Policy deleted successfully' });
+    } catch (error) {
+        console.error('Delete policy error:', error);
+        res.status(500).json({ error: 'Failed to delete policy' });
     }
 });
 

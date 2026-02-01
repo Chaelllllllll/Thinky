@@ -628,8 +628,37 @@ async function sendMessage() {
                 return;
             }
             if (response.status === 403) {
-                // Muted or forbidden — server is authoritative; show server message.
-                window.showAlert && window.showAlert('error', (respJson && respJson.error) ? respJson.error : 'You are not allowed to send messages.', 6000);
+                // Muted or forbidden — server is authoritative; show server message including remaining duration when provided.
+                let errorMsg = (respJson && respJson.error) ? respJson.error : 'You are not allowed to send messages.';
+                try {
+                    if (respJson && respJson.muted_until) {
+                        const until = new Date(respJson.muted_until);
+                        const now = new Date();
+                        if (until > now) {
+                            const diffMs = until - now;
+                            const mins = Math.floor(diffMs / 60000);
+                            const hrs = Math.floor(mins / 60);
+                            const days = Math.floor(hrs / 24);
+                            let remaining = '';
+                            if (days >= 1) remaining = `${days} day${days>1?'s':''}`;
+                            else if (hrs >= 1) remaining = `${hrs} hour${hrs>1?'s':''}`;
+                            else if (mins >= 1) remaining = `${mins} minute${mins>1?'s':''}`;
+                            else remaining = 'less than a minute';
+                            errorMsg += ` — muted until ${until.toLocaleString()} (${remaining} remaining)`;
+                        }
+                    } else if (respJson && respJson.banned_until) {
+                        const until = new Date(respJson.banned_until);
+                        const now = new Date();
+                        if (until > now) {
+                            const diffMs = until - now;
+                            const days = Math.floor(diffMs / 86400000);
+                            let remaining = days >= 1 ? `${days} day${days>1?'s':''}` : 'less than a day';
+                            errorMsg += ` — banned until ${until.toLocaleString()} (${remaining} remaining)`;
+                        }
+                    }
+                } catch (e) { /* ignore formatting errors */ }
+
+                window.showAlert && window.showAlert('error', errorMsg, 8000);
                 return;
             }
             if (response.status === 400) {
@@ -849,41 +878,49 @@ window.openMessageReportModal = async function(messageId) {
     const existing = document.getElementById('messageReportModal');
     if (existing) existing.remove();
 
+    // Load policies from API
+    let policies = [];
+    try {
+        const response = await fetch('/api/policies');
+        if (response.ok) {
+            const allPolicies = await response.json();
+            policies = allPolicies.filter(p => p.category === 'message' || p.category === 'both');
+        }
+    } catch (error) {
+        console.error('Error loading policies:', error);
+    }
+
     const modal = document.createElement('div');
     modal.id = 'messageReportModal';
     modal.className = 'modal';
     modal.style.display = 'flex';
     modal.style.zIndex = '7000';
     modal.innerHTML = `
-        <div class="modal-content" style="max-width:560px;">
+        <div class="modal-content" style="max-width:600px;">
             <div class="modal-header">
-                <h3 class="modal-title">Report Message</h3>
+                <h3 class="modal-title"><i class="bi bi-flag-fill"></i> Report Message</h3>
                 <button class="modal-close" id="reportModalClose">&times;</button>
             </div>
             <div class="modal-body">
-                <p style="margin-bottom:16px;">Please select the reason for reporting this message:</p>
-                <div style="margin-bottom:12px;">
-                    <label style="display:block;margin-bottom:8px;">
-                        <input type="radio" name="reportType" value="spam" checked> Spam
-                    </label>
-                    <label style="display:block;margin-bottom:8px;">
-                        <input type="radio" name="reportType" value="harassment"> Harassment
-                    </label>
-                    <label style="display:block;margin-bottom:8px;">
-                        <input type="radio" name="reportType" value="inappropriate"> Inappropriate Content
-                    </label>
-                    <label style="display:block;margin-bottom:8px;">
-                        <input type="radio" name="reportType" value="other"> Other
-                    </label>
+                <p style="margin-bottom:16px;color:#666;">Select the policy violation that best describes this message:</p>
+                <div class="form-group">
+                    <label>Policy Violation <span style="color:red;">*</span></label>
+                    <select id="reportPolicySelect" class="form-control" required>
+                        <option value="">Select a policy violation...</option>
+                        ${policies.map(p => 
+                            `<option value="${p.id}" title="${p.description}">${p.title}</option>`
+                        ).join('')}
+                    </select>
+                    <small style="color:#666;display:block;margin-top:6px;">This helps our moderation team respond appropriately</small>
                 </div>
-                <div style="margin-top:12px;">
-                    <label for="reportDetails">Additional details (optional)</label>
-                    <textarea id="reportDetails" class="form-control" placeholder="Provide more context..." style="width:100%;height:80px;"></textarea>
+                <div style="margin-top:16px;">
+                    <label for="reportDetails">Additional Details (Optional)</label>
+                    <textarea id="reportDetails" class="form-control" placeholder="Provide any additional context to help moderators..." style="width:100%;height:90px;resize:vertical;"></textarea>
                 </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-light" id="reportCancel">Cancel</button>
-                <button class="btn btn-danger" id="reportSubmit">Submit Report</button>
+                <button class="btn btn-danger" id="reportSubmit"><i class="bi bi-send-fill"></i> Submit Report</button>
             </div>
         </div>
     `;
@@ -894,8 +931,21 @@ window.openMessageReportModal = async function(messageId) {
     document.getElementById('reportCancel').onclick = close;
     
     document.getElementById('reportSubmit').onclick = async () => {
-        const reportType = modal.querySelector('input[name="reportType"]:checked').value;
+        const policyId = document.getElementById('reportPolicySelect').value;
         const details = document.getElementById('reportDetails').value.trim();
+        
+        // Validate policy selection
+        if (!policyId) {
+            await window.showModal('Please select a policy violation', 'Error');
+            return;
+        }
+        
+        // Get selected policy title
+        const selectedPolicy = policies.find(p => p.id.toString() === policyId);
+        const reportType = selectedPolicy ? selectedPolicy.title : 'Policy Violation';
+        
+        const btn = document.getElementById('reportSubmit');
+        btn.disabled = true;
         
         try {
             const resp = await fetch(`/api/messages/${encodeURIComponent(messageId)}/report`, {
@@ -916,6 +966,8 @@ window.openMessageReportModal = async function(messageId) {
         } catch (e) {
             console.error('Report submission error:', e);
             await window.showModal('Failed to submit report', 'Error');
+        } finally {
+            btn.disabled = false;
         }
     };
 };

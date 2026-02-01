@@ -215,6 +215,10 @@
                 <i class="bi bi-chat-left-text"></i>
                 <span>Message Moderation</span>
             </a>
+            <a href="#" onclick="showPolicySection(); return false;" class="sidebar-link">
+                <i class="bi bi-shield-shaded"></i>
+                <span>Policies</span>
+            </a>
             <!-- Removed non-admin links: My Dashboard, Chat, Public Reviewers -->
             <div style="margin-top: auto; padding-top: 24px;">
                 <button onclick="logout()" class="sidebar-link w-100" style="border: none; background: none; text-align: left;">
@@ -387,12 +391,93 @@
             </div>
         </div>
 
+        <!-- Policies Tab -->
+        <div id="policiesTab" class="tab-content" style="display:none;">
+            <div class="data-table">
+                <div class="table-header">
+                    <h3 style="margin: 0;"><i class="bi bi-shield-shaded"></i> Policy Management</h3>
+                    <button class="btn btn-primary" onclick="openAddPolicyModal()">
+                        <i class="bi bi-plus-lg"></i> Add Policy
+                    </button>
+                </div>
+                <div style="padding: 20px;">
+                    <div class="search-filter" style="margin-bottom:16px;">
+                        <select id="policyFilterCategory" class="form-control" onchange="filterPolicies()" style="max-width:200px;">
+                            <option value="all">All Categories</option>
+                            <option value="reviewer">Reviewer</option>
+                            <option value="message">Message</option>
+                            <option value="both">Both</option>
+                        </select>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table id="policiesTable">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>Title</th>
+                                    <th>Description</th>
+                                    <th>Category</th>
+                                    <th>Updated</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="policiesTableBody">
+                                <tr>
+                                    <td colspan="6" style="text-align: center; padding: 40px;">
+                                        <div class="spinner"></div>
+                                        <p style="margin-top: 16px; color: var(--dark-gray);">Loading policies...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Messages tab removed from admin UI -->
     </div>
 
     <script src="/js/alerts.js"></script>
     <script src="/js/modalAlerts.js"></script>
     <script src="/js/admin.js"></script>
+    
+    <!-- Add/Edit Policy Modal -->
+    <div id="policyModal" class="modal">
+        <div class="modal-content" style="max-width:700px;">
+            <div class="modal-header">
+                <h3 class="modal-title" id="policyModalTitle">Add New Policy</h3>
+                <button class="modal-close" onclick="closePolicyModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <form id="policyForm">
+                    <input type="hidden" id="policyId">
+                    <div class="form-group">
+                        <label for="policyTitle">Policy Title <span style="color:red;">*</span></label>
+                        <input id="policyTitle" class="form-control" placeholder="e.g., Spam or Repetitive Content" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="policyDescription">Description <span style="color:red;">*</span></label>
+                        <textarea id="policyDescription" class="form-control" rows="4" placeholder="Detailed explanation of the policy..." required></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="policyCategory">Category <span style="color:red;">*</span></label>
+                        <select id="policyCategory" class="form-control" required>
+                            <option value="">Select category...</option>
+                            <option value="reviewer">Reviewer Content Only</option>
+                            <option value="message">Chat Messages Only</option>
+                            <option value="both">Both (Reviewer & Messages)</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closePolicyModal()">Cancel</button>
+                <button id="savePolicyBtn" class="btn btn-primary" onclick="savePolicy()">Save Policy</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- Edit User Modal -->
     <div id="editUserModal" class="modal">
         <div class="modal-content" style="max-width:640px;">

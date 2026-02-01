@@ -3,10 +3,33 @@
  * Provides moderation-only capabilities (reviewer moderation & message moderation)
  */
 
+// Community Policy Violations - will be loaded dynamically from API
+let COMMUNITY_POLICIES = [];
+
+// Load policies on init
+async function loadCommunityPolicies() {
+    try {
+        const response = await fetch('/api/policies');
+        if (!response.ok) throw new Error('Failed to load policies');
+        
+        const policies = await response.json();
+        COMMUNITY_POLICIES = policies.map(p => ({
+            value: p.id.toString(),
+            label: p.title,
+            category: p.category
+        }));
+    } catch (error) {
+        console.error('Error loading community policies:', error);
+        // Fallback to empty array
+        COMMUNITY_POLICIES = [];
+    }
+}
+
 let currentUser = null;
 let currentScope = 'reviewer'; // 'reviewer' or 'message'
 
 document.addEventListener('DOMContentLoaded', () => {
+    loadCommunityPolicies(); // Load policies first
     loadCurrentUser();
     // moderation data will be loaded below
     if (typeof loadModeration === 'function') loadModeration();
@@ -107,6 +130,31 @@ async function loadModeration() {
 function displayModeration(reports, scope = 'reviewer') {
     const tbody = document.getElementById('moderationTableBody');
     if (!tbody) return;
+    
+    // Update table headers based on scope
+    const headerRow = document.querySelector('#moderationTableBody')?.closest('table')?.querySelector('thead tr');
+    if (headerRow) {
+        if (scope === 'message') {
+            headerRow.innerHTML = `
+                <th>Reported User</th>
+                <th>Reporter</th>
+                <th>Violation Type</th>
+                <th>Message</th>
+                <th>Created</th>
+                <th>Action</th>
+            `;
+        } else {
+            headerRow.innerHTML = `
+                <th>Reported User</th>
+                <th>Reporter</th>
+                <th>Violation Type</th>
+                <th>Reviewer</th>
+                <th>Created</th>
+                <th>Action</th>
+            `;
+        }
+    }
+    
     let openReports = (reports || []).filter(r => !r.status || r.status === 'open');
     if (scope === 'message') openReports = openReports.filter(r => (r.type === 'chat') || (!!r.message));
     else openReports = openReports.filter(r => !(r.type === 'chat') && !r.message);
@@ -118,11 +166,13 @@ function displayModeration(reports, scope = 'reviewer') {
     tbody.innerHTML = openReports.map(r => {
         if (r.type === 'chat' || r.message) {
             const msg = r.message || {};
-            const reportedUser = msg.username || msg.user_id || 'Unknown User';
+            const reportedUserName = msg.username || 'Unknown User';
+            const reportedUserId = msg.user_id || msg.userId || '';
+            const userLink = reportedUserId ? `<a href="/user.html?user=${encodeURIComponent(reportedUserId)}" target="_blank" style="color:var(--primary-pink);font-weight:500;">${escapeHtml(reportedUserName)}</a>` : `<strong>${escapeHtml(reportedUserName)}</strong>`;
             const viewLink = msg.id ? `<a href="/chat.html?scrollTo=${encodeURIComponent(msg.id)}" target="_blank" style="color:var(--primary-pink);font-weight:500;">View message</a>` : '';
             return `
         <tr>
-            <td><strong>${escapeHtml(reportedUser)}</strong></td>
+            <td>${userLink}</td>
             <td>${escapeHtml(r.reporter?.username || 'Anonymous')}</td>
             <td><span class="badge badge-warning">${escapeHtml(r.report_type || 'unspecified')}</span></td>
             <td style="max-width:300px;">${viewLink}</td>
@@ -134,16 +184,19 @@ function displayModeration(reports, scope = 'reviewer') {
         </tr>
         `;
         }
-        // reviewer report - add clickable link
+        // reviewer report - show reported user and reviewer link in separate columns
+        const reportedUserName = r.reviewers?.users?.username || r.reviewers?.user_username || 'Unknown User';
+        const reportedUserId = r.reviewers?.users?.id || r.reviewers?.user_id || '';
+        const reportedUserLink = reportedUserId ? `<a href="/user.html?user=${encodeURIComponent(reportedUserId)}" target="_blank" style="color:var(--primary-pink);font-weight:500;">${escapeHtml(reportedUserName)}</a>` : `<strong>${escapeHtml(reportedUserName)}</strong>`;
         const reviewerTitle = r.reviewers?.title || 'Untitled Reviewer';
         const reviewerId = r.reviewers?.id || r.reviewer_id;
-        const reviewerLink = reviewerId ? `<a href="/user.html?reviewer=${encodeURIComponent(reviewerId)}" target="_blank" style="color:var(--primary-pink);font-weight:500;" onclick="event.preventDefault(); window.openReviewerModal('${reviewerId}'); return false;">${escapeHtml(reviewerTitle)}</a>` : escapeHtml(reviewerTitle);
+        const reviewerLink = reviewerId ? `<a href="/index.html?reviewer=${encodeURIComponent(reviewerId)}" target="_blank" style="color:var(--primary-pink);font-weight:500;" onclick="event.preventDefault(); window.open('/index.html?reviewer=${encodeURIComponent(reviewerId)}', '_blank'); return false;">${escapeHtml(reviewerTitle)}</a>` : escapeHtml(reviewerTitle);
         return `
         <tr>
-            <td>${reviewerLink}</td>
+            <td>${reportedUserLink}</td>
             <td>${escapeHtml(r.reporter?.username || '')}</td>
             <td>${escapeHtml(r.report_type || '')}</td>
-            <td style="max-width:280px;">${escapeHtml((r.details || '').substring(0,300))}</td>
+            <td style="max-width:280px;">${reviewerLink}</td>
             <td>${new Date(r.created_at).toLocaleString()}</td>
             <td><div class="action-buttons">
                 <button class="btn btn-warning btn-sm" onclick="openReviewerActionModal('${r.id}')">Take Action</button>
@@ -256,12 +309,12 @@ window.openMessageActionModal = function(reportId) {
                         <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
                             <input type="radio" name="msgActionType" value="mute_user" style="margin-right:8px;">
                             <div><strong style="color:var(--text-dark);">Mute User</strong></div>
-                            <small style="color:var(--dark-gray);line-height:1.4;">Temporarily restrict from chat</small>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Temporarily prevent from sending chat messages</small>
                         </label>
                         <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
                             <input type="radio" name="msgActionType" value="ban_user" style="margin-right:8px;">
-                            <div><strong style="color:var(--text-dark);">Ban from Chat</strong></div>
-                            <small style="color:var(--dark-gray);line-height:1.4;">Suspend chat privileges</small>
+                            <div><strong style="color:var(--text-dark);">Ban Account</strong></div>
+                            <small style="color:var(--dark-gray);line-height:1.4;">Ban user from entire platform</small>
                         </label>
                         <label style="padding:14px;border:2px solid var(--medium-gray);border-radius:10px;cursor:pointer;transition:all 0.2s;" class="action-type-label">
                             <input type="radio" name="msgActionType" value="warn_user" style="margin-right:8px;">
@@ -289,7 +342,17 @@ window.openMessageActionModal = function(reportId) {
                 </div>
 
                 <div style="margin-bottom:20px;">
-                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Action Reason</label>
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Policy Violation</label>
+                    <select id="msgPolicyViolation" class="form-control" style="margin-bottom:12px;">
+                        <option value="">Select policy violation...</option>
+                        ${COMMUNITY_POLICIES.filter(p => p.category === 'message' || p.category === 'both').map(p => 
+                            `<option value="${p.value}">${p.label}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Additional Notes (Optional)</label>
                     <textarea id="msgActionNote" class="form-control" placeholder="Specify the violation and reason for this action..." style="width:100%;height:90px;resize:vertical;font-size:14px;"></textarea>
                     <small style="color:var(--dark-gray);font-size:12px;">This will be logged in the moderation history</small>
                 </div>
@@ -297,7 +360,7 @@ window.openMessageActionModal = function(reportId) {
                 <div style="padding:14px;background:#fff3cd;border-radius:8px;border-left:4px solid #ffc107;">
                     <div style="display:flex;align-items:start;gap:10px;">
                         <i class="bi bi-info-circle-fill" style="color:#856404;font-size:18px;margin-top:2px;"></i>
-                        <small style="color:#856404;line-height:1.5;"><strong>Message Actions:</strong> Delete Message removes the content. Mute/Ban actions affect the user's ability to post in chat.</small>
+                        <small style="color:#856404;line-height:1.5;"><strong>Action Details:</strong> Delete Message removes content only. Mute prevents chat messages temporarily. Ban restricts entire account access.</small>
                     </div>
                 </div>
             </div>
@@ -336,17 +399,21 @@ window.openMessageActionModal = function(reportId) {
     document.getElementById('msgActionSubmit').onclick = async () => {
         const actionType = div.querySelector('input[name="msgActionType"]:checked').value;
         const duration = document.getElementById('msgDuration').value;
-        const note = document.getElementById('msgActionNote').value.trim();
+        const policyViolation = document.getElementById('msgPolicyViolation').value;
+        const additionalNotes = document.getElementById('msgActionNote').value.trim();
         
-        if (!note) {
-            await window.showModal('Please provide a reason for this moderation action.', 'Reason Required');
+        if (!policyViolation) {
+            await window.showModal('Please select the policy violation.', 'Policy Required');
             return;
         }
 
+        const policyLabel = COMMUNITY_POLICIES.find(p => p.value === policyViolation)?.label || policyViolation;
+        const note = policyLabel + (additionalNotes ? ` - ${additionalNotes}` : '');
+
         let confirmMsg = '';
         if (actionType === 'delete_message') confirmMsg = 'Delete this message from the chat?';
-        else if (actionType === 'mute_user') confirmMsg = 'Mute this user from posting in chat?';
-        else if (actionType === 'ban_user') confirmMsg = 'Ban this user from chat completely?';
+        else if (actionType === 'mute_user') confirmMsg = 'Temporarily mute this user from sending chat messages?';
+        else if (actionType === 'ban_user') confirmMsg = 'Ban this user account from the entire platform?';
         else if (actionType === 'warn_user') confirmMsg = 'Send a warning to this user?';
         
         if (!await window.showConfirm(confirmMsg, 'Confirm Moderation Action')) return;
@@ -423,7 +490,17 @@ window.openReviewerActionModal = function(reportId) {
                 </div>
 
                 <div style="margin-bottom:20px;">
-                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Violation Details</label>
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Policy Violation</label>
+                    <select id="revPolicyViolation" class="form-control" style="margin-bottom:12px;">
+                        <option value="">Select policy violation...</option>
+                        ${COMMUNITY_POLICIES.filter(p => p.category === 'reviewer' || p.category === 'both').map(p => 
+                            `<option value="${p.value}">${p.label}</option>`
+                        ).join('')}
+                    </select>
+                </div>
+
+                <div style="margin-bottom:20px;">
+                    <label style="font-weight:600;margin-bottom:8px;display:block;color:var(--text-dark);">Additional Notes (Optional)</label>
                     <textarea id="revActionNote" class="form-control" placeholder="Describe the policy violation and justification for this action..." style="width:100%;height:90px;resize:vertical;font-size:14px;"></textarea>
                     <small style="color:var(--dark-gray);font-size:12px;">This will be recorded in the content moderation log</small>
                 </div>
@@ -470,12 +547,16 @@ window.openReviewerActionModal = function(reportId) {
     document.getElementById('revActionSubmit').onclick = async () => {
         const actionType = div.querySelector('input[name="revActionType"]:checked').value;
         const duration = document.getElementById('revDuration').value;
-        const note = document.getElementById('revActionNote').value.trim();
+        const policyViolation = document.getElementById('revPolicyViolation').value;
+        const additionalNotes = document.getElementById('revActionNote').value.trim();
         
-        if (!note) {
-            await window.showModal('Please provide details about the policy violation.', 'Details Required');
+        if (!policyViolation) {
+            await window.showModal('Please select the policy violation.', 'Policy Required');
             return;
         }
+
+        const policyLabel = COMMUNITY_POLICIES.find(p => p.value === policyViolation)?.label || policyViolation;
+        const note = policyLabel + (additionalNotes ? ` - ${additionalNotes}` : '');
 
         let confirmMsg = '';
         if (actionType === 'delete_reviewer') confirmMsg = 'Permanently delete this reviewer content? This cannot be undone.';
@@ -513,12 +594,6 @@ function computeUntilFromDuration(duration) {
         const far = new Date(); far.setFullYear(far.getFullYear() + 100);
         return far.toISOString();
     }
-    if (duration.endsWith('m') && duration.includes('m') && !duration.includes('h')) {
-        // minutes (e.g., 30m)
-        const mins = parseInt(duration.replace('m',''),10);
-        now.setMinutes(now.getMinutes() + mins);
-        return now.toISOString();
-    }
     if (duration.endsWith('h')) {
         const hrs = parseInt(duration.replace('h',''),10);
         now.setHours(now.getHours() + hrs);
@@ -534,10 +609,17 @@ function computeUntilFromDuration(duration) {
         now.setDate(now.getDate() + weeks * 7);
         return now.toISOString();
     }
-    if (duration.endsWith('m') && !duration.includes('h')) {
-        // months (e.g., 1m, 3m)
-        const months = parseInt(duration.replace('m',''),10);
-        now.setMonth(now.getMonth() + months);
+    if (duration.endsWith('m')) {
+        const num = parseInt(duration.replace('m',''),10);
+        // Distinguish minutes (30m) from months (1m, 3m, 6m)
+        // Minutes are typically 30 or less, months are for longer durations
+        if (num >= 30 && num < 100) {
+            // Minutes (e.g., 30m)
+            now.setMinutes(now.getMinutes() + num);
+        } else {
+            // Months (e.g., 1m, 3m, 6m)
+            now.setMonth(now.getMonth() + num);
+        }
         return now.toISOString();
     }
     return null;
@@ -569,6 +651,7 @@ async function moderatorTakeAction(reportId, action, opts = {}) {
             return;
         }
         await window.showModal('Action performed', 'Success');
+        // moderator endpoint already performs deletion server-side; refresh moderation list
         await loadModeration();
     } catch (e) {
         console.error('Moderator action failed', e);

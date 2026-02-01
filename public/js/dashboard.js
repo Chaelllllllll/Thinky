@@ -58,6 +58,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
             window.history.replaceState({}, document.title, newUrl);
         }
+        
+        // Check if a reviewer ID is in the URL (from moderation links)
+        const reviewerId = params.get('reviewer');
+        if (reviewerId) {
+            // Try to open the reviewer modal repeatedly until data is ready or timeout
+            (function attemptOpen(retry = 0) {
+                const MAX_RETRIES = 12; // ~12 * 700ms = ~8.4s
+                const RETRY_DELAY = 700;
+                (async () => {
+                    try {
+                        await viewReviewer(reviewerId);
+                        return; // success
+                    } catch (e) {
+                        if (retry < MAX_RETRIES) {
+                            setTimeout(() => attemptOpen(retry + 1), RETRY_DELAY);
+                        } else {
+                            console.error('Failed to open reviewer from URL after retries:', e);
+                        }
+                    }
+                })();
+            })();
+        }
     } catch (e) {
         // ignore
     }

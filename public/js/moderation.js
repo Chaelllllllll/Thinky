@@ -1,59 +1,85 @@
 // Moderation / Reporting client helpers
 (function(){
-    function createReportModal() {
+    let policiesCache = null;
+    
+    // Load policies from API
+    async function loadPolicies() {
+        if (policiesCache) return policiesCache;
+        
+        try {
+            const response = await fetch('/api/policies');
+            if (!response.ok) throw new Error('Failed to load policies');
+            policiesCache = await response.json();
+            return policiesCache;
+        } catch (error) {
+            console.error('Error loading policies:', error);
+            return [];
+        }
+    }
+    
+    async function createReportModal(isMessage = false) {
         if (document.getElementById('reportModal')) return;
+        
+        // Load policies
+        const policies = await loadPolicies();
+        const relevantPolicies = isMessage 
+            ? policies.filter(p => p.category === 'message' || p.category === 'both')
+            : policies.filter(p => p.category === 'reviewer' || p.category === 'both');
+        
         const div = document.createElement('div');
         div.id = 'reportModal';
         div.className = 'modal';
         div.innerHTML = `
             <div class="modal-content" style="max-width:600px;">
                 <div class="modal-header">
-                    <h3 class="modal-title">Report</h3>
+                    <h3 class="modal-title"><i class="bi bi-flag-fill"></i> Report ${isMessage ? 'Message' : 'Content'}</h3>
                     <button class="modal-close" onclick="closeReportModal()">&times;</button>
                 </div>
                 <div class="modal-body">
                     <input type="hidden" id="reportReviewerId">
                     <input type="hidden" id="reportMessageId">
                     <div class="form-group">
-                        <label>Report Type</label>
-                        <select id="reportType" class="form-control">
-                            <option value="spam">Spam / Promotion</option>
-                            <option value="inappropriate">Inappropriate Content</option>
-                            <option value="copyright">Copyright Violation</option>
-                            <option value="other">Other</option>
+                        <label>Policy Violation <span style="color:red;">*</span></label>
+                        <select id="reportType" class="form-control" required>
+                            <option value="">Select a policy violation...</option>
+                            ${relevantPolicies.map(p => 
+                                `<option value="${p.id}" title="${p.description}">${p.title}</option>`
+                            ).join('')}
                         </select>
+                        <small style="color:#666;display:block;margin-top:6px;">Select the policy that best describes the violation</small>
                     </div>
                     <div class="form-group">
-                        <label>Details (optional)</label>
-                        <textarea id="reportDetails" class="form-control" placeholder="Add any details to help moderators..."></textarea>
+                        <label>Additional Details (Optional)</label>
+                        <textarea id="reportDetails" class="form-control" placeholder="Add any details to help moderators understand the context..." rows="4"></textarea>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button class="btn btn-light" onclick="closeReportModal()">Cancel</button>
-                    <button id="submitReportBtn" class="btn btn-primary">Submit Report</button>
+                    <button id="submitReportBtn" class="btn btn-primary"><i class="bi bi-send-fill"></i> Submit Report</button>
                 </div>
             </div>`;
         document.body.appendChild(div);
         document.getElementById('submitReportBtn').addEventListener('click', submitReport);
     }
 
-    window.openReportModal = function(reviewerId) {
-        createReportModal();
+    window.openReportModal = async function(reviewerId) {
+        await createReportModal(false); // Reviewer report
         const m = document.getElementById('reportModal');
         document.getElementById('reportReviewerId').value = reviewerId;
-        document.getElementById('reportType').value = 'spam';
+        document.getElementById('reportMessageId').value = '';
+        document.getElementById('reportType').value = '';
         document.getElementById('reportDetails').value = '';
         m.classList.add('show');
         m.style.display = 'flex';
         m.style.zIndex = 6000;
     };
 
-    window.openMessageReportModal = function(messageId) {
-        createReportModal();
+    window.openMessageReportModal = async function(messageId) {
+        await createReportModal(true); // Message report
         const m = document.getElementById('reportModal');
         document.getElementById('reportMessageId').value = messageId;
         document.getElementById('reportReviewerId').value = '';
-        document.getElementById('reportType').value = 'inappropriate';
+        document.getElementById('reportType').value = '';
         document.getElementById('reportDetails').value = '';
         m.classList.add('show');
         m.style.display = 'flex';
@@ -70,8 +96,20 @@
     async function submitReport() {
         const reviewerId = document.getElementById('reportReviewerId').value;
         const messageId = document.getElementById('reportMessageId').value;
-        const type = document.getElementById('reportType').value;
+        const policyId = document.getElementById('reportType').value;
         const details = document.getElementById('reportDetails').value.trim();
+        
+        // Validate policy selection
+        if (!policyId) {
+            window.showModal ? window.showModal('Please select a policy violation', 'Error') : alert('Please select a policy violation');
+            return;
+        }
+        
+        // Get selected policy title
+        const policies = await loadPolicies();
+        const selectedPolicy = policies.find(p => p.id.toString() === policyId);
+        const type = selectedPolicy ? selectedPolicy.title : 'Policy Violation';
+        
         const btn = document.getElementById('submitReportBtn');
         btn.disabled = true;
         try {
