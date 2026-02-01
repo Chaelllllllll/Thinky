@@ -163,6 +163,27 @@
         const text = escapeHtmlForAlert(opts.message);
         const chatType = opts.chatType || 'general';
 
+        // Check user notification preferences from localStorage
+        try {
+            if (chatType === 'general') {
+                const notifGeneral = localStorage.getItem('settings_notifGeneralChat');
+                // Only block if explicitly set to false (string 'false' or boolean false)
+                // Default to enabled if not set
+                if (notifGeneral === 'false' || notifGeneral === false) {
+                    console.debug('alerts: showChatNotification skipped (general chat notifications disabled)');
+                    return null;
+                }
+            } else if (chatType === 'private') {
+                const notifPrivate = localStorage.getItem('settings_notifPrivateMessages');
+                // Only block if explicitly set to false (string 'false' or boolean false)
+                // Default to enabled if not set
+                if (notifPrivate === 'false' || notifPrivate === false) {
+                    console.debug('alerts: showChatNotification skipped (private message notifications disabled)');
+                    return null;
+                }
+            }
+        } catch (e) { /* ignore preference check errors */ }
+
         const messageHtml = `
             <div class="chat-notif">
                 <div class="chat-notif-top">
@@ -179,7 +200,7 @@
 
         // Make the toast clickable to open chat and scroll to message when `opts.msgId` is provided.
         try {
-            if (alertEl && opts && opts.msgId) {
+                if (alertEl && opts && opts.msgId) {
                 alertEl.style.cursor = 'pointer';
                 alertEl.addEventListener('click', (e) => {
                     try { e.stopPropagation(); } catch (x) {}
@@ -189,8 +210,12 @@
                     const target = '/chat.html';
                     const qs = new URLSearchParams();
                     qs.set('scrollTo', String(opts.msgId));
-                    // If private chat, include withUser param to open correct thread
-                    if (opts.chatType === 'private' && opts.recipientId) qs.set('with', String(opts.recipientId));
+                    // If private chat, try to include the other user's id so chat opens to that thread.
+                    // Prefer explicit `withUser`, then `userId`/`senderId`, then fall back to `recipientId`.
+                    if (opts.chatType === 'private') {
+                        const other = opts.withUser || opts.userId || opts.senderId || opts.recipientId;
+                        if (other) qs.set('with', String(other));
+                    }
                     // Navigate
                     window.location.href = target + '?' + qs.toString();
                 });

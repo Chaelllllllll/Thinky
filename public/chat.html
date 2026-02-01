@@ -314,7 +314,8 @@
                                 <img id="chatHeaderAvatar" src="/images/default-avatar.svg" alt="avatar" style="width:36px;height:36px;border-radius:9999px;object-fit:cover;display:none;border:2px solid rgba(255,255,255,0.25);"/>
                                 <div id="chatHeaderTitleText">General Chat</div>
                             </div>
-                        <div id="chatHeaderActions">
+                        <div id="chatHeaderActions" style="display:flex;gap:8px;">
+                                <button id="deleteConversationBtn" class="btn btn-danger" style="display:none;padding:8px 16px;border-radius:9999px;" aria-label="Delete Conversation" onclick="deletePrivateConversation()"><i class="bi bi-trash"></i></button>
                                 <button id="closePrivateBtn" class="btn btn-light" style="display:none;padding:8px;border-radius:9999px;" aria-label="Back" onclick="backToContactList()"><i class="bi bi-arrow-left"></i></button>
                         </div>
                     </div>

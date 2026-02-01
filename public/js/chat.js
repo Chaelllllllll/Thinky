@@ -10,6 +10,10 @@ let messagesSubscription = null;
 let currentRecipientId = null;
 let currentReplyTo = null;
 let currentRecipientName = null;
+let _sendingMessage = false;
+let oldestMessageId = null;
+let isLoadingMore = false;
+let hasMoreMessages = true;
 
 // Client-side blacklist and warning/mute fallback (mirrors server rules).
 const CLIENT_BLACKLIST = ['badword1','badword2','slur']; // keep in sync with server MESSAGE_BLACKLIST
@@ -83,117 +87,53 @@ document.addEventListener('DOMContentLoaded', () => {
         // Mark that the full chat UI has an active polling loop so
         // lightweight notifiers don't also poll and cause duplicate requests.
         try { window._chatPollingActive = true; } catch (e) {}
-        let baseInterval = 5000; // 5s when visible
-        let hiddenInterval = 20000; // 20s when hidden
-        let errorBackoff = 0;
-        let timer = null;
 
-        const schedule = (delay) => {
-            if (timer) clearTimeout(timer);
-            timer = setTimeout(async () => {
-                try {
-                    await loadMessages(true);
-                    errorBackoff = 0;
-                    schedule(document.hidden ? hiddenInterval : baseInterval);
-                } catch (e) {
-                    errorBackoff = Math.min(6, errorBackoff + 1);
-                    const backoff = Math.min(60000, (document.hidden ? hiddenInterval : baseInterval) * Math.pow(2, errorBackoff));
-                    console.debug('chat.js: loadMessages error, backing off next poll to', backoff);
-                    schedule(backoff);
-                }
-            }, delay);
-        };
+        let lastMsgCount = 0;
+        let pollInterval = 3000; // start at 3s
 
-        schedule(0);
-        document.addEventListener('visibilitychange', () => {
-            schedule(document.hidden ? hiddenInterval : baseInterval);
-        });
-        // Ensure flag is cleared when page unloads
-        window.addEventListener('beforeunload', () => { try { window._chatPollingActive = false; } catch (e) {} });
+        async function pollMessages() {
+            await loadMessages(true); // silent poll
+            const currentCount = messages.length;
+            if (currentCount !== lastMsgCount) {
+                // Activity detected: poll more frequently
+                pollInterval = Math.max(2000, pollInterval - 500);
+                lastMsgCount = currentCount;
+            } else {
+                // No new messages: back off gradually
+                pollInterval = Math.min(10000, pollInterval + 1000);
+            }
+            setTimeout(pollMessages, pollInterval);
+        }
+
+        pollMessages();
     })();
 
-    // Try to initialize realtime subscriptions (Supabase) for instant updates
-    try {
-        initRealtime();
-    } catch (e) { /* ignore */ }
+    startUnreadPolling();
 
-    // Update online status every 30 seconds
-    setInterval(updateOnlineStatus, 30000);
-    updateOnlineStatus();
-
-    // Start polling for unread counts — prefer shared polling if available
-    if (typeof window.startSharedUnreadPolling === 'function') {
-        window.startSharedUnreadPolling();
-    } else {
-        startUnreadPolling();
+    // Lazy loading: detect scroll to top and load older messages
+    const chatMessages = document.getElementById('chatMessages');
+    if (chatMessages) {
+        chatMessages.addEventListener('scroll', async () => {
+            if (isLoadingMore || !hasMoreMessages) return;
+            // Trigger load when scrolled near the top
+            if (chatMessages.scrollTop < 100) {
+                isLoadingMore = true;
+                const scrollHeightBefore = chatMessages.scrollHeight;
+                const scrollTopBefore = chatMessages.scrollTop;
+                
+                await loadOlderMessages();
+                
+                // Restore scroll position after prepending
+                requestAnimationFrame(() => {
+                    const scrollHeightAfter = chatMessages.scrollHeight;
+                    chatMessages.scrollTop = scrollTopBefore + (scrollHeightAfter - scrollHeightBefore);
+                });
+                
+                isLoadingMore = false;
+            }
+        });
     }
-
-    // Enter key to send message
-    document.getElementById('messageInput').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            sendMessage();
-        }
-    });
-    // Ensure input/send state reflects current chat selection
-    updateChatInputState();
 });
-
-// Realtime (Supabase) integration -------------------------------------------------
-let _realtimeInitialized = false;
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.async = true;
-        s.onload = () => resolve();
-        s.onerror = () => reject(new Error('Failed to load ' + src));
-        document.head.appendChild(s);
-    });
-}
-
-async function initRealtime() {
-    if (_realtimeInitialized) return;
-
-    // Look for creds injected into the page by the server or window.ENV
-    const env = (window && window.ENV) ? window.ENV : window;
-    const url = env.SUPABASE_URL || env.SUPABASE_URL || (window.SUPABASE_URL || null);
-    const key = env.SUPABASE_ANON_KEY || env.SUPABASE_KEY || (window.SUPABASE_KEY || null);
-    if (!url || !key) {
-        // no client creds available — skip realtime
-        return;
-    }
-
-    // Load Supabase JS (UMD) if not already present
-    if (!window.supabase || !window.supabase.createClient) {
-        try {
-            await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js/dist/umd/supabase.min.js');
-        } catch (e) {
-            console.warn('Could not load Supabase client for realtime:', e && e.message ? e.message : e);
-            return;
-        }
-    }
-
-    try {
-        window._supabaseRealtime = window.supabase.createClient(url, key);
-
-        // subscribe to inserts on `messages` table
-        const chan = window._supabaseRealtime.channel('public:messages')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-                // When a new message is inserted, refresh messages (silent) so
-                // the UI receives the fully joined payload from the API and
-                // our notification logic runs as normal.
-                try { loadMessages(true); } catch (e) { /* ignore */ }
-            })
-            .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    _realtimeInitialized = true;
-                    console.info('Realtime messages subscription active');
-                }
-            });
-    } catch (e) {
-        console.warn('Realtime init failed:', e && e.message ? e.message : e);
-    }
-}
 
 // ------- Unread badge helpers -------
 const LAST_SEEN_GENERAL_KEY = 'chat_last_seen_general';
@@ -309,6 +249,10 @@ async function loadMessages(silent = false) {
             }
             url += `&with=${currentRecipientId}`;
         }
+        
+        // Reset pagination state on fresh load
+        oldestMessageId = null;
+        hasMoreMessages = true;
 
         const response = await fetch(url, { credentials: 'include' });
 
@@ -323,6 +267,11 @@ async function loadMessages(silent = false) {
 
         const data = await response.json();
         const fetched = (data && Array.isArray(data.messages)) ? data.messages : [];
+        
+        // Track oldest message for pagination
+        if (fetched.length > 0) {
+            oldestMessageId = fetched[0].id;
+        }
 
         // Only update if there are new messages (or show empty state)
         if (JSON.stringify(fetched) !== JSON.stringify(messages)) {
@@ -364,7 +313,7 @@ async function loadMessages(silent = false) {
                         const body = msg.message || '';
 
                         try {
-                            window.showChatNotification({ avatar: avatarUrl, username, message: body, chatType, msgId: msg.id, recipientId: msg.recipient_id });
+                                window.showChatNotification({ avatar: avatarUrl, username, message: body, chatType, msgId: msg.id, recipientId: msg.recipient_id, withUser: msg.user_id, userId: msg.user_id });
                         } catch (e) { /* ignore */ }
                     });
                 }
@@ -589,9 +538,17 @@ function tryScrollPending() {
 
 async function sendMessage() {
     const input = document.getElementById('messageInput');
-    const message = input.value.trim();
+    const sendBtn = document.getElementById('sendBtn');
 
+    // Prevent duplicate sends
+    if (_sendingMessage) return;
+
+    const message = input ? input.value.trim() : '';
     if (!message) return;
+
+    _sendingMessage = true;
+    if (sendBtn) sendBtn.disabled = true;
+    if (input) input.disabled = true;
 
     // Client-side sanitization to avoid sending HTML or control chars
     let clean = String(message).trim();
@@ -599,17 +556,21 @@ async function sendMessage() {
     clean = clean.replace(/[\x00-\x1F\x7F]/g, '');
     if (clean.length > 1000) clean = clean.substring(0, 1000);
 
-    // No client-side blocking for blacklisted words — reports are used instead.
-
     // Prevent sending private messages without a recipient
     if (currentChatType === 'private' && !currentRecipientId) {
-        alert('Please select a user to start a private chat.');
+        window.showAlert && window.showAlert('error', 'Please select a user to start a private chat.');
+        _sendingMessage = false;
+        if (sendBtn) sendBtn.disabled = false;
+        if (input) input.disabled = false;
         return;
     }
 
     // Prevent sending messages to yourself
     if (currentChatType === 'private' && currentRecipientId && currentUser && String(currentRecipientId) === String(currentUser.id)) {
         window.showAlert && window.showAlert('error', 'You cannot send messages to yourself.', 3000);
+        _sendingMessage = false;
+        if (sendBtn) sendBtn.disabled = false;
+        if (input) input.disabled = false;
         return;
     }
 
@@ -618,31 +579,26 @@ async function sendMessage() {
         if (currentChatType === 'private' && currentRecipientId) {
             body.recipient_id = currentRecipientId;
         }
-        // include reply reference if set
         if (currentReplyTo) {
             body.reply_to = currentReplyTo;
         }
 
         const response = await fetch('/api/messages', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify(body)
         });
-        // Try to parse response JSON for helpful errors
+
         let respJson = null;
         try { respJson = await response.json(); } catch (e) { /* ignore */ }
 
         if (!response.ok) {
-                if (response.status === 401) {
-                // Not authenticated
+            if (response.status === 401) {
                 window.location.href = '/login';
                 return;
             }
             if (response.status === 403) {
-                // Muted or forbidden — server is authoritative; show server message including remaining duration when provided.
                 let errorMsg = (respJson && respJson.error) ? respJson.error : 'You are not allowed to send messages.';
                 try {
                     if (respJson && respJson.muted_until) {
@@ -686,15 +642,19 @@ async function sendMessage() {
             return;
         }
 
-        input.value = '';
+        if (input) input.value = '';
         currentReplyTo = null;
         hideReplyBanner();
 
-        // Immediately reload messages
         await loadMessages();
     } catch (error) {
         console.error('Error sending message:', error);
         window.showAlert && window.showAlert('error', 'Failed to send message. Please try again.');
+    } finally {
+        _sendingMessage = false;
+        if (input) input.disabled = false;
+        if (sendBtn) sendBtn.disabled = false;
+        updateChatInputState();
     }
 }
 
@@ -751,6 +711,12 @@ async function startPrivateChat(userId, username) {
         closeBtn.onclick = backToContactList;
     }
 
+    // Show delete conversation button for private chats
+    const deleteBtn = document.getElementById('deleteConversationBtn');
+    if (deleteBtn) {
+        deleteBtn.style.display = 'inline-block';
+    }
+
     // Load messages for private chat
     messages = [];
     document.getElementById('chatMessages').innerHTML = `
@@ -783,6 +749,10 @@ function closePrivateChat() {
 
     const closeBtn = document.getElementById('closePrivateBtn');
     if (closeBtn) closeBtn.style.display = 'none';
+    
+    // Hide delete conversation button
+    const deleteBtn = document.getElementById('deleteConversationBtn');
+    if (deleteBtn) deleteBtn.style.display = 'none';
 
     messages = [];
     document.getElementById('chatMessages').innerHTML = `
@@ -1048,6 +1018,75 @@ function backToContactList() {
     
     // Show contact list
     showContactList();
+    
+    updateChatInputState();
+}
+
+// Load older messages for lazy loading (scroll to top)
+async function loadOlderMessages() {
+    if (!oldestMessageId || !hasMoreMessages) return;
+    
+    try {
+        let url = `/api/messages/${currentChatType}?limit=50&before=${oldestMessageId}`;
+        if (currentChatType === 'private') {
+            if (!currentRecipientId) return;
+            url += `&with=${currentRecipientId}`;
+        }
+        
+        const response = await fetch(url, { credentials: 'include' });
+        if (!response.ok) {
+            console.warn('Failed to load older messages');
+            hasMoreMessages = false;
+            return;
+        }
+        
+        const data = await response.json();
+        const olderMessages = (data && Array.isArray(data.messages)) ? data.messages : [];
+        
+        if (olderMessages.length === 0) {
+            hasMoreMessages = false;
+            return;
+        }
+        
+        // Prepend older messages and update oldest ID
+        messages = [...olderMessages, ...messages];
+        oldestMessageId = olderMessages[0].id;
+        
+        // Display with scroll preservation (handled by caller)
+        displayMessages(true);
+    } catch (error) {
+        console.error('Error loading older messages:', error);
+        hasMoreMessages = false;
+    }
+}
+
+// Delete private conversation (one-sided)
+async function deletePrivateConversation() {
+    if (!currentRecipientId) return;
+    
+    const confirmed = confirm(`Delete this conversation with ${currentRecipientName || 'this user'}? This will only delete it for you.`);
+    if (!confirmed) return;
+    
+    try {
+        const response = await fetch(`/api/messages/private/delete?with=${currentRecipientId}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            window.showAlert && window.showAlert('error', data.error || 'Failed to delete conversation');
+            return;
+        }
+        
+        window.showAlert && window.showAlert('success', 'Conversation deleted successfully');
+        
+        // Go back to contact list
+        backToContactList();
+    } catch (error) {
+        console.error('Error deleting conversation:', error);
+        window.showAlert && window.showAlert('error', 'Failed to delete conversation');
+    }
 }
 
 async function updateOnlineStatus() {

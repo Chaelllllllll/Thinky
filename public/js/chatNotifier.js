@@ -76,7 +76,7 @@
                         const text = n.message || '';
                         const chatType = n.chat_type || (n.recipient_id ? 'private' : 'general');
                         console.debug('chatNotifier: emitting toast for realtime message', { username, chatType, textPreview: text.slice(0,60) });
-                        window.showChatNotification({ avatar, username, message: text, chatType, msgId: n.id, recipientId: n.recipient_id }, 6000);
+                        window.showChatNotification({ avatar, username, message: text, chatType, msgId: n.id, recipientId: n.recipient_id, withUser: n.user_id, userId: n.user_id }, 6000);
                     } catch (e) { /* ignore */ }
                 })
                 .subscribe((status) => {
@@ -128,7 +128,7 @@
                         // Show notification for general messages or replies to me
                         if (m.chat_type === 'general' || isReplyToMe) {
                             console.debug('chatNotifier: scanning -> notifying general message', { id: m.id, user_id: m.user_id, isReplyToMe, preview: (m.message||'').slice(0,60) });
-                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general', msgId: m.id, recipientId: m.recipient_id }, 6000);
+                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: m.chat_type || 'general', msgId: m.id, recipientId: m.recipient_id, withUser: m.user_id, userId: m.user_id }, 6000);
                         }
                         
                         if (m.created_at) newestTs = (new Date(m.created_at) > new Date(newestTs)) ? m.created_at : newestTs;
@@ -157,7 +157,7 @@
                         // Only notify if this private message is TO current user
                         if (m.recipient_id && currentUser && String(m.recipient_id) === String(currentUser.id)) {
                             console.debug('chatNotifier: scanning -> notifying private message', { id: m.id, user_id: m.user_id, recipient_id: m.recipient_id, preview: (m.message||'').slice(0,60) });
-                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'private', msgId: m.id, recipientId: m.recipient_id }, 6000);
+                            window.showChatNotification({ avatar: (m.users && m.users.profile_picture_url) ? m.users.profile_picture_url : '/images/default-avatar.svg', username: m.username || 'User', message: m.message, chatType: 'private', msgId: m.id, recipientId: m.recipient_id, withUser: m.user_id, userId: m.user_id }, 6000);
                         }
                         
                         if (m.created_at) newestTs = (new Date(m.created_at) > new Date(newestTs)) ? m.created_at : newestTs;

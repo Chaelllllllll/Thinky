@@ -501,8 +501,8 @@ async function saveNotificationSettings() {
         }
 
         // Also save to localStorage for quick access
-        localStorage.setItem('settings_notifGeneralChat', notifGeneralChat);
-        localStorage.setItem('settings_notifPrivateMessages', notifPrivateMessages);
+        localStorage.setItem('settings_notifGeneralChat', String(notifGeneralChat));
+        localStorage.setItem('settings_notifPrivateMessages', String(notifPrivateMessages));
     } catch (error) {
         console.error('Save notification settings error:', error);
         throw error;

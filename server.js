@@ -3055,6 +3055,17 @@ app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
         const limit = parseInt(req.query.limit) || 100;
         const since = req.query.since || null;
 
+        // Get all hidden conversations for this user
+        const { data: hiddenConvos } = await supabaseAdmin
+            .from('hidden_conversations')
+            .select('other_user_id, hidden_at')
+            .eq('user_id', req.session.userId);
+        
+        const hiddenMap = (hiddenConvos || []).reduce((acc, h) => {
+            acc[h.other_user_id] = new Date(h.hidden_at);
+            return acc;
+        }, {});
+
         let q = supabaseAdmin
             .from('messages')
             .select('*, users:user_id (username, profile_picture_url)')
@@ -3071,8 +3082,15 @@ app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to fetch private messages' });
         }
 
+        // Filter out messages from hidden conversations (older than hidden_at)
+        const filteredMessages = messages.filter(msg => {
+            const hiddenAt = hiddenMap[msg.user_id];
+            if (!hiddenAt) return true;
+            return new Date(msg.created_at) > hiddenAt;
+        });
+
         try {
-            const msgs = messages.reverse();
+            const msgs = filteredMessages.reverse();
             const replyIds = msgs.map(m => m.reply_to).filter(Boolean);
             if (replyIds.length > 0) {
                 const { data: replies } = await supabaseAdmin.from('messages').select('id, message, user_id, username').in('id', replyIds);
@@ -3081,7 +3099,7 @@ app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
             }
             return res.json({ messages: msgs });
         } catch (e) {
-            return res.json({ messages: messages.reverse() });
+            return res.json({ messages: filteredMessages.reverse() });
         }
     } catch (error) {
         console.error('Get private-inbox messages error:', error);
@@ -3094,6 +3112,7 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
     try {
         const { chatType } = req.params;
         const limit = parseInt(req.query.limit) || 100;
+        const before = req.query.before || null; // Message ID to paginate before
 
         let query;
         if (chatType === 'private') {
@@ -3106,16 +3125,42 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                 return res.status(400).json({ error: 'Invalid user ID format' });
             }
 
+            // Check if user has hidden this conversation
+            const { data: hidden } = await supabaseAdmin
+                .from('hidden_conversations')
+                .select('hidden_at')
+                .eq('user_id', req.session.userId)
+                .eq('other_user_id', other)
+                .single();
+            
+            const hiddenAt = hidden ? new Date(hidden.hidden_at) : null;
+
+            // Build queries with optional before parameter for pagination
+            let sentQuery = supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
+                .eq('user_id', req.session.userId).eq('recipient_id', other)
+                .order('created_at', { ascending: false }).limit(limit);
+            let receivedQuery = supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
+                .eq('user_id', other).eq('recipient_id', req.session.userId)
+                .order('created_at', { ascending: false }).limit(limit);
+            
+            // If conversation was hidden, only show messages after the hidden date
+            if (hiddenAt) {
+                sentQuery = sentQuery.gt('created_at', hiddenAt.toISOString());
+                receivedQuery = receivedQuery.gt('created_at', hiddenAt.toISOString());
+            }
+            
+            // Apply before filter if provided
+            if (before) {
+                // Get the timestamp of the before message
+                const { data: beforeMsg } = await supabaseAdmin.from('messages').select('created_at').eq('id', before).single();
+                if (beforeMsg && beforeMsg.created_at) {
+                    sentQuery = sentQuery.lt('created_at', beforeMsg.created_at);
+                    receivedQuery = receivedQuery.lt('created_at', beforeMsg.created_at);
+                }
+            }
+            
             // Fetch messages between current user and the other user using admin client
-            // Use separate queries and merge to avoid string interpolation in .or()
-            const [sentRes, receivedRes] = await Promise.all([
-                supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
-                    .eq('user_id', req.session.userId).eq('recipient_id', other)
-                    .order('created_at', { ascending: false }).limit(limit),
-                supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
-                    .eq('user_id', other).eq('recipient_id', req.session.userId)
-                    .order('created_at', { ascending: false }).limit(limit)
-            ]);
+            const [sentRes, receivedRes] = await Promise.all([sentQuery, receivedQuery]);
             const error = sentRes.error || receivedRes.error;
             const messages = [...(sentRes.data || []), ...(receivedRes.data || [])]
                 .sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).slice(0, limit);
@@ -3153,6 +3198,14 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
             if (since) {
                 q = q.gt('created_at', since);
             }
+            
+            // Apply before filter for pagination
+            if (before) {
+                const { data: beforeMsg } = await supabaseAdmin.from('messages').select('created_at').eq('id', before).single();
+                if (beforeMsg && beforeMsg.created_at) {
+                    q = q.lt('created_at', beforeMsg.created_at);
+                }
+            }
 
             const { data: messages, error } = await q;
 
@@ -3186,6 +3239,39 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
         res.json({ messages: messages.reverse() });
     } catch (error) {
         console.error('Get messages error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Delete private conversation (one-sided) - marks conversation as hidden for current user
+app.delete('/api/messages/private/delete', requireAuth, async (req, res) => {
+    try {
+        const other = req.query.with;
+        if (!other) return res.status(400).json({ error: 'Missing "with" query param' });
+        
+        // Validate UUIDs
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(req.session.userId) || !uuidRegex.test(other)) {
+            return res.status(400).json({ error: 'Invalid user ID format' });
+        }
+        
+        // Insert or update hidden_conversations entry (one-sided)
+        const { error: upsertError } = await supabaseAdmin
+            .from('hidden_conversations')
+            .upsert({
+                user_id: req.session.userId,
+                other_user_id: other,
+                hidden_at: new Date().toISOString()
+            }, { onConflict: 'user_id,other_user_id' });
+        
+        if (upsertError) {
+            console.error('Hide conversation error:', upsertError);
+            return res.status(500).json({ error: 'Failed to delete conversation' });
+        }
+        
+        res.json({ success: true, message: 'Conversation deleted successfully' });
+    } catch (error) {
+        console.error('Delete conversation error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
