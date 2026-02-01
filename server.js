@@ -4015,6 +4015,31 @@ app.delete('/api/admin/users/:id', requireAdmin, async (req, res) => {
             return res.status(400).json({ error: 'Cannot delete your own account' });
         }
 
+        // Attempt to remove any avatar files belonging to this user from the
+        // configured Supabase storage bucket. This is a best-effort cleanup so
+        // we don't leave orphaned files behind after a user is removed.
+        try {
+            const bucket = process.env.SUPABASE_AVATAR_BUCKET || 'avatars';
+            // List objects under the user's folder (prefix = user id)
+            const { data: listData, error: listErr } = await supabaseAdmin.storage
+                .from(bucket)
+                .list(id, { limit: 1000 });
+
+            if (listErr) {
+                console.warn('Could not list avatar files for user', id, listErr.message || listErr);
+            } else if (Array.isArray(listData) && listData.length > 0) {
+                const paths = listData.map(item => `${id}/${item.name}`);
+                const { error: removeErr } = await supabaseAdmin.storage.from(bucket).remove(paths);
+                if (removeErr) {
+                    console.warn('Failed to delete avatar files for user', id, removeErr.message || removeErr);
+                } else {
+                    console.info('Deleted avatar files for user', id, 'from bucket', bucket);
+                }
+            }
+        } catch (e) {
+            console.warn('Error while attempting to remove avatar folder for user', id, e && e.message ? e.message : e);
+        }
+
         const { error } = await supabaseAdmin
             .from('users')
             .delete()
