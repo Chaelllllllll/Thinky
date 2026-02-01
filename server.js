@@ -1722,37 +1722,81 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             // If email 2FA is enabled AND Google/TOTP 2FA is NOT enabled, send the code
                 // Prefer Google/TOTP when both methods are enabled so we do not send unnecessary email codes.
                 if (user.email_2fa_enabled && !user.two_factor_enabled) {
-                // Delete any existing unused codes for this user to prevent multiple requests
-                await supabaseAdmin
-                    .from('email_2fa_codes')
-                    .delete()
-                    .eq('user_id', user.id)
-                    .eq('used', false);
-                
-                // Generate 6-digit code
-                const code = Math.floor(100000 + Math.random() * 900000).toString();
-                const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-                
-                // Store code in database (capture result and log errors)
+                // Cleanup old codes for this user: remove used or expired rows to keep table clean
                 try {
-                    const { data: insertData, error: insertErr } = await supabaseAdmin
-                        .from('email_2fa_codes')
-                        .insert({
-                            user_id: user.id,
-                            code: code,
-                            expires_at: expiresAt.toISOString()
-                        });
-
-                    if (insertErr) {
-                        console.error('Failed to insert email_2fa_codes row:', insertErr);
-                    } else {
-                        console.info('Inserted email_2fa_codes row:', insertData && insertData[0] ? insertData[0] : insertData);
+                    const nowIso = new Date().toISOString();
+                    try {
+                        await supabaseAdmin
+                            .from('email_2fa_codes')
+                            .delete()
+                            .eq('user_id', user.id)
+                            .eq('used', true);
+                    } catch (delUsedErr) {
+                        console.warn('Failed to delete used email_2fa_codes rows during cleanup:', delUsedErr);
+                    }
+                    try {
+                        await supabaseAdmin
+                            .from('email_2fa_codes')
+                            .delete()
+                            .eq('user_id', user.id)
+                            .lt('expires_at', nowIso);
+                    } catch (delExpiredErr) {
+                        console.warn('Failed to delete expired email_2fa_codes rows during cleanup:', delExpiredErr);
                     }
                 } catch (e) {
-                    console.error('Exception inserting email_2fa_codes:', e);
+                    console.warn('Exception during email_2fa_codes cleanup:', e);
                 }
 
-                // Send email
+                // Check for an existing unused, unexpired code to prevent multiple active codes
+                let code = null;
+                try {
+                    const nowIso = new Date().toISOString();
+                    const { data: existingCodes, error: selErr } = await supabaseAdmin
+                        .from('email_2fa_codes')
+                        .select('*')
+                        .eq('user_id', user.id)
+                        .eq('used', false)
+                        .gt('expires_at', nowIso)
+                        .limit(1);
+
+                    if (selErr) {
+                        console.error('Failed to query existing email_2fa_codes:', selErr);
+                    }
+
+                    if (existingCodes && existingCodes.length > 0 && existingCodes[0].code) {
+                        // Reuse the existing unexpired code instead of creating a new one
+                        code = existingCodes[0].code;
+                        console.info('Reusing existing email 2FA code for user', user.id);
+                    }
+                } catch (e) {
+                    console.error('Exception checking existing email_2fa_codes:', e);
+                }
+
+                // If no existing code, generate and store a new one
+                if (!code) {
+                    code = Math.floor(100000 + Math.random() * 900000).toString();
+                    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+                    try {
+                        const { data: insertData, error: insertErr } = await supabaseAdmin
+                            .from('email_2fa_codes')
+                            .insert({
+                                user_id: user.id,
+                                code: code,
+                                expires_at: expiresAt.toISOString()
+                            });
+
+                        if (insertErr) {
+                            console.error('Failed to insert email_2fa_codes row:', insertErr);
+                        } else {
+                            console.info('Inserted email_2fa_codes row:', insertData && insertData[0] ? insertData[0] : insertData);
+                        }
+                    } catch (e) {
+                        console.error('Exception inserting email_2fa_codes:', e);
+                    }
+                }
+
+                // Send email with the (possibly reused) code
                 const sent = await sendEmail2FACode(user.id, user.email, code);
                 if (!sent) console.warn('Email 2FA sendEmail2FACode reported failure for user', user.id);
             }
@@ -3777,11 +3821,24 @@ app.post('/api/auth/2fa/verify', async (req, res) => {
                     if (!isNaN(expiresAt.getTime()) && expiresAt > now) {
                         verified = true;
                         console.log('Email 2FA code verified successfully');
-                        // Mark code as used
-                        await supabaseAdmin
-                            .from('email_2fa_codes')
-                            .update({ used: true })
-                            .eq('id', codeRecord.id);
+                        // Delete code after successful use to avoid leaving used rows
+                        try {
+                            await supabaseAdmin
+                                .from('email_2fa_codes')
+                                .delete()
+                                .eq('id', codeRecord.id);
+                        } catch (delErr) {
+                            console.warn('Failed to delete used email_2fa_codes row:', delErr);
+                            // Fallback: attempt to mark as used if delete fails
+                            try {
+                                await supabaseAdmin
+                                    .from('email_2fa_codes')
+                                    .update({ used: true })
+                                    .eq('id', codeRecord.id);
+                            } catch (updErr) {
+                                console.error('Failed to mark email_2fa_codes row as used after delete failure:', updErr);
+                            }
+                        }
                     } else {
                         console.log('Email 2FA code expired or invalid date');
                     }
@@ -4039,6 +4096,59 @@ app.delete('/api/admin/messages/:id', requireAdmin, async (req, res) => {
         res.json({ message: 'Message deleted successfully' });
     } catch (error) {
         console.error('Delete message error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Create school (admin)
+app.post('/api/admin/schools', requireAdmin, async (req, res) => {
+    try {
+        console.info('POST /api/admin/schools invoked by session user', req.session && req.session.userId);
+        const { name } = req.body;
+
+        if (!name || !name.trim()) {
+            return res.status(400).json({ error: 'School name is required' });
+        }
+
+        const { data: school, error } = await supabaseAdmin
+            .from('verified_schools')
+            .insert({
+                name: name.trim()
+            })
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Create school error:', error);
+            return res.status(500).json({ error: 'Failed to create school' });
+        }
+
+        res.json({ school, message: 'School created successfully' });
+    } catch (error) {
+        console.error('Create school error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Delete school (admin)
+app.delete('/api/admin/schools/:id', requireAdmin, async (req, res) => {
+    try {
+        console.info('DELETE /api/admin/schools/:id invoked by session user', req.session && req.session.userId, 'id=', req.params && req.params.id);
+        const { id } = req.params;
+
+        const { error } = await supabaseAdmin
+            .from('verified_schools')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            console.error('Delete school error:', error);
+            return res.status(500).json({ error: 'Failed to delete school' });
+        }
+
+        res.json({ message: 'School deleted successfully' });
+    } catch (error) {
+        console.error('Delete school error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });

@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schools Management - Thinky Admin</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/css/style.css">
+    
+    <style>
+        body {
+            background: var(--light-gray);
+        }
+
+        .admin-header {
+            background: var(--gradient-accent);
+            color: white;
+            padding: 32px;
+            margin-bottom: 32px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+        }
+
+        .schools-container {
+            background: white;
+            padding: 24px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 24px;
+        }
+
+        .add-school-form {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .add-school-form input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 16px;
+            border: 2px solid var(--medium-gray);
+            border-radius: var(--radius-md);
+            font-family: 'Quicksand', sans-serif;
+        }
+
+        .add-school-form input:focus {
+            outline: none;
+            border-color: var(--primary-pink);
+        }
+
+        .schools-list {
+            display: grid;
+            gap: 12px;
+        }
+
+        .school-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px;
+            background: var(--light-gray);
+            border-radius: var(--radius-md);
+            border-left: 4px solid var(--primary-pink);
+        }
+
+        .school-info {
+            flex: 1;
+        }
+
+        .school-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--dark-blue);
+            margin-bottom: 4px;
+        }
+
+        .school-meta {
+            font-size: 0.9rem;
+            color: var(--dark-gray);
+        }
+
+        .school-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-delete {
+            padding: 8px 16px;
+            background: #dc3545;
+            color: white;
+            border: none;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-family: 'Quicksand', sans-serif;
+            font-weight: 500;
+            transition: all var(--transition-base);
+        }
+
+        .btn-delete:hover {
+            background: #c82333;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--dark-gray);
+        }
+
+        .empty-state i {
+            font-size: 3rem;
+            margin-bottom: 16px;
+            opacity: 0.3;
+        }
+
+        @media (max-width: 768px) {
+            .school-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .school-actions {
+                width: 100%;
+                justify-content: flex-end;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <h2 class="sidebar-brand">Thinky</h2>
+        </div>
+        <nav class="sidebar-nav">
+            <a href="/admin.html" class="sidebar-link">
+                <i class="bi bi-speedometer2"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="/admin-users.html" class="sidebar-link">
+                <i class="bi bi-people"></i>
+                <span>Users</span>
+            </a>
+            <a href="/admin-reviewers.html" class="sidebar-link">
+                <i class="bi bi-journal-text"></i>
+                <span>Reviewers</span>
+            </a>
+            <a href="/admin-moderation.html" class="sidebar-link">
+                <i class="bi bi-flag"></i>
+                <span>Reviewer Moderation</span>
+            </a>
+            <a href="/admin-message-moderation.html" class="sidebar-link">
+                <i class="bi bi-chat-left-text"></i>
+                <span>Message Moderation</span>
+            </a>
+            <a href="/admin-schools.html" class="sidebar-link active">
+                <i class="bi bi-building"></i>
+                <span>Schools</span>
+            </a>
+            <a href="#" onclick="showPolicySection(); return false;" class="sidebar-link">
+                <i class="bi bi-shield-shaded"></i>
+                <span>Policies</span>
+            </a>
+            <div style="margin-top: auto; padding-top: 24px;">
+                <button onclick="logout()" class="sidebar-link w-100" style="border: none; background: none; text-align: left;">
+                    <i class="bi bi-box-arrow-right"></i>
+                    <span>Logout</span>
+                </button>
+            </div>
+        </nav>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="admin-header">
+            <h1 style="margin: 0; font-size: 2rem; color: white;">Schools Management</h1>
+            <p style="margin: 8px 0 0 0; opacity: 0.9;">Create and manage schools for reviewers</p>
+        </div>
+
+        <div class="schools-container">
+            <form class="add-school-form" id="addSchoolForm">
+                <input type="text" id="schoolName" placeholder="School name (e.g., Pamantasan ng Lungsod ng Muntinlupa)" required>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-plus-circle"></i> Add School
+                </button>
+            </form>
+        </div>
+
+        <div class="schools-container">
+            <h2 style="margin: 0 0 16px 0;">Schools</h2>
+            <div id="loadingState" style="text-align: center; padding: 24px; color: var(--dark-gray);">
+                Loading schools...
+            </div>
+            <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
+                <input id="schoolSearch" placeholder="Search schools..." style="padding:10px 12px;border:1px solid var(--medium-gray);border-radius:8px;min-width:200px;flex:1;">
+                <div id="tableLoading" style="color:var(--dark-gray);">Loading schools...</div>
+            </div>
+            <div style="overflow:auto;">
+                <table id="schoolsTable" style="width:100%;border-collapse:collapse;display:none;">
+                    <thead>
+                        <tr style="text-align:left;border-bottom:1px solid rgba(0,0,0,0.06);">
+                            <th style="padding:12px 8px; width:70%;">School Name</th>
+                            <th style="padding:12px 8px; width:30%;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="schoolsTbody"></tbody>
+                </table>
+            </div>
+            <div id="tableEmpty" class="empty-state" style="display:none;margin-top:12px;">
+                <i class="bi bi-building"></i>
+                <p>No schools found.</p>
+            </div>
+            <div id="pagination" style="display:flex;gap:8px;align-items:center;margin-top:12px;justify-content:flex-end;">
+                <button id="prevPage" class="btn btn-light">Prev</button>
+                <div id="pageInfo" style="min-width:120px;text-align:center;color:var(--dark-gray);"></div>
+                <button id="nextPage" class="btn btn-light">Next</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/alerts.js"></script>
+    <script>
+        // Check admin authentication
+        async function checkAuth() {
+            try {
+                const response = await fetch('/api/auth/me', { credentials: 'include' });
+                if (!response.ok) {
+                    window.location.href = '/login';
+                    return false;
+                }
+                const data = await response.json();
+                if (data.user.role !== 'admin') {
+                    window.location.href = '/dashboard';
+                    return false;
+                }
+                return true;
+            } catch (error) {
+                console.error('Auth check error:', error);
+                window.location.href = '/login';
+                return false;
+            }
+        }
+
+        // Client-side state for search & pagination
+        let schoolsData = [];
+        let currentPage = 1;
+        const pageSize = 8;
+        let currentQuery = '';
+
+        function debounce(fn, wait) {
+            let t;
+            return function(...args) {
+                clearTimeout(t);
+                t = setTimeout(() => fn.apply(this, args), wait);
+            };
+        }
+
+        async function loadSchools() {
+            try {
+                const response = await fetch('/api/schools', { credentials: 'include' });
+                if (!response.ok) throw new Error('Failed to load schools');
+
+                const data = await response.json();
+                schoolsData = data.schools || [];
+
+                // Hide both loading indicators now that data is available
+                const loadingState = document.getElementById('loadingState');
+                const tableLoading = document.getElementById('tableLoading');
+                if (tableLoading) tableLoading.style.display = 'none';
+                if (loadingState) {
+                    loadingState.style.display = 'none';
+                    loadingState.textContent = '';
+                }
+
+                renderTable();
+            } catch (error) {
+                console.error('Load schools error:', error);
+                window.showAlert('error', 'Failed to load schools');
+                const loadingState = document.getElementById('loadingState');
+                const tableLoading = document.getElementById('tableLoading');
+                if (tableLoading) tableLoading.style.display = 'none';
+                if (loadingState) {
+                    loadingState.style.display = 'block';
+                    loadingState.textContent = 'Failed to load schools';
+                }
+            }
+        }
+
+        function renderTable() {
+            const tbody = document.getElementById('schoolsTbody');
+            const table = document.getElementById('schoolsTable');
+            const empty = document.getElementById('tableEmpty');
+            const loadingState = document.getElementById('loadingState');
+
+            // Ensure top loading indicator is hidden when rendering results
+            if (loadingState) {
+                loadingState.style.display = 'none';
+                loadingState.textContent = '';
+            }
+
+            // Filter by search
+            const q = (currentQuery || '').toLowerCase();
+            const filtered = schoolsData.filter(s => (s.name || '').toLowerCase().includes(q));
+
+            if (filtered.length === 0) {
+                table.style.display = 'none';
+                empty.style.display = 'block';
+                document.getElementById('pagination').style.display = 'none';
+                return;
+            }
+
+            empty.style.display = 'none';
+            table.style.display = 'table';
+            document.getElementById('pagination').style.display = 'flex';
+
+            const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+            currentPage = Math.min(currentPage, totalPages);
+            const start = (currentPage - 1) * pageSize;
+            const pageItems = filtered.slice(start, start + pageSize);
+
+            tbody.innerHTML = pageItems.map(school => `
+                <tr>
+                    <td style="padding:12px 8px; border-bottom:1px solid rgba(0,0,0,0.04);">
+                        <div class="school-name">${escapeHtml(school.name)}</div>
+                        <div class="school-meta">ID: ${escapeHtml(school.id)} • Created: ${new Date(school.created_at).toLocaleDateString()}</div>
+                    </td>
+                    <td style="padding:12px 8px; border-bottom:1px solid rgba(0,0,0,0.04);">
+                        <div style="display:flex;gap:8px;justify-content:flex-end;">
+                            <button class="btn btn-outline" onclick="editSchool('${school.id}','${escapeHtml(school.name)}')"><i class="bi bi-pencil"></i> Edit</button>
+                            <button class="btn-delete" onclick="deleteSchool('${school.id}','${escapeHtml(school.name)}')"><i class="bi bi-trash"></i> Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (${filtered.length} schools)`;
+            document.getElementById('prevPage').disabled = currentPage <= 1;
+            document.getElementById('nextPage').disabled = currentPage >= totalPages;
+        }
+
+        const prevBtn = document.getElementById('prevPage');
+        const nextBtn = document.getElementById('nextPage');
+        if (prevBtn) prevBtn.addEventListener('click', () => { currentPage = Math.max(1, currentPage - 1); renderTable(); });
+        if (nextBtn) nextBtn.addEventListener('click', () => { currentPage = currentPage + 1; renderTable(); });
+
+        const searchEl = document.getElementById('schoolSearch');
+        if (searchEl) searchEl.addEventListener('input', debounce((e) => {
+            currentQuery = e.target.value || '';
+            currentPage = 1;
+            renderTable();
+        }, 300));
+
+        async function addSchool(name) {
+            if (!name || !name.trim()) {
+                window.showAlert('error', 'School name is required');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/schools', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim() })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to add school');
+                }
+
+                window.showAlert('success', 'School added successfully');
+                document.getElementById('schoolName').value = '';
+                await loadSchools();
+            } catch (error) {
+                console.error('Add school error:', error);
+                window.showAlert('error', error.message || 'Failed to add school');
+            }
+        }
+
+        async function deleteSchool(id, name) {
+            if (!confirm(`Are you sure you want to delete "${name}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/schools/${id}`, {
+                    method: 'DELETE',
+                    credentials: 'include'
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to delete school');
+                }
+
+                window.showAlert('success', 'School deleted successfully');
+                // keep current page if possible
+                await loadSchools();
+            } catch (error) {
+                console.error('Delete school error:', error);
+                window.showAlert('error', error.message || 'Failed to delete school');
+            }
+        }
+
+        async function editSchool(id, currentName) {
+            const newName = prompt('Edit school name', currentName || '');
+            if (newName === null) return; // cancelled
+            if (!newName.trim()) return window.showAlert && window.showAlert('error', 'School name is required');
+
+            try {
+                const resp = await fetch(`/api/admin/schools/${id}`, {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: newName.trim() })
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.error || 'Failed to update school');
+                }
+
+                window.showAlert && window.showAlert('success', 'School updated');
+                await loadSchools();
+            } catch (e) {
+                console.error('Edit school error', e);
+                window.showAlert && window.showAlert('error', e.message || 'Failed to update school');
+            }
+        }
+
+        function logout() {
+            fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+                .then(() => window.location.href = '/login')
+                .catch(err => {
+                    console.error('Logout error:', err);
+                    window.location.href = '/login';
+                });
+        }
+
+        function showPolicySection() {
+            window.location.href = '/admin.html#policies';
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        // Form handler
+        document.getElementById('addSchoolForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const name = document.getElementById('schoolName').value;
+            addSchool(name);
+        });
+
+        // Initialize
+        checkAuth().then(isAuth => {
+            if (isAuth) {
+                loadSchools();
+            }
+        });
+    </script>
+</body>
+</html>
