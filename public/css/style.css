@@ -496,9 +496,9 @@ textarea.form-control {
 #flashcardViewerModal .modal-header { flex: 0 0 auto; }
 #flashcardViewerModal .modal-body {
     flex: 1 1 auto;
-    padding: 8px 18px; /* reduce vertical padding so card has more room */
+    padding: 0; /* let the card fill fully without outer padding */
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: center;
     min-height: 280px;
 }
@@ -508,18 +508,21 @@ textarea.form-control {
     width: 100%;
     height: 100%;
     display: flex;
-    align-items: center;
+    align-items: stretch;
     justify-content: center;
+    padding: 12px; /* inner inset so the card doesn't touch edges */
+    box-sizing: border-box;
 }
 
 /* Make the flashcard expand to fill the available viewer body */
 #flashcardViewerModal .flashcard {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    box-sizing: border-box;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    align-items: stretch !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+    flex: 1 1 auto !important;
 }
 
 #flashcardViewerModal .flashcard-inner {
@@ -797,6 +800,80 @@ textarea.form-control {
         display: flex;
         flex-direction: column;
     }
+
+    /* Flashcard viewer mobile adjustments */
+    #flashcardViewerModal .modal-content {
+        width: calc(100% - 24px) !important;
+        max-width: 520px !important;
+        max-height: 92vh !important;
+        height: 80vh !important;
+        border-radius: 12px !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    #flashcardViewerModal .modal-body {
+        padding: 0 !important;
+        flex: 1 1 auto !important;
+        display: flex !important;
+        align-items: stretch !important;
+        justify-content: center !important;
+        overflow: hidden !important;
+    }
+
+    #flashcardViewerModal #fcViewerCard {
+        padding: 12px !important;
+        width: 100% !important;
+        height: 100% !important;
+        display: flex !important;
+        align-items: stretch !important;
+        box-sizing: border-box !important;
+    }
+
+    #flashcardViewerModal .flashcard {
+        width: 100% !important;
+        height: 100% !important;
+        flex: 1 1 auto !important;
+        display: flex !important;
+        align-items: stretch !important;
+        justify-content: center !important;
+        box-sizing: border-box !important;
+    }
+
+    #flashcardViewerModal .flashcard-inner { 
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    #flashcardViewerModal .flashcard-face { 
+        padding: 20px !important;
+    }
+
+    /* Stack footer controls to improve touch accessibility */
+    #flashcardViewerModal .modal-footer { flex-direction: column; gap: 8px; align-items: stretch; }
+    #flashcardViewerModal .modal-footer > div { display:flex; gap:8px; justify-content: center; }
+
+
+/* Ensure flashcard text is readable on all backgrounds and sizes */
+#flashcardViewerModal .flashcard-text {
+    color: var(--text-dark) !important;
+    font-size: 1rem !important;
+    line-height: 1.4 !important;
+    padding: 8px 12px !important;
+    text-align: center !important;
+    word-break: break-word !important;
+}
+
+/* Make faces taller on small viewports so content isn't clipped */
+#flashcardViewerModal .flashcard-face {
+    min-height: 120px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    color: var(--text-dark) !important;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+
 
     /* Reviewer modal specific constraints */
     .modal-content.reviewer-modal {
