@@ -145,7 +145,6 @@
 
         <div class="reviewer-content">
             <div id="reviewerContent"></div>
-            <div id="reviewerFlashcard" style="margin-top: 16px;"></div>
         </div>
 
         <div class="reviewer-actions">
@@ -295,20 +294,7 @@
             // Content
             document.getElementById('reviewerContent').innerHTML = reviewer.content || '';
 
-            // Flashcard preview
-            if (reviewer.flashcard_data && reviewer.flashcard_data.length > 0) {
-                document.getElementById('reviewerFlashcard').innerHTML = `
-                    <div style="padding: 12px; background: rgba(255,158,180,0.08); border-radius: 8px; border-left: 4px solid var(--primary-pink);">
-                        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                            <i class="bi bi-lightning-fill" style="color: var(--primary-pink);"></i>
-                            <strong>Flashcards available</strong>
-                        </div>
-                        <p style="margin: 0; color: var(--dark-gray); font-size: 0.95rem;">
-                            ${reviewer.flashcard_data.length} flashcard${reviewer.flashcard_data.length !== 1 ? 's' : ''} included with this reviewer
-                        </p>
-                    </div>
-                `;
-            }
+            // Flashcards preview intentionally hidden on reviewer page
 
             // Report button
             const reportBtn = document.getElementById('reportBtn');
@@ -387,13 +373,13 @@
         }
 
         function openFlashcardsForReviewer() {
-            if (!currentReviewer || !currentReviewer.flashcard_data || currentReviewer.flashcard_data.length === 0) {
+            if (!currentReviewer || !currentReviewer.flashcards || currentReviewer.flashcards.length === 0) {
                 window.showAlert('info', 'No flashcards available for this reviewer');
                 return;
             }
             
             if (typeof openFlashcardViewer === 'function') {
-                openFlashcardViewer(currentReviewer.flashcard_data);
+                openFlashcardViewer(currentReviewer.flashcards);
             }
         }
 
