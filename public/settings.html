@@ -494,13 +494,18 @@
             document.querySelectorAll('.settings-sidebar-link').forEach(link => {
                 link.classList.remove('active');
             });
-            document.querySelector(`[data-section="${section}"]`).classList.add('active');
+            const targetLink = document.querySelector(`[data-section="${section}"]`);
+            if (targetLink) targetLink.classList.add('active');
 
             // Update content sections
             document.querySelectorAll('.settings-section-content').forEach(content => {
                 content.style.display = 'none';
             });
-            document.getElementById(`${section}Section`).style.display = 'block';
+            const targetSection = document.getElementById(`${section}Section`);
+            if (targetSection) targetSection.style.display = 'block';
+
+            // Persist selection so reloads remember the active section
+            try { localStorage.setItem('settings_section', section); } catch (e) { /* ignore */ }
         }
 
         // Logout function
@@ -574,6 +579,11 @@
         // Initialize on page load
         document.addEventListener('DOMContentLoaded', function() {
             loadUserData();
+            // Restore last selected section (defaults to profile)
+            try {
+                const saved = localStorage.getItem('settings_section') || 'profile';
+                switchSettingsSection(saved);
+            } catch (e) { /* ignore */ }
             
             // Wire up 2FA button handlers
             const enableGoogleAuthBtn = document.getElementById('enableGoogleAuthBtn');

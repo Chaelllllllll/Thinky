@@ -164,7 +164,8 @@ async function saveCurrentTabSettings() {
                 await saveProfileSettings();
                 break;
             case 'notifications':
-                saveNotificationSettings();
+                // Ensure we wait for the async save to finish so errors are handled
+                await saveNotificationSettingsImpl();
                 await window.showModal('Notification preferences saved', 'Success', { small: true });
                 break;
             case 'security':
@@ -508,6 +509,9 @@ async function saveNotificationSettings() {
     }
 }
 
+// Keep a reference to the implementation to avoid accidental recursion
+const saveNotificationSettingsImpl = saveNotificationSettings;
+
 async function loadSettingsPreferences() {
     try {
         // Load settings from backend
@@ -577,7 +581,7 @@ async function loadSettingsPreferences() {
 window.saveProfileSettings = saveProfileSettings;
 window.saveNotificationSettings = async function() {
     try {
-        await saveNotificationSettings();
+        await saveNotificationSettingsImpl();
         await window.showModal('Notification settings saved successfully!', 'Success', { small: true });
     } catch (error) {
         await window.showModal('Failed to save notification settings. Please try again.', 'Error', { small: true });
