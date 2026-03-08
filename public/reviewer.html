@@ -88,6 +88,53 @@
         .back-link:hover {
             text-decoration: underline;
         }
+
+        /* ── Print styles ── */
+        /* margin: 0 removes the browser's header/footer area entirely */
+        @page { margin: 0; }
+        @media print {
+            body { background: #fff !important; margin: 0; padding: 0.8cm 1.2cm; }
+            nav, .back-link, .reviewer-actions, .comments-section,
+            .reviewer-follow-prompt, #followPromptModal, #loginModal,
+            #reportModal, #flashcardModal, #quizModal,
+            .toast-container, .alert-container, #cookieBanner,
+            #reviewerMeta, #reviewerDate { display: none !important; }
+            .reviewer-detail-container { max-width: 100%; padding: 0; }
+            .reviewer-header {
+                box-shadow: none; border-radius: 0;
+                padding: 0 0 6px 0 !important;
+                margin: 0 !important;
+                border: none !important;
+            }
+            .reviewer-header-top { margin-bottom: 0 !important; }
+            .reviewer-title { margin-bottom: 0 !important; }
+            .reviewer-content {
+                box-shadow: none; border-radius: 0;
+                page-break-inside: auto;
+                margin: 0 !important;
+                padding: 6px 0 0 0 !important;
+            }
+            .reviewer-content * { page-break-inside: auto; }
+
+            /* Quote footer at bottom of print */
+            #printQuoteFooter {
+                display: block !important;
+                margin-top: 36px;
+                padding: 20px 28px;
+                background: #fce4ec !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+                border-radius: 12px;
+                border: 1.5px solid #e91e8c;
+                text-align: center;
+                color: #880e4f;
+                font-style: italic;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+        }
+        #printQuoteFooter { display: none; }
+
         @media (max-width: 600px) {
             .reviewer-detail-container {
                 padding: 12px;
@@ -253,7 +300,7 @@
         }
         .fpm-overlay.fpm-visible { opacity: 1; }
         .fpm-card {
-            background: var(--card-bg, #fff);
+            background: var(--white, #fff);
             border-radius: 18px;
             padding: 36px 28px 28px;
             max-width: 380px; width: 100%;
@@ -276,10 +323,10 @@
         }
         .fpm-title {
             font-size: 1.25rem; font-weight: 700;
-            margin: 0 0 10px; color: var(--text-primary, #111);
+            margin: 0 0 10px; color: var(--text-dark, #111);
         }
         .fpm-body {
-            font-size: 0.95rem; color: var(--text-secondary, #555);
+            font-size: 0.95rem; color: var(--dark-gray, #555);
             margin: 0 0 24px; line-height: 1.5;
         }
         .fpm-actions { display: flex; flex-direction: column; gap: 10px; }
@@ -359,6 +406,7 @@
 
         <div class="reviewer-content">
             <div id="reviewerContent"></div>
+            <div id="printQuoteFooter"></div>
         </div>
 
         <div class="reviewer-actions">
@@ -727,9 +775,46 @@
             }
         });
 
-        function saveAsPdf() {
+        async function saveAsPdf() {
             if (!currentReviewer) return;
-            window.print();
+            const btn = document.getElementById('savePdfBtn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Preparing…'; }
+
+            // Fetch a motivational quote then open print dialog
+            const quoteEl = document.getElementById('printQuoteFooter');
+            try {
+                let quote = '';
+                try {
+                    const qResp = await fetch('/api/ai/motivational-quote', { method: 'POST', credentials: 'include' });
+                    if (qResp.ok) {
+                        const qData = await qResp.json();
+                        quote = qData.quote || '';
+                    }
+                } catch (_) {}
+                if (!quote) {
+                    const fallbacks = [
+                        'Every page you read today is a step closer to the person you want to become.',
+                        'Small progress is still progress. Keep going — you are doing amazing!',
+                        'Your future self will thank you for every hour you study today.',
+                        'Learning is a gift. Even when it is hard, it is worth it.',
+                        'You are capable of more than you know. Trust the process.'
+                    ];
+                    quote = fallbacks[Math.floor(Math.random() * fallbacks.length)];
+                }
+                if (quoteEl) quoteEl.textContent = quote;
+                // Temporarily blank the title so the browser print header shows nothing
+                const origTitle = document.title;
+                document.title = '';
+                // Small delay so the DOM updates before the browser captures the print layout
+                setTimeout(() => {
+                    window.print();
+                    // Restore title after print dialog closes
+                    document.title = origTitle;
+                }, 100);
+            } finally {
+                // Reset button and clear quote after dialog closes
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="bi bi-file-pdf"></i> Save as PDF'; }
+            }
         }
 
         async function shareReviewer() {
@@ -1258,34 +1343,27 @@
             _followPromptIsFollowing   = isFollowing;
             _followPromptReviewerId    = reviewerId;
 
-            // Don't set up observer if modal should never appear
+            // Don't set up scroll watcher if modal should never appear
             if (!currentUserId || String(currentUserId) === String(uploaderId) || isFollowing) return;
-            const sessionKey = `followPromptShown_${reviewerId}`;
-            if (sessionStorage.getItem(sessionKey)) return;
 
-            const target = document.querySelector('.reviewer-actions');
-            if (!target) return;
+            let _fpmTriggered = false;
 
-            // Wait until content is fully rendered, then only observe if the page
-            // is actually tall enough that the user must scroll to reach the actions bar.
-            setTimeout(() => {
-                // If the page doesn't require scrolling, don't show the prompt
-                if (document.documentElement.scrollHeight <= window.innerHeight + 80) return;
+            window.addEventListener('scroll', () => {
+                if (_followPromptIsFollowing) return;
+                const distFromBottom = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
 
-                const observer = new IntersectionObserver((entries) => {
-                    if (entries[0].isIntersecting) {
-                        observer.disconnect();
-                        setTimeout(() => showFollowPromptModal(), 800);
-                    }
-                }, { threshold: 0.5, rootMargin: '0px 0px -60px 0px' });
-                observer.observe(target);
-            }, 500);
+                if (!_fpmTriggered && distFromBottom <= 80) {
+                    _fpmTriggered = true;
+                    showFollowPromptModal();
+                } else if (_fpmTriggered && distFromBottom > 300) {
+                    // User scrolled back up — allow re-triggering on next scroll to bottom
+                    _fpmTriggered = false;
+                }
+            }, { passive: true });
         }
 
         function showFollowPromptModal() {
-            const sessionKey = `followPromptShown_${_followPromptReviewerId}`;
-            if (sessionStorage.getItem(sessionKey)) return;
-            sessionStorage.setItem(sessionKey, '1');
+            if (_followPromptIsFollowing) return;
 
             const nameEl = document.getElementById('fpmUploaderName');
             const bodyEl = document.getElementById('fpmBody');
@@ -1317,6 +1395,7 @@
                 if (resp.ok) {
                     const { following } = await resp.json();
                     updateFollowButton(following);
+                    _followPromptIsFollowing = true;
                     if (modalBtn) { modalBtn.textContent = '✓ Following'; }
                     window.showAlert && window.showAlert('success', `Now following ${_followPromptUploaderName}!`, 2500);
                     setTimeout(() => closeFollowPromptModal(), 900);

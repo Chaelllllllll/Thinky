@@ -957,6 +957,16 @@ textarea.form-control {
         border-radius: 10px;
         padding: 14px;
     }
+
+    /* Cap pill-shaped buttons so narrow buttons don't look like ovals/circles */
+    .btn {
+        border-radius: 10px !important;
+    }
+    /* Preserve full-circle for icon-only buttons */
+    .btn.btn-icon,
+    .btn-sm.btn-icon {
+        border-radius: 50% !important;
+    }
 }
 
 /* Ensure modal footer stays visible and buttons don't overflow on small screens */
@@ -2446,6 +2456,43 @@ body.dark .qb-opt-letter   { background: var(--light-gray); color: var(--text-da
 body.dark .qb-paste-box    { background: var(--light-gray); border-color: var(--primary-pink); }
 body.dark .qb-paste-example { background: var(--off-white); }
 
+/* ── AI Generate panels ── */
+.ai-panel {
+    background: linear-gradient(135deg, var(--off-white), var(--light-gray));
+    border: 2px solid var(--primary-pink);
+    border-radius: 14px;
+    padding: 18px 20px;
+}
+.ai-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+    color: var(--primary-pink);
+}
+.ai-panel-hint {
+    font-size: 0.83rem;
+    color: var(--dark-gray);
+    margin: 0 0 12px;
+    line-height: 1.5;
+}
+.ai-drop-zone {
+    border: 2px dashed var(--primary-pink);
+    border-radius: 12px;
+    padding: 24px 16px;
+    text-align: center;
+    cursor: pointer;
+    transition: background 0.18s;
+    background: var(--white);
+}
+.ai-drop-zone:hover { background: var(--secondary-pink); }
+body.dark .ai-panel { background: linear-gradient(135deg, var(--bg-dark), var(--off-white)); }
+body.dark .ai-drop-zone { background: var(--off-white); }
+body.dark .ai-drop-zone:hover { background: var(--light-gray); }
+
+
 
 /* ── Dark mode: timestamp colors ── */
 body.dark .mm-bubble .time,
@@ -2477,6 +2524,7 @@ body.dark .chat-tab i,
 body.dark .sidebar i { color: var(--text-dark); }
 
 /* Pink-accented action buttons keep their highlight colors */
+body.dark .btn-primary { color: #fff; }
 body.dark .btn-primary i,
 body.dark .heart-btn i,
 body.dark .back-link i { color: inherit; }

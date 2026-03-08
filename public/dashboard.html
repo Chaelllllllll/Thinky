@@ -240,6 +240,148 @@
             min-height: 240px;
         }
 
+        /* View reviewer modal — fixed footer */
+        #viewReviewerModal .modal-content {
+            display: flex;
+            flex-direction: column;
+            max-height: 85vh;
+        }
+        #viewReviewerModal .modal-body {
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+        }
+        #viewReviewerModal .modal-footer {
+            flex-shrink: 0;
+        }
+
+        /* ── Mobile responsiveness for all dashboard modals ── */
+        @media (max-width: 600px) {
+            /* Every modal uses full width with a small inset */
+            .modal {
+                padding: 0;
+                align-items: flex-end; /* sheet slides up from bottom */
+            }
+
+            .modal-content {
+                width: 100% !important;
+                max-width: 100% !important;
+                border-radius: 20px 20px 0 0 !important;
+                max-height: 92dvh !important;
+                display: flex !important;
+                flex-direction: column !important;
+                overflow: hidden !important;
+                margin: 0 !important;
+            }
+
+            /* Body scrolls, header & footer are fixed */
+            .modal-header {
+                padding: 12px 14px;
+                flex-shrink: 0;
+            }
+
+            .modal-title {
+                font-size: 1.05rem !important;
+            }
+
+            .modal-body {
+                flex: 1 1 auto !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch;
+                padding: 12px 14px !important;
+                max-height: none !important;
+            }
+
+            .modal-footer {
+                flex-shrink: 0 !important;
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                padding: 10px 12px !important;
+                padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px)) !important;
+                background: var(--white) !important;
+                border-top: 1px solid var(--medium-gray) !important;
+            }
+
+            .modal-footer .btn {
+                flex: 1 1 auto;
+                min-width: 80px;
+                text-align: center;
+                padding: 9px 10px !important;
+                font-size: 0.84rem !important;
+            }
+
+            /* Reviewer editor modal: reduce quill height */
+            #reviewerModal .modal-body {
+                max-height: none !important;
+            }
+
+            #reviewerModal .ql-container {
+                min-height: 150px !important;
+            }
+
+            /* View reviewer modal: keep it as a flex column sheet */
+            #viewReviewerModal .modal-content {
+                max-height: 92dvh !important;
+            }
+
+            /* Reviewers list modal */
+            #reviewersListModal .modal-content {
+                height: 88dvh !important;
+                max-height: 88dvh !important;
+            }
+
+            #reviewersListContainer {
+                max-height: none !important;
+            }
+
+            /* Quiz builder modal */
+            #quizBuilderModal .modal-content {
+                max-height: 92dvh !important;
+            }
+
+            #quizBuilderModal .modal-body {
+                max-height: none !important;
+            }
+
+            /* Settings modal */
+            #settingsModal .modal-content {
+                height: 92dvh !important;
+                max-height: 92dvh !important;
+            }
+
+            /* Reviewer row action buttons — keep them from overflowing */
+            .reviewer-row {
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+            }
+
+            .reviewer-row > div:last-child {
+                flex-wrap: wrap !important;
+                gap: 6px !important;
+            }
+        }
+
+        @media (max-width: 400px) {
+            .modal-footer .btn {
+                font-size: 0.78rem !important;
+                padding: 8px 6px !important;
+            }
+        }
+
+        /* Cap button pill-radius on mobile so narrow buttons don't look like ovals */
+        @media (max-width: 600px) {
+            .btn {
+                border-radius: 10px !important;
+            }
+            /* Keep icon-only square/circle buttons fully round */
+            .btn.btn-icon,
+            .modal-close,
+            .btn[style*="width:48px"],
+            .btn[style*="width: 48px"] {
+                border-radius: 50% !important;
+            }
+        }
+
         /* Tables inside Quill editor */
         .ql-editor table {
             border-collapse: collapse;
@@ -446,20 +588,22 @@
                         <label for="reviewerContent" class="form-label">Content</label>
                         <div id="editor"></div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Flashcards</label>
-                        <div id="flashcardsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
-                        <div style="margin-top:6px;">
-                            <button type="button" id="addFlashcardBtn" class="btn btn-outline btn-sm">Add Flashcard</button>
-                        </div>
-                        <template id="flashcardTemplate">
-                            <div class="flashcard-row" style="display:flex;gap:8px;align-items:center;">
-                                <input type="hidden" class="flashcard-id" value="">
-                                <input type="text" class="form-control flash-front" placeholder="Term" style="flex:1;">
-                                <input type="text" class="form-control flash-back" placeholder="Meaning" style="flex:1;">
-                                <button type="button" class="btn btn-light remove-flashcard">Remove</button>
+                    <div id="flashcardsSection" style="display:none;">
+                        <div class="form-group">
+                            <label class="form-label">Flashcards</label>
+                            <div id="flashcardsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px;"></div>
+                            <div style="margin-top:6px;">
+                                <button type="button" id="addFlashcardBtn" class="btn btn-outline btn-sm">Add Flashcard</button>
                             </div>
-                        </template>
+                            <template id="flashcardTemplate">
+                                <div class="flashcard-row" style="display:flex;gap:8px;align-items:center;">
+                                    <input type="hidden" class="flashcard-id" value="">
+                                    <input type="text" class="form-control flash-front" placeholder="Term" style="flex:1;">
+                                    <input type="text" class="form-control flash-back" placeholder="Meaning" style="flex:1;">
+                                    <button type="button" class="btn btn-light remove-flashcard">Remove</button>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label class="form-label">
@@ -470,10 +614,57 @@
                 </form>
             </div>
             <div class="modal-footer">
+                <button class="btn btn-outline btn-sm" onclick="aiOpenGeneratePanel()" style="margin-right:auto;" id="aiGenerateReviewerBtn">
+                    <i class="bi bi-magic"></i> Auto Generate
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" id="toggleFlashcardsBtn" onclick="toggleFlashcardsSection()">
+                    <i class="bi bi-card-text"></i> Flashcards
+                </button>
                 <button class="btn btn-light" onclick="closeReviewerModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="saveReviewer()" id="saveReviewerBtn">
                     <span id="saveReviewerText">Save Reviewer</span>
                     <span id="saveReviewerSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Auto Generate Reviewer Modal -->
+    <div id="aiGenerateModal" class="modal" style="z-index:1100;">
+        <div class="modal-content" style="max-width:520px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-magic" style="color:var(--primary-pink);margin-right:8px;"></i>Auto Generate Reviewer</h3>
+                <button class="modal-close" onclick="aiCloseGeneratePanel()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color:var(--dark-gray);font-size:0.9rem;margin:0 0 16px;">Upload a PDF, Word (.docx), or text file and we&rsquo;ll automatically generate the reviewer for you.</p>
+                <div class="ai-drop-zone" id="aiDropZone" onclick="document.getElementById('aiFileInput').click()">
+                    <i class="bi bi-cloud-arrow-up" style="font-size:2.2rem;color:var(--primary-pink);"></i>
+                    <div style="margin-top:10px;font-weight:500;">Drop file here or click to browse</div>
+                    <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:4px;">PDF, DOCX, TXT &mdash; up to 10 MB</div>
+                </div>
+                <input type="file" id="aiFileInput" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" style="display:none;" onchange="aiFileSelected(this)">
+                <div id="aiSelectedFile" style="display:none;padding:10px 12px;background:var(--light-gray);border-radius:10px;margin-top:12px;font-size:0.88rem;align-items:center;gap:8px;">
+                    <i class="bi bi-file-earmark" style="font-size:1.1rem;color:var(--primary-pink);"></i>
+                    <span id="aiSelectedFileName"></span>
+                </div>
+                <!-- Also generate options -->
+                <div style="margin-top:18px;border-top:1px solid var(--medium-gray);padding-top:14px;">
+                    <p style="font-size:0.82rem;font-weight:600;color:var(--dark-gray);margin:0 0 10px;">Also generate:</p>
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px;font-size:0.9rem;">
+                        <input type="checkbox" id="aiGenFlashcards" checked>
+                        <span><i class="bi bi-card-text" style="color:var(--primary-pink);margin-right:4px;"></i>Flashcards</span>
+                    </label>
+                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;">
+                        <input type="checkbox" id="aiGenQuiz">
+                        <span><i class="bi bi-patch-question" style="color:var(--primary-pink);margin-right:4px;"></i>Quiz questions <span style="font-size:0.78rem;color:var(--dark-gray);"></span></span>
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="aiCloseGeneratePanel()">Cancel</button>
+                <button class="btn btn-primary" id="aiGenerateBtn" onclick="aiDoGenerate()" disabled>
+                    <i class="bi bi-magic"></i> Generate
                 </button>
             </div>
         </div>
@@ -488,12 +679,12 @@
             </div>
             <div class="modal-body">
                 <div id="viewReviewerContent"></div>
-                <div id="viewReviewerFlashcard" style="margin-top:12px;"></div>
             </div>
             <div class="modal-footer">
-                        <button class="btn btn-light" onclick="openFlashcardsForModal()">Open Flashcards</button>
-                        <button class="btn btn-danger" style="display:inline-flex;align-items:center;gap:8px;" onclick="openReportModal(document.getElementById('viewReviewerModal').dataset.currentReviewerId)"><i class="bi bi-exclamation-triangle-fill"></i> Report</button>
-                        <button class="btn btn-light" onclick="closeViewReviewerModal()">Close</button>
+                <button id="viewFlashcardsBtn" class="btn btn-light" onclick="openFlashcardsForModal()" style="display:none;"><i class="bi bi-card-text"></i> Open Flashcards</button>
+                <button id="viewQuizBtn" class="btn btn-light" onclick="openQuizFromViewer()" style="display:none;"><i class="bi bi-patch-question"></i> View Quiz</button>
+                <button id="viewReportBtn" class="btn btn-danger" style="display:none;align-items:center;gap:8px;" onclick="openReportModal(document.getElementById('viewReviewerModal').dataset.currentReviewerId)"><i class="bi bi-exclamation-triangle-fill"></i> Report</button>
+                <button class="btn btn-light" onclick="closeViewReviewerModal()">Close</button>
             </div>
         </div>
     </div>
@@ -877,12 +1068,29 @@ Answer: B</pre>
                     </div>
                 </div>
 
+                <!-- AI Quiz Panel -->
+                <div id="qbAiPanel" style="display:none;margin-bottom:14px;">
+                    <div class="ai-panel">
+                        <div class="ai-panel-header">
+                            <span><i class="bi bi-magic"></i> Auto Generate Questions</span>
+                            <button type="button" class="btn btn-light btn-sm" onclick="document.getElementById('qbAiPanel').style.display='none'"><i class="bi bi-x"></i></button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
+                            <button type="button" class="btn btn-primary btn-sm" onclick="aiDoGenerateQuiz()"><i class="bi bi-magic"></i> Generate</button>
+                        </div>
+                        <p style="font-size:0.78rem;color:var(--dark-gray);margin:8px 0 0;">Automatically generates as many questions as needed to cover all content in this reviewer (up to 100). Questions will be added to the list above.</p>
+                    </div>
+                </div>
+
                 <div style="display:flex;gap:8px;">
                     <button type="button" onclick="qbAddQuestion()" class="btn btn-outline" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
                         <i class="bi bi-plus-circle"></i> Add Question
                     </button>
                     <button type="button" onclick="qbOpenPastePanel()" class="btn btn-light" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
                         <i class="bi bi-clipboard"></i> Paste Questions
+                    </button>
+                    <button type="button" onclick="document.getElementById('qbAiPanel').style.display='block'" class="btn btn-outline" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--primary-pink);border-color:var(--primary-pink);">
+                        <i class="bi bi-magic"></i> Auto Question
                     </button>
                 </div>
             </div>

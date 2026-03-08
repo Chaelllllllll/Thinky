@@ -167,9 +167,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // Wire Add Flashcard button (dynamic rows)
     const addFlashBtn = document.getElementById('addFlashcardBtn');
     if (addFlashBtn) addFlashBtn.addEventListener('click', () => addFlashcardRow());
-    // Ensure at least one empty flashcard input exists for new reviewer
-    const flashList = document.getElementById('flashcardsList');
-    if (flashList && flashList.children.length === 0) addFlashcardRow();
 });
 
 async function loadCurrentUser() {
@@ -222,13 +219,8 @@ async function loadSubjects() {
         const data = await response.json();
         subjects = data.subjects;
 
-        // Update stats (only if elements exist in DOM)
-        const totalReviewers = subjects.reduce((sum, subject) => sum + (subject.reviewers?.length || 0), 0);
         const elTotalSubjects = document.getElementById('totalSubjects');
         if (elTotalSubjects) elTotalSubjects.textContent = subjects.length;
-
-        // Load reviewers count
-        await updateReviewersStats();
 
         document.getElementById('loadingSubjects').style.display = 'none';
 
@@ -236,7 +228,10 @@ async function loadSubjects() {
             document.getElementById('emptySubjects').style.display = 'block';
         } else {
             document.getElementById('subjectsGrid').style.display = 'grid';
+            // Show cards immediately with preliminary counts, then refresh with accurate counts
             displaySubjects();
+            // updateReviewersStats fetches real counts and calls displaySubjects() again
+            await updateReviewersStats();
         }
     } catch (error) {
         console.error('Error loading subjects:', error);
@@ -251,21 +246,16 @@ async function updateReviewersStats() {
 
     for (const subject of subjects) {
         try {
-            // Use paginated endpoint to retrieve count without pulling all rows
-            const response = await fetch(`/api/subjects/${subject.id}/reviewers?limit=1&offset=0`, { credentials: 'include' });
-            if (response.ok) {
-                const data = await response.json();
+            // Fetch a small page — we need count and a few rows to estimate public count
+            const resp = await fetch(`/api/subjects/${subject.id}/reviewers?limit=50&offset=0`, { credentials: 'include' });
+            if (resp.ok) {
+                const data = await resp.json();
                 subject.reviewers = subject.reviewers || [];
                 const count = data.count || 0;
+                // Store server-authoritative count on the subject for displaySubjects()
+                subject._reviewerCount = count;
                 totalReviewers += count;
-
-                // If we need public count specifically, fallback to requesting a small page and counting
-                // here we attempt a small page to estimate public reviewers
-                const resp2 = await fetch(`/api/subjects/${subject.id}/reviewers?limit=50&offset=0`, { credentials: 'include' });
-                if (resp2.ok) {
-                    const d2 = await resp2.json();
-                    publicReviewers += (d2.reviewers || []).filter(r => r.is_public).length;
-                }
+                publicReviewers += (data.reviewers || []).filter(r => r.is_public).length;
             }
         } catch (error) {
             console.error(`Error loading reviewers for subject ${subject.id}:`, error);
@@ -276,6 +266,8 @@ async function updateReviewersStats() {
     if (elTotalReviewers) elTotalReviewers.textContent = totalReviewers;
     const elPublicReviewers = document.getElementById('publicReviewers');
     if (elPublicReviewers) elPublicReviewers.textContent = publicReviewers;
+    // Re-render subject cards with correct counts
+    displaySubjects();
 }
 
 function displaySubjects() {
@@ -283,7 +275,8 @@ function displaySubjects() {
     grid.innerHTML = '';
 
     subjects.forEach(subject => {
-        const reviewersCount = subject.reviewers?.length || 0;
+        // Prefer the server-authoritative count; fall back to cached array length
+        const reviewersCount = subject._reviewerCount ?? subject.reviewers?.length ?? 0;
         
         const card = document.createElement('div');
         card.className = 'subject-card';
@@ -443,7 +436,7 @@ async function loadMoreReviewers(subjectId) {
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
                     <button class="btn btn-light btn-sm" onclick="viewReviewer('${r.id}')"><i class="bi bi-eye"></i></button>
-                    <button class="btn btn-light btn-sm" title="Manage Quiz" onclick="openQuizBuilder('${r.id}','${escapeHtml(r.title)}')"><i class="bi bi-patch-question"></i></button>
+                    <button class="btn btn-light btn-sm" title="Manage Quiz" onclick="openQuizBuilder('${r.id}','${escapeAttr(r.title)}')"><i class="bi bi-patch-question"></i></button>
                     <button class="btn btn-light btn-sm" onclick="editReviewer('${r.id}','${subjectId}')"><i class="bi bi-pencil"></i></button>
                     <button class="btn btn-danger btn-sm" onclick="deleteReviewer('${r.id}','${subjectId}')"><i class="bi bi-trash"></i></button>
                 </div>
@@ -453,6 +446,9 @@ async function loadMoreReviewers(subjectId) {
 
         paging.offset += reviewers.length;
         paging.count = data.count || paging.count;
+
+        // Keep subject card count in sync with server count
+        if (subject && data.count !== undefined) subject._reviewerCount = data.count;
 
         // If we've loaded all or received fewer than requested, mark finished
         if (reviewers.length < paging.limit || (paging.count !== null && paging.offset >= paging.count)) {
@@ -648,8 +644,15 @@ function openReviewerModal(subjectId, reviewerId = null) {
         document.getElementById('reviewerForm').reset();
         quill.setContents([]);
         document.getElementById('isPublic').checked = true;
-        // clear any existing flashcard rows and ensure one empty pair is present
-        try { const container = document.getElementById('flashcardsList'); if (container) { container.innerHTML = ''; addFlashcardRow(); } } catch (e) {}
+        // Clear flashcard rows and hide the section for a new reviewer
+        try {
+            const container = document.getElementById('flashcardsList');
+            if (container) container.innerHTML = '';
+            const section = document.getElementById('flashcardsSection');
+            if (section) section.style.display = 'none';
+            const btn = document.getElementById('toggleFlashcardsBtn');
+            if (btn) btn.innerHTML = '<i class="bi bi-card-text"></i> Flashcards';
+        } catch (e) {}
     }
 
     modal.classList.add('show');
@@ -700,11 +703,18 @@ async function loadReviewerData(reviewerId, subjectId) {
             document.getElementById('reviewerTitle').value = reviewer.title;
             quill.root.innerHTML = reviewer.content;
             document.getElementById('isPublic').checked = reviewer.is_public;
-                    // Populate flashcards textarea from embedded `reviewer.flashcards` if present
+                    // Populate flashcards from embedded `reviewer.flashcards` if present
                     try {
                         const fcs = Array.isArray(reviewer.flashcards) ? reviewer.flashcards : [];
                         // populate the multi-row term/meaning inputs
                         populateFlashcardsList(fcs.map(fc => ({ id: fc.id || fc._id || '', front: fc.front || fc.meaning || '', back: fc.back || fc.content || '', is_public: !!fc.is_public })));
+                        // Show flashcard section when editing a reviewer that already has flashcards
+                        const section = document.getElementById('flashcardsSection');
+                        const btn = document.getElementById('toggleFlashcardsBtn');
+                        if (section) section.style.display = fcs.length > 0 ? '' : 'none';
+                        if (btn) btn.innerHTML = fcs.length > 0
+                            ? '<i class="bi bi-card-text"></i> Hide Flashcards'
+                            : '<i class="bi bi-card-text"></i> Flashcards';
                     } catch (e) { console.warn('Flashcards population failed', e); }
         }
     } catch (error) {
@@ -714,6 +724,11 @@ async function loadReviewerData(reviewerId, subjectId) {
 }
 
 function closeReviewerModal() {
+    // Block closing while AI generation is in progress
+    if (window._aiGenerating) {
+        if (window.showAlert) window.showAlert('warning', 'Please wait — generation is still in progress.', 3000);
+        return;
+    }
     document.getElementById('reviewerModal').classList.remove('show');
     // If the reviewers list modal was open before editing, restore it
     if (window._reviewersListWasOpen) {
@@ -724,6 +739,13 @@ function closeReviewerModal() {
     document.getElementById('reviewerForm').reset();
     quill.setContents([]);
     currentReviewerId = null;
+    // Reset flashcard section state
+    try {
+        const section = document.getElementById('flashcardsSection');
+        if (section) section.style.display = 'none';
+        const btn = document.getElementById('toggleFlashcardsBtn');
+        if (btn) btn.innerHTML = '<i class="bi bi-card-text"></i> Flashcards';
+    } catch (e) {}
 }
 
 async function saveReviewer() {
@@ -738,9 +760,14 @@ async function saveReviewer() {
     }
 
     // Show loading
-    document.getElementById('saveReviewerText').style.display = 'none';
-    document.getElementById('saveReviewerSpinner').style.display = 'inline-block';
-    document.getElementById('saveReviewerBtn').disabled = true;
+    const saveTextEl = document.getElementById('saveReviewerText');
+    const saveSpinnerEl = document.getElementById('saveReviewerSpinner');
+    const saveBtnEl = document.getElementById('saveReviewerBtn');
+    saveTextEl.textContent = 'Saving reviewer\u2026';
+    saveTextEl.style.display = 'inline';
+    saveSpinnerEl.style.display = 'inline-block';
+    saveBtnEl.disabled = true;
+    window._aiGenerating = true;
 
     try {
         const url = currentReviewerId ? `/api/reviewers/${currentReviewerId}` : '/api/reviewers';
@@ -817,7 +844,11 @@ async function saveReviewer() {
             if (subj) {
                 subj.reviewers = subj.reviewers || [];
                 // avoid duplicates
-                if (!subj.reviewers.some(r => String(r.id) === String(added.id))) subj.reviewers.push(added);
+                if (!subj.reviewers.some(r => String(r.id) === String(added.id))) {
+                    subj.reviewers.push(added);
+                    // bump the display count immediately for the new reviewer
+                    subj._reviewerCount = (subj._reviewerCount ?? subj.reviewers.length - 1) + 1;
+                }
                 // Refresh subject cards and stats
                 displaySubjects();
                 updateReviewersStats();
@@ -830,15 +861,51 @@ async function saveReviewer() {
             await loadSubjects();
         }
 
+        // Capture the saved reviewer ID before closing the modal (closeReviewerModal resets currentReviewerId to null)
+        let pendingQuizReviewerId = null;
+        if (window._aiPendingQuiz) {
+            if (respData) {
+                const added = respData.reviewer || respData.data || respData;
+                pendingQuizReviewerId = added?.id || null;
+            }
+            pendingQuizReviewerId = pendingQuizReviewerId || currentReviewerId;
+        }
+
+        // If user opted to auto-generate a quiz, do it NOW — keep button disabled until done,
+        // then update the local cache so the quiz builder reflects it immediately on open.
+        if (window._aiPendingQuiz && pendingQuizReviewerId) {
+            window._aiPendingQuiz = false;
+            saveTextEl.textContent = 'Generating quiz\u2026';
+            try {
+                const savedQuiz = await aiGenerateAndSaveQuizInline(pendingQuizReviewerId);
+                // Patch the subjects cache so quiz builder can read it immediately
+                for (const subj of (subjects || [])) {
+                    if (!subj.reviewers) continue;
+                    const rv = subj.reviewers.find(r => String(r.id) === String(pendingQuizReviewerId));
+                    if (rv) { rv.quiz = savedQuiz; break; }
+                }
+                window.showAlert('success', `Reviewer & quiz saved! (${savedQuiz.questions.length} question${savedQuiz.questions.length !== 1 ? 's' : ''})`, 6000);
+            } catch (quizErr) {
+                console.error('Inline quiz generation error:', quizErr);
+                window.showAlert('error', 'Reviewer saved, but quiz could not be auto-generated. You can create one manually from the quiz builder.');
+            }
+        } else {
+            if (window._aiPendingQuiz) window._aiPendingQuiz = false;
+        }
+
         // Flashcards are saved as part of the reviewer payload (if any)
+        // Clear the generation lock before closing so closeReviewerModal doesn't block
+        window._aiGenerating = false;
         closeReviewerModal();
     } catch (error) {
         console.error('Error saving reviewer:', error);
         alert('Failed to save reviewer. Please try again.');
     } finally {
-        document.getElementById('saveReviewerText').style.display = 'inline';
-        document.getElementById('saveReviewerSpinner').style.display = 'none';
-        document.getElementById('saveReviewerBtn').disabled = false;
+        window._aiGenerating = false;
+        saveTextEl.textContent = 'Save Reviewer';
+        saveTextEl.style.display = 'inline';
+        saveSpinnerEl.style.display = 'none';
+        saveBtnEl.disabled = false;
     }
 }
 
@@ -847,7 +914,7 @@ function editReviewer(reviewerId, subjectId) {
 }
 
 async function deleteReviewer(reviewerId, subjectId) {
-    if (!confirm('Are you sure you want to delete this reviewer?')) {
+    if (!confirm('Are you sure you want to delete this reviewer? This cannot be undone.')) {
         return;
     }
 
@@ -859,10 +926,29 @@ async function deleteReviewer(reviewerId, subjectId) {
 
         if (!response.ok) throw new Error('Failed to delete reviewer');
 
-        await loadSubjects();
+        // Remove from local subjects cache immediately
+        const subj = subjects.find(s => String(s.id) === String(subjectId));
+        if (subj && subj.reviewers) {
+            subj.reviewers = subj.reviewers.filter(r => String(r.id) !== String(reviewerId));
+            if (typeof subj._reviewerCount === 'number') subj._reviewerCount = Math.max(0, subj._reviewerCount - 1);
+        }
+
+        // Refresh the reviewers list modal in-place (removes the deleted row)
+        const listModal = document.getElementById('reviewersListModal');
+        if (listModal && listModal.classList.contains('show')) {
+            const row = listModal.querySelector(`[onclick*="'${reviewerId}'"]`)?.closest('.reviewer-row');
+            if (row) row.remove();
+        }
+
+        // Refresh subject cards & stats
+        displaySubjects();
+        updateReviewersStats();
+
+        if (window.showAlert) window.showAlert('success', 'Reviewer deleted successfully.', 4000);
     } catch (error) {
         console.error('Error deleting reviewer:', error);
-        alert('Failed to delete reviewer. Please try again.');
+        if (window.showAlert) window.showAlert('error', 'Failed to delete reviewer. Please try again.');
+        else alert('Failed to delete reviewer. Please try again.');
     }
 }
 
@@ -927,31 +1013,23 @@ async function viewReviewer(reviewerId) {
         // set current reviewer id and owner for footer actions
         viewModal.dataset.currentReviewerId = reviewer.id || '';
         viewModal.dataset.currentReviewerOwner = reviewer.user_id || '';
-        // Hide report button if current user is the owner
-        try {
-            const reportBtn = viewModal.querySelector('.modal-footer .btn-danger');
-            if (reportBtn) {
-                if (!currentUser || String(currentUser.id) === String(reviewer.user_id)) {
-                    reportBtn.style.display = 'none';
-                } else {
-                    reportBtn.style.display = 'inline-flex';
-                }
+
+        // Conditional footer buttons
+        const hasFlashcards = Array.isArray(reviewer.flashcards) && reviewer.flashcards.length > 0;
+        const hasQuiz = reviewer.quiz && Array.isArray(reviewer.quiz.questions) && reviewer.quiz.questions.length > 0;
+        const viewFlashcardsBtn = document.getElementById('viewFlashcardsBtn');
+        const viewQuizBtn = document.getElementById('viewQuizBtn');
+        const reportBtn = document.getElementById('viewReportBtn');
+        if (viewFlashcardsBtn) viewFlashcardsBtn.style.display = hasFlashcards ? '' : 'none';
+        if (viewQuizBtn) viewQuizBtn.style.display = hasQuiz ? '' : 'none';
+        if (reportBtn) {
+            if (!currentUser || String(currentUser.id) === String(reviewer.user_id)) {
+                reportBtn.style.display = 'none';
+            } else {
+                reportBtn.style.display = 'inline-flex';
             }
-        } catch (e) { /* ignore DOM issues */ }
+        }
         viewModal.classList.add('show');
-        // Load and render flashcard for viewer modal (best-effort)
-        (async () => {
-                try {
-                    const flashEl = document.getElementById('viewReviewerFlashcard');
-                    if (!flashEl) return;
-                    const fcs = Array.isArray(reviewer.flashcards) ? reviewer.flashcards : [];
-                    if (!fcs || fcs.length === 0) {
-                        flashEl.innerHTML = '';
-                        return;
-                    }
-                    renderFlashcards(flashEl, fcs.map(fc => ({ front: fc.front || fc.meaning || '', back: fc.back || fc.content || '' })));
-                } catch (e) { console.warn('Failed to load flashcard', e); }
-        })();
     } catch (error) {
         console.error('Error viewing reviewer:', error);
         alert('Failed to view reviewer');
@@ -967,11 +1045,40 @@ function closeViewReviewerModal() {
     }
 }
 
-// Utility functions
+function openQuizFromViewer() {
+    const viewModal = document.getElementById('viewReviewerModal');
+    const rid = viewModal && viewModal.dataset.currentReviewerId;
+    if (rid) window.location.href = `/quiz.html?reviewer=${rid}`;
+}
+
+function toggleFlashcardsSection() {
+    const section = document.getElementById('flashcardsSection');
+    if (!section) return;
+    const opening = section.style.display === 'none' || section.style.display === '';
+    // Actually check computed visibility
+    const isHidden = section.style.display === 'none';
+    section.style.display = isHidden ? '' : 'none';
+    const btn = document.getElementById('toggleFlashcardsBtn');
+    if (btn) btn.innerHTML = isHidden
+        ? '<i class="bi bi-card-text"></i> Hide Flashcards'
+        : '<i class="bi bi-card-text"></i> Flashcards';
+    // Auto-add first row when opening for an empty list
+    if (isHidden) {
+        const list = document.getElementById('flashcardsList');
+        if (list && list.children.length === 0) addFlashcardRow();
+    }
+}
+
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Escape a string for safe embedding inside a single-quoted JS attribute (onclick="fn('...')").
+function escapeAttr(text) {
+    return String(text || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 function stripHtml(html) {
@@ -1322,6 +1429,167 @@ function qbParsePaste() {
     const warn = failed.length ? ` (${failed.length} block${failed.length > 1 ? 's' : ''} skipped)` : '';
     window.showAlert('success', msg + warn);
     qbClosePastePanel();
+}
+
+// ─── AI Generate Reviewer ────────────────────────────────────────────────────
+
+let _aiSelectedFile = null;
+
+function aiOpenGeneratePanel() {
+    document.getElementById('aiGenerateModal').classList.add('show');
+}
+
+function aiCloseGeneratePanel() {
+    document.getElementById('aiGenerateModal').classList.remove('show');
+    _aiSelectedFile = null;
+    const inp = document.getElementById('aiFileInput');
+    if (inp) inp.value = '';
+    const sel = document.getElementById('aiSelectedFile');
+    if (sel) sel.style.display = 'none';
+    const btn = document.getElementById('aiGenerateBtn');
+    if (btn) btn.disabled = true;
+}
+
+function aiFileSelected(input) {
+    const file = input.files[0];
+    if (!file) return;
+    _aiSelectedFile = file;
+    document.getElementById('aiSelectedFileName').textContent =
+        file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+    document.getElementById('aiSelectedFile').style.display = 'flex';
+    document.getElementById('aiGenerateBtn').disabled = false;
+}
+
+async function aiDoGenerate() {
+    if (!_aiSelectedFile) return;
+    const btn = document.getElementById('aiGenerateBtn');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner spinner-sm"></span> Generating&hellip;';
+
+    const wantFlashcards = document.getElementById('aiGenFlashcards')?.checked ?? true;
+    const wantQuiz       = document.getElementById('aiGenQuiz')?.checked ?? false;
+
+    try {
+        const formData = new FormData();
+        formData.append('file', _aiSelectedFile);
+        const resp = await fetch('/api/ai/generate-reviewer', {
+            method: 'POST',
+            credentials: 'include',
+            body: formData
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            window.showAlert('error', data.error || 'Auto generation failed. Please try again.');
+            return;
+        }
+        // Populate the reviewer form fields
+        const titleEl = document.getElementById('reviewerTitle');
+        if (titleEl) titleEl.value = data.title || '';
+
+        if (typeof quill !== 'undefined' && quill) {
+            quill.clipboard.dangerouslyPasteHTML(data.content || '');
+        }
+
+        // Populate flashcards only if user opted in
+        if (wantFlashcards && Array.isArray(data.flashcards) && data.flashcards.length > 0) {
+            const container = document.getElementById('flashcardsList');
+            if (container) {
+                container.innerHTML = '';
+                data.flashcards.forEach(fc => addFlashcardRow({ front: fc.front, back: fc.back }));
+            }
+        }
+
+        aiCloseGeneratePanel();
+
+        // After saving reviewer, auto-generate quiz if opted in — store flag for after save
+        if (wantQuiz) {
+            window._aiPendingQuiz = true;
+        }
+
+        window.showAlert('success', 'Reviewer generated! Review and edit, then save.' + (wantQuiz ? ' Quiz will be generated after saving.' : ''), 6000);
+    } catch (e) {
+        console.error('Auto generate reviewer error:', e);
+        window.showAlert('error', 'Auto generation failed. Please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    }
+}
+
+// ─── AI Generate Quiz ─────────────────────────────────────────────────────────
+
+// Silent background version: generate quiz and save straight to DB (no UI open)
+// Generates and saves a quiz for the given reviewer. Returns the saved quiz object on success,
+// or throws an Error on failure. No UI alerts — the caller is responsible for feedback.
+async function aiGenerateAndSaveQuizInline(reviewerId) {
+    const genResp = await fetch('/api/ai/generate-quiz', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewerId, questionCount: 100 })
+    });
+    const genData = await genResp.json();
+    if (!genResp.ok || !Array.isArray(genData.questions) || genData.questions.length === 0) {
+        throw new Error(genData.error || 'Quiz generation returned no questions');
+    }
+
+    const quiz = { timer: null, questions: genData.questions };
+    const saveResp = await fetch(`/api/reviewers/${reviewerId}/quiz`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ quiz })
+    });
+    if (!saveResp.ok) {
+        const errBody = await saveResp.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to save quiz');
+    }
+    return quiz;
+}
+
+// Legacy wrapper kept for any other callers — wraps the inline version with UI alerts.
+async function aiGenerateAndSaveQuizSilently(reviewerId) {
+    try {
+        const savedQuiz = await aiGenerateAndSaveQuizInline(reviewerId);
+        window.showAlert('success', `Quiz created with ${savedQuiz.questions.length} question${savedQuiz.questions.length !== 1 ? 's' : ''}!`, 5000);
+    } catch (e) {
+        console.error('Silent quiz generation error:', e);
+        window.showAlert('error', 'Quiz could not be auto-generated. You can create one manually from the dashboard.');
+    }
+}
+
+async function aiDoGenerateQuiz() {
+    if (!_qbReviewerId) {
+        window.showAlert('error', 'No reviewer selected.');
+        return;
+    }
+    const btn = document.querySelector('#qbAiPanel .btn-primary');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner spinner-sm"></span> Generating&hellip;';
+    try {
+        const resp = await fetch('/api/ai/generate-quiz', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewerId: _qbReviewerId })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            window.showAlert('error', data.error || 'Failed to generate questions. Please try again.');
+            return;
+        }
+        data.questions.forEach(q => qbAddQuestion(q));
+        document.getElementById('qbAiPanel').style.display = 'none';
+        window.showAlert('success', `${data.questions.length} question${data.questions.length !== 1 ? 's' : ''} generated! Review before saving.`);
+    } catch (e) {
+        console.error('Auto generate quiz error:', e);
+        window.showAlert('error', 'Failed to generate questions. Please try again.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+    }
 }
 
 function qbCollect() {

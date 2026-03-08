@@ -86,8 +86,12 @@
             }
             /* Message button should be full width on mobile */
             #messageBtn { align-self: stretch; width: 100% !important; padding: 8px 18px; max-width: 100%; }
+            #followBtn  { align-self: stretch; width: 100% !important; padding: 8px 18px; max-width: 100%; }
+            #dashboardBtn { align-self: stretch; width: 100% !important; padding: 8px 18px; max-width: 100%; }
             /* Ensure the button's wrapper doesn't keep it pinned right */
-            .user-header > div[style] { margin-left: 0 !important; width: 100%; display: flex; justify-content: center; }
+            .user-header > div[style] { margin-left: 0 !important; width: 100%; display: flex; flex-direction: column; gap: 8px; }
+            /* Filter buttons — stack to full width on mobile */
+            #filterAllReviewers, #filterSubjects { flex: 1 1 0; width: 100%; text-align: center; }
             .user-h2-search { flex-direction: column; align-items: flex-start; gap: 8px; }
             .user-search { width: 100%; max-width: 100%; }
             .reviewers-grid { grid-template-columns: 1fr; gap: 12px; }
@@ -163,8 +167,8 @@
                 </div>
                 <!-- Filter buttons -->
                 <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-                    <button id="filterAllReviewers" class="btn btn-sm btn-primary" style="flex-shrink:0;">All Reviewers</button>
-                    <button id="filterSubjects" class="btn btn-sm btn-outline" style="flex-shrink:0;">View by Subject</button>
+                    <button id="filterAllReviewers" class="btn btn-sm btn-primary" style="flex-shrink:0;flex:1 1 auto;">All Reviewers</button>
+                    <button id="filterSubjects" class="btn btn-sm btn-outline" style="flex-shrink:0;flex:1 1 auto;">View by Subject</button>
                 </div>
                 <!-- Subject pills (hidden by default) -->
                 <div id="subjectPills" style="display:none;margin-bottom:12px;">

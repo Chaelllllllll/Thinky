@@ -5,6 +5,7 @@
 
 import 'dotenv/config';
 import express from 'express';
+import PDFDocument from 'pdfkit';
 import session from 'express-session';
 import helmet from 'helmet';
 import connectPgSimple from 'connect-pg-simple';
@@ -5327,6 +5328,729 @@ app.put('/api/notifications/read-all', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('Mark all notifications as read error:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// =====================================================
+// AI ROUTES (Google Gemini 1.5 Flash — Free Tier)
+// =====================================================
+
+const aiUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+    fileFilter: (_req, file, cb) => {
+        const allowed = [
+            'application/pdf',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'text/plain'
+        ];
+        if (allowed.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PDF, DOCX, and TXT files are allowed'));
+        }
+    }
+});
+
+// Ordered list of models to try — cycles through all before giving up
+// Uses currently available API model identifiers; falls back down the list on any capacity/quota/not-found error
+const GEMINI_MODELS = [
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+    'gemini-1.5-flash-8b'
+];
+
+// Returns true if the error should cause a fallback to the next model rather than an immediate failure
+function isGeminiRetryableError(status, errMsg) {
+    if (status === 429 || status === 503 || status === 500 || status === 502 || status === 504) return true;
+    // Quota / token exhaustion messages that Google returns as 400
+    const msg = (errMsg || '').toLowerCase();
+    return msg.includes('quota') ||
+           msg.includes('exhausted') ||
+           msg.includes('resource_exhausted') ||
+           msg.includes('rate limit') ||
+           msg.includes('rate_limit') ||
+           msg.includes('too many requests') ||
+           msg.includes('token') ||
+           msg.includes('limit exceeded') ||
+           msg.includes('overloaded') ||
+           msg.includes('unavailable') ||
+           msg.includes('capacity') ||
+           msg.includes('not found') ||
+           msg.includes('not supported') ||
+           msg.includes('does not exist') ||
+           msg.includes('deprecated') ||
+           msg.includes('no longer available');
+}
+
+async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+
+    const parts = [];
+    if (pdfBase64) {
+        parts.push({ inlineData: { mimeType: 'application/pdf', data: pdfBase64 } });
+    }
+    parts.push({ text: prompt });
+
+    let lastError;
+    for (const model of GEMINI_MODELS) {
+        let resp;
+        try {
+            resp = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts }],
+                        generationConfig: {
+                            ...(returnJson ? { response_mime_type: 'application/json' } : {}),
+                            temperature: 0.3,
+                            maxOutputTokens: 65536
+                        }
+                    })
+                }
+            );
+        } catch (networkErr) {
+            // Network-level failure — try next model
+            lastError = networkErr;
+            console.warn(`[AI] Model "${model}" network error, trying next model...`, networkErr.message);
+            continue;
+        }
+
+        if (!resp.ok) {
+            const errBody = await resp.json().catch(() => ({}));
+            const errMsg = errBody.error?.message || `Gemini API error: ${resp.status}`;
+            if (isGeminiRetryableError(resp.status, errMsg)) {
+                lastError = new Error(errMsg);
+                console.warn(`[AI] Model "${model}" unavailable (${resp.status}: ${errMsg}), trying next model...`);
+                continue;
+            }
+            // Non-retryable error (e.g. 400 bad request, 401 auth) — fail immediately
+            throw new Error(errMsg);
+        }
+
+        const data = await resp.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        // Empty/blocked response — try next model instead of hard-failing
+        if (!text) {
+            const finishReason = data.candidates?.[0]?.finishReason;
+            const blockReason = data.promptFeedback?.blockReason;
+            if (blockReason) {
+                // Content blocked — not a capacity issue, fail immediately
+                throw new Error(`Request blocked by Gemini safety filters: ${blockReason}`);
+            }
+            lastError = new Error(`Empty response from model "${model}" (finishReason: ${finishReason || 'unknown'})`);
+            console.warn(`[AI] Model "${model}" returned empty text, trying next model...`);
+            continue;
+        }
+
+        if (returnJson) {
+            let jsonText = text.trim();
+            // Strip markdown code fences that Gemini sometimes adds despite response_mime_type
+            if (jsonText.startsWith('```')) {
+                jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+            }
+            try {
+                return JSON.parse(jsonText);
+            } catch (firstErr) {
+                // Try finding the outermost JSON object in case there's extra text around it
+                const match = jsonText.match(/\{[\s\S]*\}/);
+                if (match) {
+                    try { return JSON.parse(match[0]); } catch (_) {}
+                }
+                throw firstErr;
+            }
+        }
+        return text;
+    }
+
+    throw lastError || new Error('All Gemini models are currently unavailable. Please try again later.');
+}
+
+// POST /api/ai/generate-reviewer — upload a PDF/DOCX/TXT and generate a reviewer
+app.post('/api/ai/generate-reviewer', requireAuth, aiUpload.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
+
+        const { mimetype, buffer } = req.file;
+        let pdfBase64 = null;
+        let textContent = null;
+
+        if (mimetype === 'application/pdf') {
+            // Gemini natively reads PDFs — send as base64 inline data
+            pdfBase64 = buffer.toString('base64');
+        } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            const mammoth = (await import('mammoth')).default;
+            const result = await mammoth.extractRawText({ buffer });
+            textContent = result.value;
+        } else {
+            textContent = buffer.toString('utf-8');
+        }
+
+        const textSection = textContent
+            ? `Document text:\n"""\n${textContent.slice(0, 50000)}\n"""\n\n`
+            : '';
+
+        const prompt = `${textSection}You are an expert educator creating a student study reviewer from the ${pdfBase64 ? 'PDF document' : 'text'} above.
+
+Return ONLY a valid JSON object with this exact structure:
+{
+  "title": "concise specific title (5-10 words)",
+  "content": "<HTML here>",
+  "flashcards": [{"front": "term", "back": "explanation"}]
+}
+
+=== CONTENT RULES ===
+- Cover EVERY topic, concept, definition, process, formula, person, and detail in the source — nothing may be skipped.
+- Structure: use <h2> for major sections, <h3> for sub-sections.
+- Format: use <ul><li> bullet lists as the PRIMARY format for all details. Minimize prose paragraphs.
+- Emphasis: wrap key terms, names, formulas, and dates in <strong> tags ONLY. Do NOT use **asterisks** for bold — that is Markdown and will break the output.
+- Do NOT use any Markdown formatting anywhere (no **, no *, no #, no -, no backticks).
+- Bullets must be short, clear, and informative — not full sentences unless necessary.
+- Do NOT include: introductions like "This reviewer covers...", filler sentences, meta-commentary, or redundant restatements.
+- Only include factual content directly from the source: definitions, concepts, processes, relationships, examples, key facts.
+
+=== FLASHCARD RULES ===
+- Create one flashcard for EVERY important term, concept, process, person, formula, and fact in the source.
+- Do NOT limit the count — aim for complete coverage of all material, not a short list.
+- front: the term or question (concise, plain text — no HTML, no Markdown)
+- back: a clear, complete explanation or answer (plain text — no HTML, no Markdown)
+
+Return nothing outside the JSON object.`;
+
+        const result = await callGemini(prompt, pdfBase64);
+
+        if (!result.title || !result.content) {
+            return res.status(500).json({ error: 'Generation returned incomplete data. Please try again.' });
+        }
+
+        res.json({
+            title: String(result.title).trim().slice(0, 200),
+            content: String(result.content).trim(),
+            flashcards: Array.isArray(result.flashcards)
+                ? result.flashcards.slice(0, 200)
+                    .map(f => ({
+                        front: String(f.front || '').trim().slice(0, 300),
+                        back:  String(f.back  || '').trim().slice(0, 500)
+                    }))
+                    .filter(f => f.front && f.back)
+                : []
+        });
+    } catch (error) {
+        console.error('Auto generate-reviewer error:', error);
+        res.status(500).json({ error: 'Failed to generate reviewer. Please try again.' });
+    }
+});
+
+// POST /api/ai/generate-quiz — generate quiz questions from a reviewer
+app.post('/api/ai/generate-quiz', requireAuth, async (req, res) => {
+    try {
+        if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
+
+        const { reviewerId, questionCount } = req.body;
+        if (!reviewerId || !UUID_REGEX.test(reviewerId)) {
+            return res.status(400).json({ error: 'Invalid reviewer ID' });
+        }
+
+        // If a specific count is requested (manual quiz builder), honour it (3–100).
+        // When count is omitted (auto-generation), let the AI decide — just enforce the 100 hard cap later.
+        const manualCount = questionCount !== undefined ? Math.min(Math.max(parseInt(questionCount, 10) || 10, 3), 100) : null;
+
+        const { data: reviewer, error } = await supabaseAdmin
+            .from('reviewers')
+            .select('title, content')
+            .eq('id', reviewerId)
+            .eq('user_id', req.session.userId)
+            .single();
+
+        if (error || !reviewer) {
+            return res.status(404).json({ error: 'Reviewer not found or access denied' });
+        }
+
+        const plainContent = (reviewer.content || '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 30000);
+
+        if (plainContent.length < 50) {
+            return res.status(400).json({ error: 'Reviewer content is too short to generate a quiz.' });
+        }
+
+        const prompt = manualCount
+            ? `You are an expert quiz maker. Based on the reviewer below, generate exactly ${manualCount} multiple-choice questions that comprehensively test the most important topics, concepts, definitions, and facts covered.
+
+Reviewer: ${reviewer.title}
+Content:
+"""
+${plainContent}
+"""
+
+Output ONLY plain text questions in this EXACT format. Each question block must be separated by a blank line:
+
+1. Question text?
+A. Option A
+*B. Correct option (put * directly before the letter of the correct answer)
+C. Option C
+D. Option D
+
+Rules:
+- Generate exactly ${manualCount} questions.
+- Every question must have exactly 4 options labeled A, B, C, D.
+- Mark the correct answer by placing * directly before its letter (e.g., *B. Paris).
+- Vary which letter (A/B/C/D) is correct — do not put the correct answer in the same position every time.
+- Wrong options must be plausible and related to the topic, but clearly incorrect.
+- Questions must test understanding and application, not just recognition of words.
+- Do NOT repeat the same concept twice.
+- Do NOT use any Markdown formatting (no **, no *, except for the correct-answer marker before the option letter).
+- Do NOT include any explanation, commentary, or text outside the question blocks.
+- Output nothing except the numbered question blocks.`
+            : `You are an expert quiz maker. Based on the reviewer below, generate as many multiple-choice questions as needed to comprehensively test EVERY topic, concept, definition, process, person, date, and fact covered — do not stop early and do not skip anything. There is no minimum or maximum you have to hit; generate however many questions are required to fully cover all the material (up to 100).
+
+Reviewer: ${reviewer.title}
+Content:
+"""
+${plainContent}
+"""
+
+Output ONLY plain text questions in this EXACT format. Each question block must be separated by a blank line:
+
+1. Question text?
+A. Option A
+*B. Correct option (put * directly before the letter of the correct answer)
+C. Option C
+D. Option D
+
+Rules:
+- Every question must have exactly 4 options labeled A, B, C, D.
+- Mark the correct answer by placing * directly before its letter (e.g., *B. Paris).
+- Vary which letter (A/B/C/D) is correct — do not put the correct answer in the same position every time.
+- Wrong options must be plausible and related to the topic, but clearly incorrect.
+- Questions must test understanding and application, not just recognition of words.
+- Do NOT repeat the same concept twice.
+- Do NOT use any Markdown formatting (no **, no *, except for the correct-answer marker before the option letter).
+- Do NOT include any explanation, commentary, or text outside the question blocks.
+- Output nothing except the numbered question blocks.`;
+
+        const rawText = await callGemini(prompt, null, false);
+
+        // Parse the plain-text paste format into structured questions
+        function parsePasteFormat(text) {
+            const questions = [];
+            const blocks = text.split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+            for (const block of blocks) {
+                const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+                if (lines.length < 3) continue;
+                const questionLine = lines[0].replace(/^\d+[.):]\s*/, '').trim();
+                if (!questionLine) continue;
+                const options = [];
+                let correct = 0;
+                let answerLetter = null;
+                for (let i = 1; i < lines.length; i++) {
+                    const line = lines[i];
+                    const answerMatch = line.match(/^[Aa]nswer\s*:\s*([A-Da-d])/);
+                    if (answerMatch) { answerLetter = answerMatch[1].toUpperCase(); continue; }
+                    const isCorrect = line.startsWith('*');
+                    const optMatch = (isCorrect ? line.slice(1) : line).match(/^([A-Da-d])[.):]\s*(.+)/);
+                    if (optMatch) {
+                        if (isCorrect) correct = options.length;
+                        options.push(optMatch[2].trim());
+                    }
+                }
+                if (answerLetter) {
+                    const idx = answerLetter.charCodeAt(0) - 65;
+                    if (idx >= 0 && idx < options.length) correct = idx;
+                }
+                if (options.length >= 2) {
+                    questions.push({
+                        id: crypto.randomUUID(),
+                        question: questionLine,
+                        options,
+                        correct
+                    });
+                }
+            }
+            return questions;
+        }
+
+        const questions = parsePasteFormat(rawText);
+
+        if (!Array.isArray(questions) || questions.length === 0) {
+            return res.status(500).json({ error: 'No questions could be generated. Please try again.' });
+        }
+
+        res.json({ questions: questions.slice(0, 100) });
+    } catch (error) {
+        console.error('Auto generate-quiz error:', error);
+        res.status(500).json({ error: 'Failed to generate questions. Please try again.' });
+    }
+});
+
+// POST /api/ai/motivational-quote — generate a short study motivational quote
+app.post('/api/ai/motivational-quote', requireAuth, async (req, res) => {
+    try {
+        if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'AI unavailable' });
+        const prompt = `Generate one short, uplifting and cute motivational quote (1-2 sentences) about studying, learning, or academic growth. 
+Make it warm, encouraging and positive. Do not use quotation marks. Return ONLY the quote text, nothing else.`;
+        const quote = await callGemini(prompt, null, false);
+        res.json({ quote: quote.trim() });
+    } catch (err) {
+        console.error('Motivational quote error:', err);
+        res.status(500).json({ error: 'Failed to generate quote' });
+    }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// renderRichHtml — render Quill HTML content into a pdfkit document
+// Supports: bold, italic, underline, strike, colour, h1-h6, p, ul, ol,
+//           blockquote, pre/code, table (simplified), br, hr
+// ──────────────────────────────────────────────────────────────────────────
+function renderRichHtml(doc, html, { left, pageWidth, BODY, BLACK, GRAY }) {
+    if (!html) return;
+
+    const VOIDS = new Set(['br','hr','img','input','col','area','base','link','meta','param','source','track','wbr']);
+    const BLOCK_TAGS = new Set(['p','h1','h2','h3','h4','h5','h6','ul','ol','li','table','thead','tbody','tfoot','tr','td','th','blockquote','pre','div','section','article','header','footer','nav','figure','figcaption','hr','br']);
+
+    function decodeEntities(s) {
+        return s
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+            .replace(/&ldquo;/g, '\u201c').replace(/&rdquo;/g, '\u201d')
+            .replace(/&lsquo;/g, '\u2018').replace(/&rsquo;/g, '\u2019')
+            .replace(/&#39;/g, "'").replace(/&hellip;/g, '\u2026')
+            .replace(/&mdash;/g, '\u2014').replace(/&ndash;/g, '\u2013')
+            .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d));
+    }
+
+    function tokenize(raw) {
+        const tokens = [];
+        const re = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^>]*?)(\/?)\s*>/g;
+        let last = 0, m;
+        while ((m = re.exec(raw)) !== null) {
+            if (m.index > last) {
+                const t = decodeEntities(raw.slice(last, m.index));
+                if (t) tokens.push({ kind: 'text', val: t });
+            }
+            const [, slash, tag, attrStr, selfClose] = m;
+            const lTag = tag.toLowerCase();
+            const attrs = {};
+            let am;
+            const ar = /\s+([\w\-:]+)(?:=(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
+            while ((am = ar.exec(attrStr)) !== null) {
+                attrs[am[1].toLowerCase()] = am[2] ?? am[3] ?? am[4] ?? '';
+            }
+            if (slash) tokens.push({ kind: 'close', tag: lTag });
+            else if (selfClose || VOIDS.has(lTag)) tokens.push({ kind: 'void', tag: lTag, attrs });
+            else tokens.push({ kind: 'open', tag: lTag, attrs });
+            last = re.lastIndex;
+        }
+        if (last < raw.length) {
+            const t = decodeEntities(raw.slice(last));
+            if (t) tokens.push({ kind: 'text', val: t });
+        }
+        return tokens;
+    }
+
+    function buildTree(tokens) {
+        const root = { tag: 'root', attrs: {}, ch: [] };
+        const stack = [root];
+        for (const tok of tokens) {
+            const cur = stack[stack.length - 1];
+            if (tok.kind === 'text') {
+                if (tok.val) cur.ch.push({ tag: '#text', text: tok.val, ch: [] });
+            } else if (tok.kind === 'open') {
+                const node = { tag: tok.tag, attrs: tok.attrs, ch: [] };
+                cur.ch.push(node);
+                stack.push(node);
+            } else if (tok.kind === 'void') {
+                cur.ch.push({ tag: tok.tag, attrs: tok.attrs, ch: [] });
+            } else if (tok.kind === 'close') {
+                while (stack.length > 1 && stack[stack.length - 1].tag !== tok.tag) stack.pop();
+                if (stack.length > 1) stack.pop();
+            }
+        }
+        return root;
+    }
+
+    function fontFor(bold, italic, mono) {
+        if (mono) return 'Courier';
+        if (bold && italic) return 'Helvetica-BoldOblique';
+        if (bold) return 'Helvetica-Bold';
+        if (italic) return 'Helvetica-Oblique';
+        return 'Helvetica';
+    }
+
+    // Collect flat list of { text, bold, italic, underline, strike, color, mono } from inline nodes
+    function collectSegs(node, style) {
+        const out = [];
+        if (node.tag === '#text') {
+            if (node.text) out.push({ text: node.text, ...style });
+            return out;
+        }
+        if (node.tag === 'br') { out.push({ text: '\n', ...style }); return out; }
+        if (BLOCK_TAGS.has(node.tag)) return out; // don't descend into nested blocks inline
+        const s = { ...style };
+        switch (node.tag) {
+            case 'strong': case 'b': s.bold = true; break;
+            case 'em': case 'i': s.italic = true; break;
+            case 'u': s.underline = true; break;
+            case 's': case 'del': case 'strike': s.strike = true; break;
+            case 'code': s.mono = true; break;
+        }
+        if (node.attrs && node.attrs.style) {
+            const cm = node.attrs.style.match(/\bcolor\s*:\s*([^;]+)/i);
+            if (cm) s.color = cm[1].trim();
+        }
+        for (const c of (node.ch || [])) out.push(...collectSegs(c, s));
+        return out;
+    }
+
+    // Render flat inline segments using pdfkit continued-text
+    function renderSegs(segs, baseSize, baseColor) {
+        if (!segs.length) return;
+        if (!segs.map(s => s.text).join('').trim()) return;
+        for (let i = 0; i < segs.length; i++) {
+            const s = segs[i];
+            if (!s.text) continue;
+            const isLast = i === segs.length - 1;
+            doc.font(fontFor(s.bold, s.italic, s.mono))
+               .fontSize(baseSize)
+               .fillColor(s.color || baseColor);
+            doc.text(s.text, { continued: !isLast, underline: !!s.underline, strike: !!s.strike, lineGap: 3 });
+        }
+    }
+
+    function renderList(node, depth, ordered) {
+        let idx = 0;
+        for (const child of (node.ch || [])) {
+            if (child.tag !== 'li') continue;
+            idx++;
+            const bullet = ordered ? `${idx}. ` : '\u2022 ';
+            const ix = left + depth * 14;
+            const w = pageWidth - depth * 14;
+            const inlineSegs = [];
+            const subLists = [];
+            for (const c of (child.ch || [])) {
+                if (c.tag === 'ul' || c.tag === 'ol') subLists.push(c);
+                else inlineSegs.push(...collectSegs(c, {}));
+            }
+            const lineText = bullet + inlineSegs.map(s => s.text).join('').replace(/\n/g, ' ').trim();
+            doc.moveDown(0.06).font('Helvetica').fontSize(12).fillColor(BODY)
+               .text(lineText, ix, doc.y, { width: w, lineGap: 2 });
+            for (const sl of subLists) renderList(sl, depth + 1, sl.tag === 'ol');
+        }
+    }
+
+    function renderTable(node) {
+        const rows = [];
+        (function collect(n) {
+            if (n.tag === 'tr') rows.push(n);
+            for (const c of (n.ch || [])) collect(c);
+        })(node);
+        for (const row of rows) {
+            const cells = (row.ch || []).filter(c => c.tag === 'td' || c.tag === 'th');
+            const isHeader = cells.some(c => c.tag === 'th');
+            const texts = cells.map(c => collectSegs(c, {}).map(s => s.text).join('').replace(/\n/g, ' ').trim());
+            doc.moveDown(0.1).font(isHeader ? 'Helvetica-Bold' : 'Helvetica')
+               .fontSize(11).fillColor(BODY).text(texts.join('  |  '), { lineGap: 2 });
+        }
+    }
+
+    function renderBlock(node) {
+        switch (node.tag) {
+            case 'root': case 'div': case 'section': case 'article':
+            case 'nav': case 'aside': case 'body': case 'figure': case 'figcaption':
+                for (const c of (node.ch || [])) renderBlock(c);
+                break;
+            case 'h1': {
+                const segs = collectSegs(node, { bold: true });
+                if (!segs.map(s => s.text).join('').trim()) break;
+                doc.moveDown(0.5);
+                renderSegs(segs, 20, BLACK);
+                doc.font('Helvetica').fontSize(12).fillColor(BODY);
+                break;
+            }
+            case 'h2': {
+                const segs = collectSegs(node, { bold: true });
+                if (!segs.map(s => s.text).join('').trim()) break;
+                doc.moveDown(0.4);
+                renderSegs(segs, 17, BLACK);
+                doc.font('Helvetica').fontSize(12).fillColor(BODY);
+                break;
+            }
+            case 'h3': case 'h4': case 'h5': case 'h6': {
+                const segs = collectSegs(node, { bold: true });
+                if (!segs.map(s => s.text).join('').trim()) break;
+                doc.moveDown(0.3);
+                renderSegs(segs, 14, BLACK);
+                doc.font('Helvetica').fontSize(12).fillColor(BODY);
+                break;
+            }
+            case 'p': {
+                const segs = collectSegs(node, {});
+                if (!segs.map(s => s.text).join('').trim()) { doc.moveDown(0.3); break; }
+                doc.moveDown(0.2);
+                renderSegs(segs, 12, BODY);
+                break;
+            }
+            case 'ul':
+                doc.moveDown(0.2);
+                renderList(node, 0, false);
+                break;
+            case 'ol':
+                doc.moveDown(0.2);
+                renderList(node, 0, true);
+                break;
+            case 'blockquote': {
+                const segs = collectSegs(node, { italic: true });
+                const txt = segs.map(s => s.text).join('').replace(/\n/g, ' ').trim();
+                if (!txt) break;
+                doc.moveDown(0.3).font('Helvetica-Oblique').fontSize(12).fillColor(GRAY)
+                   .text('\u258C ' + txt, left + 12, doc.y, { width: pageWidth - 12, lineGap: 3 });
+                doc.font('Helvetica').fontSize(12).fillColor(BODY);
+                break;
+            }
+            case 'pre': {
+                const segs = collectSegs(node, {});
+                const txt = segs.map(s => s.text).join('').trim();
+                if (!txt) break;
+                doc.moveDown(0.3).font('Courier').fontSize(10).fillColor('#333333')
+                   .text(txt, left, doc.y, { width: pageWidth, lineGap: 2 });
+                doc.font('Helvetica').fontSize(12).fillColor(BODY);
+                break;
+            }
+            case 'table':
+                doc.moveDown(0.3);
+                renderTable(node);
+                break;
+            case 'hr': {
+                doc.moveDown(0.4);
+                const ry = doc.y;
+                doc.moveTo(left, ry).lineTo(left + pageWidth, ry).strokeColor(GRAY).lineWidth(0.5).stroke();
+                doc.moveDown(0.4);
+                break;
+            }
+            case 'br':
+                doc.moveDown(0.3);
+                break;
+            case '#text': {
+                const t = (node.text || '').trim();
+                if (t) doc.font('Helvetica').fontSize(12).fillColor(BODY).text(t, { lineGap: 3 });
+                break;
+            }
+            default: {
+                const segs = collectSegs(node, {});
+                const txt = segs.map(s => s.text).join('').trim();
+                if (txt) { doc.moveDown(0.1); renderSegs(segs, 12, BODY); }
+                else { for (const c of (node.ch || [])) renderBlock(c); }
+                break;
+            }
+        }
+    }
+
+    doc.font('Helvetica').fontSize(12).fillColor(BODY);
+    renderBlock(buildTree(tokenize(html)));
+}
+
+// GET /api/reviewers/:id/pdf — generate and download reviewer as PDF
+app.get('/api/reviewers/:id/pdf', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'Invalid reviewer ID' });
+
+        const { data: reviewer, error } = await supabaseAdmin
+            .from('reviewers')
+            .select('id, title, content, created_at, user_id, is_public, subjects:subject_id (name)')
+            .eq('id', id)
+            .single();
+
+        if (error) {
+            console.error('PDF endpoint Supabase error:', error);
+            return res.status(500).json({ error: 'Failed to fetch reviewer' });
+        }
+        if (!reviewer) return res.status(404).json({ error: 'Reviewer not found' });
+
+        // Private reviewers: only owner can download
+        if (!reviewer.is_public && reviewer.user_id !== req.session.userId) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+
+        const subject = reviewer.subjects?.name || '';
+
+        // Generate motivational quote
+        const fallbackQuotes = [
+            'Every page you read today is a step closer to the person you want to become.',
+            'Small progress is still progress. Keep going — you are doing amazing!',
+            'Your future self will thank you for every hour you study today.',
+            'Learning is a gift. Even when it is hard, it is worth it.',
+            'You are capable of more than you know. Trust the process.',
+            'Consistency beats perfection. Show up, even on the hard days.',
+            'The more you learn, the more doors open for you. Keep going!',
+            'Every expert was once a beginner. You are exactly where you need to be.',
+            'Believe in your ability to grow — because you absolutely can.',
+            'Study with heart, rest with intention, and bloom at your own pace.'
+        ];
+        let quote = fallbackQuotes[Math.floor(Math.random() * fallbackQuotes.length)];
+        try {
+            if (process.env.GEMINI_API_KEY) {
+                const prompt = `Generate one short, uplifting and cute motivational quote (1-2 sentences) about studying, learning, or academic growth. Make it warm, encouraging and positive. Do not use quotation marks. Return ONLY the quote text, nothing else.`;
+                const aiQuote = await callGemini(prompt, null, false);
+                if (aiQuote && aiQuote.trim()) quote = aiQuote.trim();
+            }
+        } catch (_) {}
+
+        const doc = new PDFDocument({ margin: 60, size: 'A4', bufferPages: true });
+        const safeFilename = (reviewer.title || 'reviewer').replace(/[^a-z0-9_\-]/gi, '_');
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeFilename}.pdf"`);
+        doc.pipe(res);
+
+        const PINK       = '#e91e8c';
+        const DARK_PINK  = '#880e4f';
+        const LIGHT_PINK = '#fce4ec';
+        const GRAY       = '#888888';
+        const BLACK      = '#111111';
+        const BODY       = '#222222';
+        const pageWidth  = doc.page.width - 120; // content width with margins
+
+        // ── Header ──
+        doc.fontSize(22).fillColor(BLACK).font('Helvetica-Bold').text(reviewer.title || 'Reviewer', { align: 'left' });
+        if (subject) {
+            doc.moveDown(0.2).fontSize(10).fillColor(PINK).font('Helvetica-Bold')
+               .text(subject.toUpperCase(), { characterSpacing: 1 });
+        }
+        const dateStr = reviewer.created_at
+            ? new Date(reviewer.created_at).toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' })
+            : '';
+        if (dateStr) {
+            doc.moveDown(0.2).fontSize(10).fillColor(GRAY).font('Helvetica').text(dateStr);
+        }
+
+        // Pink divider line
+        doc.moveDown(0.6);
+        const lineY = doc.y;
+        doc.moveTo(60, lineY).lineTo(60 + pageWidth, lineY).strokeColor(PINK).lineWidth(1.5).stroke();
+        doc.moveDown(1);
+
+        // ── Body content ──
+        renderRichHtml(doc, reviewer.content, { left: 60, pageWidth, BODY, BLACK, GRAY });
+
+        // ── Motivational footer ──
+        doc.moveDown(2);
+        doc.fontSize(12).fillColor(DARK_PINK).font('Helvetica-Oblique')
+           .text(quote, { width: pageWidth, align: 'center', lineGap: 3 });
+
+        doc.end();
+    } catch (err) {
+        console.error('PDF generation error:', err);
+        if (!res.headersSent) res.status(500).json({ error: 'Failed to generate PDF' });
     }
 });
 
