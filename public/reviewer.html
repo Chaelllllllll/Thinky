@@ -330,7 +330,7 @@
     <script src="/js/darkMode.js"></script>
     <button id="darkModeFloatBtn" onclick="toggleDarkMode()" aria-label="Toggle dark mode" title="Toggle dark mode"><i class="bi bi-moon-stars"></i></button>
     <div class="reviewer-detail-container">
-        <a href="javascript:history.back()" class="back-link">
+        <a href="/" class="back-link">
             <i class="bi bi-arrow-left"></i> Back
         </a>
 
@@ -436,7 +436,7 @@
             
             if (!reviewerId) {
                 window.showAlert('error', 'No reviewer ID specified');
-                setTimeout(() => history.back(), 1500);
+                setTimeout(() => window.location.href = '/', 1500);
                 return;
             }
 
@@ -460,7 +460,7 @@
                 console.error('Error loading reviewer:', error);
                 hidePageLoader();
                 window.showAlert('error', 'Failed to load reviewer');
-                setTimeout(() => history.back(), 1500);
+                setTimeout(() => window.location.href = '/', 1500);
             }
         }
 
