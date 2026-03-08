@@ -982,6 +982,9 @@ textarea.form-control {
         flex: 1 1 auto;
         min-width: 96px;
     }
+    body.dark .modal-footer {
+        background: linear-gradient(180deg, transparent, var(--light-gray)) !important;
+    }
 }
 
 /* Ensure modal footers with custom layout (used in index.html) are consistent across pages */
@@ -2246,7 +2249,18 @@ body.dark .ql-tp-cell           { border-color: #443848; }
 /* ── Modals ── */
 body.dark .modal-content  { background: var(--light-gray); color: var(--text-dark); }
 body.dark .modal-header   { border-bottom-color: var(--medium-gray); }
-body.dark .modal-footer   { border-top-color: var(--medium-gray); }
+body.dark .modal-footer   { border-top-color: var(--medium-gray); background: none; }
+
+/* ── Report modal dark mode (select arrow + hint text) ── */
+body.dark #reportModal select.form-control {
+    -webkit-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23b09ab0' d='M0 0h12L6 8z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 12px 8px;
+    padding-right: 36px;
+}
 
 /* ── Forms ── */
 body.dark .form-control,
@@ -2403,10 +2417,34 @@ body.dark-preload, body.dark-preload * { transition: none !important; }
 }
 .qb-opt-text { flex: 1; }
 
+/* Question textarea auto-resize */
+.qb-question-text { min-height: 44px; resize: none; overflow: hidden; }
+
+/* Bulk paste panel */
+.qb-paste-box {
+    background: var(--off-white);
+    border: 2px dashed var(--primary-pink);
+    border-radius: 14px;
+    padding: 18px 20px;
+}
+.qb-paste-example {
+    background: var(--light-gray);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    margin: 8px 0 0;
+    white-space: pre-wrap;
+    color: var(--text-dark);
+    overflow-x: auto;
+}
+
 /* dark mode for quiz builder */
 body.dark .qb-question-row { background: var(--off-white); border-color: var(--medium-gray); }
 body.dark .qb-option-row   { background: var(--white); border-color: var(--medium-gray); }
 body.dark .qb-opt-letter   { background: var(--light-gray); color: var(--text-dark); }
+body.dark .qb-paste-box    { background: var(--light-gray); border-color: var(--primary-pink); }
+body.dark .qb-paste-example { background: var(--off-white); }
 
 
 /* ── Dark mode: timestamp colors ── */

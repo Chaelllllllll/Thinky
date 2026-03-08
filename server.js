@@ -5401,8 +5401,53 @@ setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
 cleanupOldNotifications();
 
 // =====================================================
-// START SERVER
+// STARTUP MIGRATIONS
 // =====================================================
+
+// Ensure the notifications.type CHECK constraint includes 'follow'.
+// This is idempotent — if the constraint already includes 'follow' it
+// performs no change. Runs asynchronously so it never blocks startup.
+async function applyStartupMigrations() {
+    const migrationPool = new Pool({
+        connectionString: process.env.DATABASE_URL,
+        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        max: 1,
+        connectionTimeoutMillis: 8000,
+        idleTimeoutMillis: 5000,
+    });
+    let client = null;
+    try {
+        client = await migrationPool.connect();
+        await client.query(`
+            DO $$
+            DECLARE
+                v_name TEXT;
+            BEGIN
+                SELECT conname INTO v_name
+                FROM pg_constraint
+                WHERE conrelid = 'notifications'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%type%'
+                  AND pg_get_constraintdef(oid) NOT LIKE '%follow%';
+
+                IF v_name IS NOT NULL THEN
+                    EXECUTE format('ALTER TABLE notifications DROP CONSTRAINT %I', v_name);
+                    EXECUTE 'ALTER TABLE notifications
+                        ADD CONSTRAINT notifications_type_check
+                        CHECK (type IN (''reaction'', ''comment'', ''message'', ''reply'', ''follow''))';
+                END IF;
+            END $$;
+        `);
+        console.log('\u2713 Startup migrations applied');
+    } catch (err) {
+        console.warn('Startup migration warning (non-fatal):', err.message || err);
+    } finally {
+        if (client) client.release();
+        migrationPool.end().catch(() => {});
+    }
+}
+
+applyStartupMigrations();
 
 // If this file is run directly, start a standalone server (for local dev).
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

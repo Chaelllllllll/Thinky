@@ -44,8 +44,8 @@
             usernameEl.textContent = user.username;
             
             // Display follower counts
-            followerCountEl.textContent = user.follower_count || 0;
-            followingCountEl.textContent = user.following_count || 0;
+            followerCountEl.textContent = formatCount(user.follower_count || 0);
+            followingCountEl.textContent = formatCount(user.following_count || 0);
 
             // Check if current user is logged in and load follow status
             try {
@@ -123,8 +123,15 @@
             updateFollowButton(following);
             
             // Update follower count
-            const currentCount = parseInt(followerCountEl.textContent) || 0;
-            followerCountEl.textContent = following ? currentCount + 1 : Math.max(0, currentCount - 1);
+            const currentCount = parseInt(followerCountEl.textContent.replace(/[KMB]/i, '')) || 0;
+            // Re-fetch the accurate count or approximate from displayed value
+            const resp2 = await fetch(`/api/users/${encodeURIComponent(userId)}`);
+            if (resp2.ok) {
+                const { user: refreshed } = await resp2.json();
+                followerCountEl.textContent = formatCount(refreshed.follower_count || 0);
+            } else {
+                followerCountEl.textContent = formatCount(following ? currentCount + 1 : Math.max(0, currentCount - 1));
+            }
             
             window.showAlert && window.showAlert('success', following ? 'Successfully followed!' : 'Unfollowed', 2000);
         } catch (error) {

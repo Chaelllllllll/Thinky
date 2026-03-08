@@ -38,6 +38,19 @@
         return str.charAt(0).toUpperCase() + str.slice(1);
     }
 
+    /**
+     * Format a large count into a compact abbreviated string.
+     * e.g. 1500 → "1.5K", 1200000 → "1.2M", 3400000000 → "3.4B"
+     */
+    function formatCount(n) {
+        n = parseInt(n, 10);
+        if (isNaN(n)) return '0';
+        if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, '') + 'B';
+        if (n >= 1_000_000)     return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M';
+        if (n >= 1_000)         return (n / 1_000).toFixed(1).replace(/\.0$/, '') + 'K';
+        return String(n);
+    }
+
     // =====================================================
     // DATE/TIME UTILITIES
     // =====================================================
@@ -179,6 +192,7 @@
         escapeHtml,
         truncateText,
         capitalize,
+        formatCount,
         formatTime,
         formatDate,
         formatDateTime,
@@ -193,6 +207,7 @@
     // Also expose commonly used functions directly on window for backward compatibility
     if (!window.escapeHtml) window.escapeHtml = escapeHtml;
     if (!window.formatTime) window.formatTime = formatTime;
+    if (!window.formatCount) window.formatCount = formatCount;
     if (!window.debounce) window.debounce = debounce;
     if (!window.throttle) window.throttle = throttle;
 

@@ -840,9 +840,51 @@
                 <!-- Questions -->
                 <div id="qbQuestionsList" style="display:flex;flex-direction:column;gap:20px;margin-bottom:16px;"></div>
 
-                <button type="button" onclick="qbAddQuestion()" class="btn btn-outline" style="width:100%;display:flex;align-items:center;justify-content:center;gap:6px;">
-                    <i class="bi bi-plus-circle"></i> Add Question
-                </button>
+                <!-- Bulk Paste Panel -->
+                <div id="qbPastePanel" style="display:none;margin-bottom:16px;">
+                    <div class="qb-paste-box">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                            <span style="font-weight:600;font-size:0.95rem;"><i class="bi bi-clipboard-fill" style="margin-right:6px;"></i>Paste Questions</span>
+                            <button type="button" class="btn btn-light btn-sm" onclick="qbClosePastePanel()"><i class="bi bi-x"></i></button>
+                        </div>
+                        <p style="font-size:0.82rem;color:var(--dark-gray);margin:0 0 10px;line-height:1.5;">
+                            Paste your questions below. Separate each question with a <strong>blank line</strong>. Mark the correct choice with <code>*</code> before its letter, or add <code>Answer: B</code> at the end of the block.
+                        </p>
+                        <details style="margin-bottom:10px;">
+                            <summary style="font-size:0.8rem;color:var(--primary-pink);cursor:pointer;">Show example format</summary>
+                            <pre class="qb-paste-example">1. What is the capital of France?
+A. London
+*B. Paris
+C. Berlin
+D. Madrid
+
+2. What is 2 + 2?
+A. 3
+B. 4
+C. 5
+D. 6
+Answer: B</pre>
+                        </details>
+                        <textarea id="qbPasteArea" class="form-control" rows="10"
+                            placeholder="Paste your questions here…"
+                            style="font-family:monospace;font-size:0.88rem;resize:vertical;"></textarea>
+                        <div style="display:flex;gap:8px;margin-top:10px;justify-content:flex-end;">
+                            <button type="button" class="btn btn-light btn-sm" onclick="qbClosePastePanel()">Cancel</button>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="qbParsePaste()">
+                                <i class="bi bi-lightning-fill"></i> Parse &amp; Add Questions
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div style="display:flex;gap:8px;">
+                    <button type="button" onclick="qbAddQuestion()" class="btn btn-outline" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
+                        <i class="bi bi-plus-circle"></i> Add Question
+                    </button>
+                    <button type="button" onclick="qbOpenPastePanel()" class="btn btn-light" style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;">
+                        <i class="bi bi-clipboard"></i> Paste Questions
+                    </button>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-danger btn-sm" id="qbDeleteBtn" onclick="qbDeleteQuiz()" style="margin-right:auto;display:none;">

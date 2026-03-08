@@ -10,8 +10,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Display follower counts
         const followerCountEl = document.getElementById('followerCount');
         const followingCountEl = document.getElementById('followingCount');
-        if (followerCountEl) followerCountEl.textContent = user.follower_count || 0;
-        if (followingCountEl) followingCountEl.textContent = user.following_count || 0;
+        if (followerCountEl) followerCountEl.textContent = formatCount(user.follower_count || 0);
+        if (followingCountEl) followingCountEl.textContent = formatCount(user.following_count || 0);
         
             const img = document.getElementById('profileAvatar');
             const placeholder = document.getElementById('profileAvatarPlaceholder');

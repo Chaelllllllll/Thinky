@@ -208,6 +208,7 @@
             clearInterval(pollInterval);
         }
 
+        let prevUnreadCount = -1;
         pollInterval = setInterval(async () => {
             try {
                 const response = await fetch('/api/notifications?unread=true', {
@@ -216,7 +217,15 @@
 
                 if (response.ok) {
                     const data = await response.json();
-                    updateBadge(data.unreadCount || 0);
+                    const newCount = data.unreadCount || 0;
+                    updateBadge(newCount);
+                    // When new notifications have arrived since the last poll,
+                    // refresh the full list so the dropdown reflects them immediately
+                    // without the user needing to close and reopen it.
+                    if (prevUnreadCount >= 0 && newCount > prevUnreadCount) {
+                        await loadNotifications();
+                    }
+                    prevUnreadCount = newCount;
                 }
             } catch (error) {
                 console.debug('Notification polling error:', error);

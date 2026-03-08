@@ -46,7 +46,7 @@
                                 `<option value="${p.id}" title="${p.description}">${p.title}</option>`
                             ).join('')}
                         </select>
-                        <small style="color:#666;display:block;margin-top:6px;">Select the policy that best describes the violation</small>
+                        <small style="color:var(--dark-gray);display:block;margin-top:6px;">Select the policy that best describes the violation</small>
                     </div>
                     <div class="form-group">
                         <label>Additional Details (Optional)</label>

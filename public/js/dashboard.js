@@ -1208,8 +1208,9 @@ function qbAddQuestion(data = null) {
             </button>
         </div>
         <div class="form-group" style="margin-bottom:10px;">
-            <input type="text" class="form-control qb-question-text" placeholder="Enter your question here…"
-                   value="${data ? escapeHtml(data.question) : ''}">
+            <textarea class="form-control qb-question-text" rows="2"
+                      placeholder="Enter your question here… (paste freely)"
+                      style="resize:none;overflow:hidden;">${data ? escapeHtml(data.question) : ''}</textarea>
         </div>
         <div class="qb-options-wrapper">
             <div style="font-size:0.8rem;color:var(--dark-gray);margin-bottom:8px;">
@@ -1219,12 +1220,108 @@ function qbAddQuestion(data = null) {
         </div>
     `;
     document.getElementById('qbQuestionsList').appendChild(div);
+
+    // Auto-resize the textarea as the user types or pastes
+    const ta = div.querySelector('.qb-question-text');
+    const autoResize = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+    ta.addEventListener('input', autoResize);
+    // Trigger once to size correctly if pre-filled
+    setTimeout(autoResize, 0);
 }
 
 function qbRenumber() {
     document.querySelectorAll('#qbQuestionsList .qb-q-num').forEach((el, i) => {
         el.textContent = `Question ${i + 1}`;
     });
+}
+
+function qbOpenPastePanel() {
+    const panel = document.getElementById('qbPastePanel');
+    panel.style.display = 'block';
+    setTimeout(() => document.getElementById('qbPasteArea').focus(), 50);
+}
+
+function qbClosePastePanel() {
+    document.getElementById('qbPastePanel').style.display = 'none';
+    document.getElementById('qbPasteArea').value = '';
+}
+
+function qbParsePaste() {
+    const raw = document.getElementById('qbPasteArea').value;
+    if (!raw.trim()) { window.showAlert('error', 'Nothing pasted yet.'); return; }
+
+    // Split into blocks by blank lines first
+    let blocks = raw.split(/\n[ \t]*\n/).map(b => b.trim()).filter(Boolean);
+
+    // Fallback: if only 1 block, try splitting at lines that start a new numbered question
+    if (blocks.length <= 1) {
+        blocks = raw
+            .split(/(?=^\s*(?:Q\d*[:.)]?\s+\S|\d+[.)：]\s*\S))/m)
+            .map(b => b.trim()).filter(Boolean);
+    }
+
+    let added = 0;
+    const failed = [];
+
+    for (let bi = 0; bi < blocks.length; bi++) {
+        const lines = blocks[bi].split('\n').map(l => l.trim()).filter(Boolean);
+        if (lines.length < 3) { failed.push(bi + 1); continue; }
+
+        // First line = question text (strip leading number/Q: prefix)
+        const questionText = lines[0]
+            .replace(/^\s*(?:Q\d*[:.)]?\s+|\d+[.)：]\s*)/i, '')
+            .trim();
+        if (!questionText) { failed.push(bi + 1); continue; }
+
+        const options = [];
+        let correctIdx = -1;
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i];
+
+            // "Answer: B" / "Ans: C" / "Correct: A" line
+            const answerLineMatch = line.match(/^(?:answer|ans(?:wer)?|correct)[\s:：]+\*?([A-Fa-f])\)?\s*$/i);
+            if (answerLineMatch) {
+                const mk = answerLineMatch[1].toUpperCase().charCodeAt(0) - 65;
+                if (mk >= 0 && mk < options.length) correctIdx = mk;
+                continue;
+            }
+
+            // Option line: *A. text | A. text | A) text | (A) text | a. text | a) text
+            const optMatch = line.match(/^(\*?)\(?([A-Fa-f])[.)）]\s*(.+)/);
+            if (optMatch) {
+                if (optMatch[1] === '*') correctIdx = options.length;
+                options.push(optMatch[3].trim());
+                continue;
+            }
+
+            // Option line without letter prefix (bare lines after question) — treat as choice
+            // Only if we haven't started collecting lettered options yet or we already have some
+            if (options.length > 0 || (i === 1 && !line.match(/^[A-Fa-f][.)）]/))) {
+                // bare line starting with * = correct
+                if (line.startsWith('*')) {
+                    correctIdx = options.length;
+                    options.push(line.slice(1).trim());
+                }
+            }
+        }
+
+        if (options.length < 2) { failed.push(bi + 1); continue; }
+        if (correctIdx < 0 || correctIdx >= options.length) correctIdx = 0;
+
+        qbAddQuestion({ question: questionText, options, correct: correctIdx });
+        added++;
+    }
+
+    if (added === 0) {
+        window.showAlert('error', "Couldn't parse any questions. Make sure each question block is separated by a blank line and options use A. B. C. format.");
+        return;
+    }
+
+    const msg = added === 1 ? '1 question added!' : `${added} questions added!`;
+    const warn = failed.length ? ` (${failed.length} block${failed.length > 1 ? 's' : ''} skipped)` : '';
+    window.showAlert('success', msg + warn);
+    qbClosePastePanel();
 }
 
 function qbCollect() {
