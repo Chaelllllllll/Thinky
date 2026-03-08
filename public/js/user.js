@@ -442,6 +442,17 @@
 
     // Show reviewer detail modal. If a global implementation exists, use it.
     async function showReviewerDetail(rv) {
+        // Require login before navigating to reviewer page
+        try {
+            const authResp = await fetch('/api/auth/me', { credentials: 'include' });
+            if (!authResp.ok) {
+                window.location.href = '/login?next=' + encodeURIComponent('/reviewer.html?id=' + rv.id);
+                return;
+            }
+        } catch (e) {
+            window.location.href = '/login';
+            return;
+        }
         // Navigate to reviewer detail page
         window.location.href = `/reviewer.html?id=${rv.id}`;
     }

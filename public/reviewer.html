@@ -431,6 +431,18 @@
         let currentReviewer = null;
 
         async function loadReviewer() {
+            // Require login before showing reviewer content
+            try {
+                const authResp = await fetch('/api/auth/me', { credentials: 'include' });
+                if (!authResp.ok) {
+                    window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+                    return;
+                }
+            } catch (e) {
+                window.location.href = '/login';
+                return;
+            }
+
             const urlParams = new URLSearchParams(window.location.search);
             const reviewerId = urlParams.get('id');
             
