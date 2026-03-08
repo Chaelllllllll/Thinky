@@ -11,19 +11,95 @@ let quill = null;
 
 // Initialize Quill editor
 document.addEventListener('DOMContentLoaded', () => {
+    // Build and attach table picker DOM (hidden by default)
+    const picker = document.createElement('div');
+    picker.id = 'ql-table-picker';
+    picker.innerHTML = '<div class="ql-tp-grid"></div><div class="ql-tp-label">0 × 0</div>';
+    document.body.appendChild(picker);
+
+    const grid = picker.querySelector('.ql-tp-grid');
+    const label = picker.querySelector('.ql-tp-label');
+    const MAX_ROWS = 8, MAX_COLS = 8;
+
+    // Populate grid cells
+    for (let r = 1; r <= MAX_ROWS; r++) {
+        for (let c = 1; c <= MAX_COLS; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'ql-tp-cell';
+            cell.dataset.r = r;
+            cell.dataset.c = c;
+            grid.appendChild(cell);
+        }
+    }
+
+    function highlightCells(rows, cols) {
+        grid.querySelectorAll('.ql-tp-cell').forEach(el => {
+            el.classList.toggle('ql-tp-active', +el.dataset.r <= rows && +el.dataset.c <= cols);
+        });
+        label.textContent = rows + ' × ' + cols;
+    }
+
+    grid.addEventListener('mouseover', e => {
+        const cell = e.target.closest('.ql-tp-cell');
+        if (cell) highlightCells(+cell.dataset.r, +cell.dataset.c);
+    });
+
+    grid.addEventListener('mouseleave', () => highlightCells(0, 0));
+
+    function closePicker() { picker.style.display = 'none'; }
+
+    grid.addEventListener('click', e => {
+        const cell = e.target.closest('.ql-tp-cell');
+        if (!cell) return;
+        const rows = +cell.dataset.r, cols = +cell.dataset.c;
+        closePicker();
+        if (!quill) return;
+        const range = quill.getSelection(true) || { index: quill.getLength() };
+        let html = '<table><tbody>';
+        for (let r = 0; r < rows; r++) {
+            html += '<tr>';
+            for (let c = 0; c < cols; c++) html += '<td><br></td>';
+            html += '</tr>';
+        }
+        html += '</tbody></table><p><br></p>';
+        quill.clipboard.dangerouslyPasteHTML(range.index, html);
+        quill.setSelection(range.index + 1, 0);
+    });
+
+    document.addEventListener('click', e => {
+        if (!picker.contains(e.target) && !e.target.closest('.ql-table')) closePicker();
+    });
+
     // Initialize Quill
     quill = new Quill('#editor', {
         theme: 'snow',
         modules: {
-            toolbar: [
-                [{ 'header': [1, 2, 3, false] }],
-                ['bold', 'italic', 'underline', 'strike'],
-                [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                [{ 'color': [] }, { 'background': [] }],
-                ['code-block'],
-                ['link'],
-                ['clean']
-            ]
+            toolbar: {
+                container: [
+                    [{ 'header': [1, 2, 3, false] }],
+                    ['bold', 'italic', 'underline', 'strike'],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    [{ 'color': [] }, { 'background': [] }],
+                    ['code-block'],
+                    ['link'],
+                    ['table'],
+                    ['clean']
+                ],
+                handlers: {
+                    'table': function() {
+                        const wrapper = this.quill.container ? this.quill.container.parentElement : null;
+                        const btn = wrapper ? wrapper.querySelector('.ql-table') : document.querySelector('.ql-table');
+                        if (picker.style.display === 'block') { closePicker(); return; }
+                        highlightCells(0, 0);
+                        picker.style.display = 'block';
+                        if (btn) {
+                            const rect = btn.getBoundingClientRect();
+                            picker.style.top = (rect.bottom + 4) + 'px';
+                            picker.style.left = rect.left + 'px';
+                        }
+                    }
+                }
+            }
         }
     });
 
@@ -367,6 +443,7 @@ async function loadMoreReviewers(subjectId) {
                 </div>
                 <div style="display:flex;gap:8px;align-items:center;">
                     <button class="btn btn-light btn-sm" onclick="viewReviewer('${r.id}')"><i class="bi bi-eye"></i></button>
+                    <button class="btn btn-light btn-sm" title="Manage Quiz" onclick="openQuizBuilder('${r.id}','${escapeHtml(r.title)}')"><i class="bi bi-patch-question"></i></button>
                     <button class="btn btn-light btn-sm" onclick="editReviewer('${r.id}','${subjectId}')"><i class="bi bi-pencil"></i></button>
                     <button class="btn btn-danger btn-sm" onclick="deleteReviewer('${r.id}','${subjectId}')"><i class="bi bi-trash"></i></button>
                 </div>
@@ -1035,4 +1112,191 @@ document.getElementById('reviewersListModal')?.addEventListener('click', (e) => 
     if (e.target.id === 'reviewersListModal') {
         closeReviewersListModal();
     }
+});
+
+// ─── Quiz Builder ─────────────────────────────────────────────────────────────
+
+let _qbReviewerId = null;
+let _qbQuestionSeq = 0;
+
+function _qbGenId() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+async function openQuizBuilder(reviewerId, reviewerTitle) {
+    _qbReviewerId = reviewerId;
+    _qbQuestionSeq = 0;
+    document.getElementById('qbReviewerTitle').textContent = reviewerTitle || '';
+    document.getElementById('qbQuestionsList').innerHTML = '';
+    document.getElementById('qbTimerEnabled').checked = false;
+    document.getElementById('qbTimerOptions').style.display = 'none';
+    document.getElementById('qbTimerMinutes').value = 15;
+    document.getElementById('qbDeleteBtn').style.display = 'none';
+
+    // If reviewer list is open, hide it temporarily
+    const listModal = document.getElementById('reviewersListModal');
+    if (listModal && listModal.classList.contains('show')) {
+        listModal.dataset.wasOpen = '1';
+        listModal.classList.remove('show');
+    }
+
+    document.getElementById('quizBuilderModal').classList.add('show');
+
+    // Load existing quiz data
+    try {
+        const resp = await fetch(`/api/reviewers/${reviewerId}`, { credentials: 'include' });
+        if (!resp.ok) return;
+        const body = await resp.json();
+        const quiz = body.reviewer && body.reviewer.quiz;
+        if (!quiz || !Array.isArray(quiz.questions) || !quiz.questions.length) return;
+
+        if (quiz.timer) {
+            document.getElementById('qbTimerEnabled').checked = true;
+            document.getElementById('qbTimerOptions').style.display = 'flex';
+            document.getElementById('qbTimerMinutes').value = Math.max(1, Math.round(quiz.timer / 60));
+        }
+        quiz.questions.forEach(q => qbAddQuestion(q));
+        document.getElementById('qbDeleteBtn').style.display = '';
+    } catch (e) {
+        console.error('Failed to load quiz for builder', e);
+    }
+}
+
+function closeQuizBuilder() {
+    document.getElementById('quizBuilderModal').classList.remove('show');
+    const listModal = document.getElementById('reviewersListModal');
+    if (listModal && listModal.dataset.wasOpen === '1') {
+        listModal.dataset.wasOpen = '';
+        listModal.classList.add('show');
+    }
+    _qbReviewerId = null;
+    _qbQuestionSeq = 0;
+}
+
+function qbToggleTimer() {
+    const on = document.getElementById('qbTimerEnabled').checked;
+    document.getElementById('qbTimerOptions').style.display = on ? 'flex' : 'none';
+}
+
+function qbAddQuestion(data = null) {
+    _qbQuestionSeq++;
+    const seq = _qbQuestionSeq;
+    const qid = data ? (data.id || _qbGenId()) : _qbGenId();
+    const opts = data ? (data.options || ['', '', '', '']) : ['', '', '', ''];
+    const correctIdx = data ? (data.correct || 0) : 0;
+
+    const div = document.createElement('div');
+    div.className = 'qb-question-row';
+    div.dataset.qid = qid;
+
+    const optRows = opts.map((opt, oi) => `
+        <div class="qb-option-row">
+            <input type="radio" name="correct-${qid}" value="${oi}" ${oi === correctIdx ? 'checked' : ''} title="Mark as correct">
+            <span class="qb-opt-letter">${String.fromCharCode(65 + oi)}</span>
+            <input type="text" class="form-control qb-opt-text" placeholder="Option ${String.fromCharCode(65 + oi)}" value="${escapeHtml(opt)}">
+        </div>
+    `).join('');
+
+    div.innerHTML = `
+        <div class="qb-q-header">
+            <span class="qb-q-num">Question ${seq}</span>
+            <button type="button" class="btn btn-light btn-sm" onclick="this.closest('.qb-question-row').remove();qbRenumber();">
+                <i class="bi bi-trash"></i> Remove
+            </button>
+        </div>
+        <div class="form-group" style="margin-bottom:10px;">
+            <input type="text" class="form-control qb-question-text" placeholder="Enter your question here…"
+                   value="${data ? escapeHtml(data.question) : ''}">
+        </div>
+        <div class="qb-options-wrapper">
+            <div style="font-size:0.8rem;color:var(--dark-gray);margin-bottom:8px;">
+                <i class="bi bi-info-circle"></i> Select the radio button next to the correct answer
+            </div>
+            ${optRows}
+        </div>
+    `;
+    document.getElementById('qbQuestionsList').appendChild(div);
+}
+
+function qbRenumber() {
+    document.querySelectorAll('#qbQuestionsList .qb-q-num').forEach((el, i) => {
+        el.textContent = `Question ${i + 1}`;
+    });
+}
+
+function qbCollect() {
+    const timerOn = document.getElementById('qbTimerEnabled').checked;
+    const timerMins = parseInt(document.getElementById('qbTimerMinutes').value) || 15;
+    const timer = timerOn ? timerMins * 60 : null;
+
+    const rows = document.querySelectorAll('#qbQuestionsList .qb-question-row');
+    if (!rows.length) return { error: 'Add at least one question.' };
+
+    const questions = [];
+    for (const row of rows) {
+        const questionText = row.querySelector('.qb-question-text').value.trim();
+        if (!questionText) return { error: 'All questions must have text.' };
+
+        const optionEls = row.querySelectorAll('.qb-opt-text');
+        const options = [];
+        for (const el of optionEls) {
+            if (!el.value.trim()) return { error: 'All answer options must have text.' };
+            options.push(el.value.trim());
+        }
+
+        const checkedRadio = row.querySelector('input[type="radio"]:checked');
+        const correct = checkedRadio ? parseInt(checkedRadio.value) : 0;
+
+        questions.push({ id: row.dataset.qid || _qbGenId(), question: questionText, options, correct });
+    }
+
+    return { quiz: { timer, questions } };
+}
+
+async function qbSave() {
+    const result = qbCollect();
+    if (result.error) { window.showAlert('error', result.error); return; }
+
+    document.getElementById('qbSaveText').style.display = 'none';
+    document.getElementById('qbSaveSpinner').style.display = '';
+
+    try {
+        const resp = await fetch(`/api/reviewers/${_qbReviewerId}/quiz`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(result)
+        });
+        const data = await resp.json();
+        if (!resp.ok) { window.showAlert('error', data.error || 'Failed to save quiz'); return; }
+
+        window.showAlert('success', 'Quiz saved!');
+        document.getElementById('qbDeleteBtn').style.display = '';
+    } catch (e) {
+        window.showAlert('error', 'Failed to save quiz');
+    } finally {
+        document.getElementById('qbSaveText').style.display = '';
+        document.getElementById('qbSaveSpinner').style.display = 'none';
+    }
+}
+
+async function qbDeleteQuiz() {
+    if (!confirm('Delete this quiz? This cannot be undone.')) return;
+    try {
+        const resp = await fetch(`/api/reviewers/${_qbReviewerId}/quiz`, {
+            method: 'DELETE', credentials: 'include'
+        });
+        if (!resp.ok) { const d = await resp.json(); window.showAlert('error', d.error || 'Failed'); return; }
+        window.showAlert('success', 'Quiz deleted');
+        closeQuizBuilder();
+    } catch (e) {
+        window.showAlert('error', 'Failed to delete quiz');
+    }
+}
+
+document.getElementById('quizBuilderModal')?.addEventListener('click', e => {
+    if (e.target.id === 'quizBuilderModal') closeQuizBuilder();
 });

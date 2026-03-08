@@ -9,6 +9,9 @@
     const avatarEl = document.getElementById('userAvatar');
     const displayNameEl = document.getElementById('userDisplayName');
     const usernameEl = document.getElementById('userUsername');
+    const followerCountEl = document.getElementById('followerCount');
+    const followingCountEl = document.getElementById('followingCount');
+    const followBtn = document.getElementById('followBtn');
     const reviewersContainer = document.getElementById('userReviewers');
     const loadingEl = document.getElementById('userLoading');
     const loadMoreWrap = document.getElementById('userLoadMoreWrap');
@@ -21,6 +24,9 @@
     let loading = false;
     let currentQuery = '';
     let _loggedInUserId = null;
+    let viewMode = 'all'; // 'all' or 'subjects'
+    let selectedSubject = null;
+    let allReviewersData = [];
 
     async function fetchUser() {
         try {
@@ -36,10 +42,102 @@
                 displayNameEl.textContent = displayName;
             }
             usernameEl.textContent = user.username;
+            
+            // Display follower counts
+            followerCountEl.textContent = user.follower_count || 0;
+            followingCountEl.textContent = user.following_count || 0;
+
+            // Check if current user is logged in and load follow status
+            try {
+                const meResp = await fetch('/api/auth/me', { credentials: 'include' });
+                if (meResp.ok) {
+                    const { user: currentUser } = await meResp.json();
+                    _loggedInUserId = currentUser?.id || null;
+                    
+                    // Show follow button only if viewing another user's profile
+                    if (_loggedInUserId && String(_loggedInUserId) !== String(userId)) {
+                        followBtn.style.display = 'inline-flex';
+                        
+                        // Check follow status
+                        const followStatusResp = await fetch(`/api/users/${encodeURIComponent(userId)}/follow-status`, { credentials: 'include' });
+                        if (followStatusResp.ok) {
+                            const { following } = await followStatusResp.json();
+                            updateFollowButton(following);
+                        }
+                    }
+                }
+            } catch (e) {
+                // Not logged in, hide follow button
+            }
         } catch (e) {
             console.error('Failed to load user', e);
+            hidePageLoader();
             document.body.innerHTML = '<div style="padding:40px;">User not found</div>';
+            return;
         }
+        hidePageLoader();
+    }
+
+    function hidePageLoader() {
+        const loader = document.getElementById('pageLoader');
+        if (!loader) return;
+        loader.classList.add('loader-hide');
+        setTimeout(() => loader.remove(), 380);
+    }
+
+    function updateFollowButton(following) {
+        if (following) {
+            followBtn.textContent = 'Unfollow';
+            followBtn.classList.remove('btn-primary');
+            followBtn.classList.add('btn-outline');
+        } else {
+            followBtn.textContent = 'Follow';
+            followBtn.classList.remove('btn-outline');
+            followBtn.classList.add('btn-primary');
+        }
+    }
+
+    async function toggleFollow() {
+        if (!_loggedInUserId) {
+            window.location.href = '/login';
+            return;
+        }
+
+        const isFollowing = followBtn.textContent === 'Unfollow';
+        followBtn.disabled = true;
+
+        try {
+            const method = isFollowing ? 'DELETE' : 'POST';
+            const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/follow`, {
+                method,
+                credentials: 'include'
+            });
+
+            if (!resp.ok) {
+                const data = await resp.json();
+                window.showAlert && window.showAlert('error', data.error || 'Failed to update follow status');
+                return;
+            }
+
+            const { following } = await resp.json();
+            updateFollowButton(following);
+            
+            // Update follower count
+            const currentCount = parseInt(followerCountEl.textContent) || 0;
+            followerCountEl.textContent = following ? currentCount + 1 : Math.max(0, currentCount - 1);
+            
+            window.showAlert && window.showAlert('success', following ? 'Successfully followed!' : 'Unfollowed', 2000);
+        } catch (error) {
+            console.error('Toggle follow error:', error);
+            window.showAlert && window.showAlert('error', 'Failed to update follow status');
+        } finally {
+            followBtn.disabled = false;
+        }
+    }
+
+    // Wire follow button
+    if (followBtn) {
+        followBtn.addEventListener('click', toggleFollow);
     }
 
     function makeCard(rv) {
@@ -135,7 +233,16 @@
             if (!resp.ok) throw new Error('Failed');
             const data = await resp.json();
             const reviewers = data.reviewers || [];
-            reviewers.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
+            
+            // Store all reviewers data for subject filtering
+            allReviewersData = allReviewersData.concat(reviewers);
+            
+            // Filter based on selected subject if in subject view mode
+            const displayReviewers = selectedSubject 
+                ? reviewers.filter(rv => rv.subjects?.name === selectedSubject)
+                : reviewers;
+            
+            displayReviewers.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
             offset += reviewers.length;
             if (reviewers.length < limit) {
                 finished = true;
@@ -152,15 +259,101 @@
     }
 
     function resetAndSearch() {
-        offset = 0; finished = false; reviewersContainer.innerHTML = '';
+        offset = 0; finished = false; reviewersContainer.innerHTML = ''; allReviewersData = [];
         currentQuery = searchInput.value.trim();
+        selectedSubject = null;
         loadMore();
+    }
+
+    function extractSubjects() {
+        const subjects = new Set();
+        allReviewersData.forEach(rv => {
+            if (rv.subjects && rv.subjects.name) {
+                subjects.add(rv.subjects.name);
+            }
+        });
+        return Array.from(subjects).sort();
+    }
+
+    function showSubjectFilter() {
+        viewMode = 'subjects';
+        const subjects = extractSubjects();
+        const subjectPills = document.getElementById('subjectPills');
+        const subjectPillsContainer = document.getElementById('subjectPillsContainer');
+        
+        if (subjects.length === 0) {
+            window.showAlert && window.showAlert('info', 'No subjects found for this user\'s reviewers');
+            return;
+        }
+        
+        subjectPillsContainer.innerHTML = '';
+        subjects.forEach(subject => {
+            const pill = document.createElement('button');
+            pill.className = 'btn btn-sm btn-outline';
+            pill.textContent = subject;
+            pill.style.cssText = 'padding: 4px 12px; font-size: 0.85rem;';
+            pill.onclick = () => filterBySubject(subject);
+            subjectPillsContainer.appendChild(pill);
+        });
+        
+        subjectPills.style.display = 'block';
+        
+        // Update button states
+        document.getElementById('filterAllReviewers').classList.remove('btn-primary');
+        document.getElementById('filterAllReviewers').classList.add('btn-outline');
+        document.getElementById('filterSubjects').classList.remove('btn-outline');
+        document.getElementById('filterSubjects').classList.add('btn-primary');
+    }
+
+    function filterBySubject(subject) {
+        selectedSubject = subject;
+        reviewersContainer.innerHTML = '';
+        
+        // Highlight selected subject pill
+        const pills = document.querySelectorAll('#subjectPillsContainer button');
+        pills.forEach(pill => {
+            if (pill.textContent === subject) {
+                pill.classList.remove('btn-outline');
+                pill.classList.add('btn-primary');
+            } else {
+                pill.classList.remove('btn-primary');
+                pill.classList.add('btn-outline');
+            }
+        });
+        
+        // Display only reviewers with the selected subject
+        const filtered = allReviewersData.filter(rv => rv.subjects?.name === subject);
+        filtered.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
+        
+        if (filtered.length === 0) {
+            reviewersContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dark-gray);">No reviewers found for this subject</div>';
+        }
+    }
+
+    function showAllReviewers() {
+        viewMode = 'all';
+        selectedSubject = null;
+        document.getElementById('subjectPills').style.display = 'none';
+        
+        // Update button states
+        document.getElementById('filterAllReviewers').classList.remove('btn-outline');
+        document.getElementById('filterAllReviewers').classList.add('btn-primary');
+        document.getElementById('filterSubjects').classList.remove('btn-primary');
+        document.getElementById('filterSubjects').classList.add('btn-outline');
+        
+        // Re-render all reviewers
+        reviewersContainer.innerHTML = '';
+        allReviewersData.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
     }
 
     // Wire interactions
     loadMoreBtn.addEventListener('click', loadMore);
     searchInput.addEventListener('input', debounce(resetAndSearch, 400));
     // Search button removed; input event handles searches
+    
+    // Wire filter buttons
+    document.getElementById('filterAllReviewers').addEventListener('click', showAllReviewers);
+    document.getElementById('filterSubjects').addEventListener('click', showSubjectFilter);
 
     // initial
     fetchUser().then(loadMore);

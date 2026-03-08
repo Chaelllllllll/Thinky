@@ -2,7 +2,10 @@
 (function(){
     const LAST_SEEN_GENERAL_KEY = 'chat_last_seen_general';
     const LAST_SEEN_PRIVATE_KEY = 'chat_last_seen_private';
+    const POLL_MS = 30000;
+    const BACKOFF_MS = 60000;
     let sharedInterval = null;
+    let _backoffTimer = null;
 
     function getLastSeen(key) {
         return localStorage.getItem(key) || null;
@@ -35,6 +38,16 @@
             const url = `/api/messages/unread?lastSeenGeneral=${lastSeenGeneral}&lastSeenPrivate=${lastSeenPrivate}`;
             // Explicitly avoid cached responses
             const resp = await fetch(url, { credentials: 'include', cache: 'no-store' });
+            if (resp.status === 429) {
+                console.debug('unreadNotifications: rate limited (429), backing off');
+                if (sharedInterval) { clearInterval(sharedInterval); sharedInterval = null; }
+                if (_backoffTimer) clearTimeout(_backoffTimer);
+                _backoffTimer = setTimeout(() => {
+                    _backoffTimer = null;
+                    sharedInterval = setInterval(pollSharedUnread, POLL_MS);
+                }, BACKOFF_MS);
+                return null;
+            }
             if (!resp.ok) {
                 console.debug('unreadNotifications: unread fetch not ok', resp.status, resp.statusText);
                 return null;
@@ -51,11 +64,12 @@
 
     function startSharedUnreadPolling() {
         if (sharedInterval) clearInterval(sharedInterval);
+        if (_backoffTimer) { clearTimeout(_backoffTimer); _backoffTimer = null; }
         // Ensure keys exist (default to epoch so new messages since first run are counted)
         if (!getLastSeen(LAST_SEEN_GENERAL_KEY)) setLastSeen(LAST_SEEN_GENERAL_KEY, new Date().toISOString());
         if (!getLastSeen(LAST_SEEN_PRIVATE_KEY)) setLastSeen(LAST_SEEN_PRIVATE_KEY, new Date().toISOString());
         pollSharedUnread();
-        sharedInterval = setInterval(pollSharedUnread, 5000);
+        sharedInterval = setInterval(pollSharedUnread, POLL_MS);
     }
 
     // Expose for other scripts (e.g., `chat.js` when user opens chat should update last-seen)

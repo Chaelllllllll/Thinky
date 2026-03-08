@@ -39,6 +39,7 @@
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/flashcards.js"></script>
+    <script src="/js/notifications.js"></script>
     
     <style>
         .hero {
@@ -133,7 +134,7 @@
         }
 
         .reviewer-card {
-            background: white;
+            background: var(--white);
             border-radius: var(--radius-lg);
             box-shadow: var(--shadow-sm);
             padding: 24px;
@@ -283,7 +284,51 @@
             gap: 12px;
             align-items: center;
         }
-        /* Mobile navbar toggle */
+        /* ── Subject filter chips ───────────────────────────── */
+        .filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 24px;
+            align-items: center;
+        }
+        .filter-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 16px;
+            border-radius: var(--radius-full);
+            border: 2px solid var(--medium-gray);
+            background: var(--white);
+            color: var(--text-dark);
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition-fast);
+            font-family: inherit;
+        }
+        .filter-chip:hover {
+            border-color: var(--primary-pink);
+            color: var(--primary-pink-dark);
+        }
+        .filter-chip.active {
+            background: var(--gradient-accent);
+            border-color: transparent;
+            color: #fff;
+            box-shadow: var(--shadow-sm);
+        }
+        .filter-chip-count {
+            background: rgba(255,255,255,0.25);
+            border-radius: 99px;
+            padding: 0 6px;
+            font-size: 0.75rem;
+        }
+        .filter-chip:not(.active) .filter-chip-count {
+            background: var(--light-gray);
+            color: var(--dark-gray);
+        }
+
+        /* Mobile nav toggle */
         .nav-toggle {
             display: none;
             background: transparent;
@@ -293,21 +338,57 @@
             cursor: pointer;
         }
 
+        /* Hide mobile controls on desktop */
+        .mobile-nav-controls {
+            display: none !important;
+        }
+
         /* ensure container is static so toggle positions relative to .navbar (sticky) */
         .navbar .container { position: static; }
+        
+        /* Nav alignment */
+        .w-100 { width: 100%; }
+
+        /* Ensure notification dropdown is visible */
+        .navbar { overflow: visible !important; }
+        .navbar .container { overflow: visible !important; }
 
         @media (max-width: 768px) {
-            .nav-toggle { display: block; }
-            /* place hamburger at right center of the header */
-            .nav-toggle { position: absolute; right: 20px; top: var(--spacing-md); transform: none; z-index: 250; }
-            .navbar #navActions { display: none; }
+            .navbar .container { position: relative; }
+            
+            /* Show mobile controls */
+            .mobile-nav-controls {
+                display: flex !important;
+            }
+            
+            .nav-toggle { 
+                display: block;
+            }
+            .navbar #navActions { 
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: var(--white);
+                padding: 20px;
+                box-shadow: var(--shadow-md);
+                z-index: 999;
+            }
             .navbar.open #navActions {
                 display: flex;
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 12px;
                 width: 100%;
-                margin-top: 12px;
+            }
+            .notification-dropdown {
+                position: fixed !important;
+                top: 60px !important;
+                right: 10px !important;
+                left: 10px !important;
+                width: auto !important;
+                max-width: none !important;
             }
         }
     </style>
@@ -316,12 +397,46 @@
     <!-- Navigation -->
     <nav class="navbar" id="mainNav">
         <div class="container">
-            <div class="d-flex justify-content-between align-items-center">
+            <div class="d-flex justify-content-between align-items-center w-100">
                 <a href="/" class="nav-brand">
                     <i class="bi bi-journal-text"></i> Thinky
                 </a>
-                <button id="navToggle" class="nav-toggle" aria-expanded="false" aria-label="Toggle navigation"><i class="bi bi-list"></i></button>
+                <!-- Mobile controls (notification + hamburger) -->
+                <div class="mobile-nav-controls" style="display: flex; align-items: center; gap: 8px;">
+                    <div id="notificationWrapperMobile" class="notification-wrapper-mobile" style="position:relative;display:none;">
+                        <button class="notification-btn btn btn-outline btn-sm" style="position:relative;">
+                            <i class="bi bi-bell"></i>
+                            <span class="notification-badge" style="display:none;">0</span>
+                        </button>
+                        <div class="notification-dropdown" style="display:none;">
+                            <div class="notification-header">
+                                <span style="font-weight:600;">Notifications</span>
+                                <a href="#" class="mark-all-read-btn" style="font-size:0.85rem;color:var(--primary-pink);">Mark all read</a>
+                            </div>
+                            <div class="notification-list">
+                                <div class="notification-loading">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                    <button id="navToggle" class="nav-toggle" aria-expanded="false" aria-label="Toggle navigation"><i class="bi bi-list"></i></button>
+                </div>
                 <div id="navActions" class="d-flex gap-md align-items-center">
+                    <!-- Desktop notification button (with other nav items) -->
+                    <div id="notificationWrapperDesktop" class="notification-wrapper-desktop" style="position:relative;display:none;">
+                        <button class="notification-btn btn btn-outline btn-sm" style="position:relative;">
+                            <i class="bi bi-bell"></i>
+                            <span class="notification-badge" style="display:none;">0</span>
+                        </button>
+                        <div class="notification-dropdown" style="display:none;">
+                            <div class="notification-header">
+                                <span style="font-weight:600;">Notifications</span>
+                                <a href="#" class="mark-all-read-btn" style="font-size:0.85rem;color:var(--primary-pink);">Mark all read</a>
+                            </div>
+                            <div class="notification-list">
+                                <div class="notification-loading">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
                     <a href="/login" class="nav-link">Login</a>
                     <a href="/register" class="btn btn-primary btn-sm">Get Started</a>
                 </div>
@@ -353,7 +468,13 @@
             <i class="bi bi-search search-icon"></i>
         </div>
 
-        <!-- Filters removed -->
+        <!-- Subject Filter Chips -->
+        <div id="filterBar" class="filter-bar" style="display:none;">
+            <button class="filter-chip active" data-subject-id="" onclick="applySubjectFilter('')">
+                <i class="bi bi-grid-3x3-gap"></i> All
+            </button>
+            <!-- subject chips injected here by JS -->
+        </div>
 
         <!-- Loading State -->
         <div id="loadingState" class="loading">
@@ -402,12 +523,14 @@
             loading: false,
             finished: false,
             count: null,
-            search: ''
+            search: '',
+            subjectId: ''
         };
 
         // Load reviewers on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadReviewersInitial();
+            loadSubjectFilters();
 
             // Add event listeners
             const searchEl = document.getElementById('searchInput');
@@ -514,6 +637,7 @@
             params.set('limit', paging.limit);
             params.set('offset', paging.offset);
             if (paging.search) params.set('search', paging.search);
+            if (paging.subjectId) params.set('subject_id', paging.subjectId);
 
             try {
                 const resp = await fetch(`/api/reviewers/public-guest?${params.toString()}`);
@@ -561,6 +685,51 @@
 
         /* Filters removed; populateFilters no longer required */
 
+        // ── Subject filter chips ──────────────────────────────────────────
+        async function loadSubjectFilters() {
+            try {
+                const resp = await fetch('/api/subjects/public');
+                if (!resp.ok) return;
+                const { subjects } = await resp.json();
+                if (!subjects || subjects.length === 0) return;
+
+                const bar = document.getElementById('filterBar');
+                if (!bar) return;
+
+                // Remove stale chips (keep "All" which is always first)
+                bar.querySelectorAll('.filter-chip:not([data-subject-id=""])').forEach(c => c.remove());
+
+                subjects.forEach(sub => {
+                    const chip = document.createElement('button');
+                    chip.className = 'filter-chip';
+                    chip.dataset.subjectId = sub.id;
+                    chip.innerHTML = `<i class="bi bi-folder2"></i> ${escapeHtml(sub.name)}`;
+                    chip.onclick = () => applySubjectFilter(sub.id);
+                    bar.appendChild(chip);
+                });
+
+                bar.style.display = subjects.length > 0 ? 'flex' : 'none';
+            } catch (e) {
+                // silently fail — filter bar stays hidden
+            }
+        }
+
+        function applySubjectFilter(subjectId) {
+            window._publicReviewersPaging.subjectId = subjectId || '';
+            // Update chip active state
+            document.querySelectorAll('#filterBar .filter-chip').forEach(c => {
+                c.classList.toggle('active', c.dataset.subjectId === (subjectId || ''));
+            });
+            // Reload first page
+            window._publicReviewersPaging.offset = 0;
+            window._publicReviewersPaging.finished = false;
+            window._publicReviewersPaging.count = null;
+            document.getElementById('reviewersGrid').innerHTML = '';
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('emptyState').style.display = 'none';
+            loadMorePublicReviewers();
+        }
+
         // Auto-detect session and update UI accordingly
         async function detectSession() {
             try {
@@ -569,10 +738,16 @@
                 const { user } = await resp.json();
 
                 // Update nav: replace Login/Register with Dashboard + Logout
-                const navActions = document.querySelector('.navbar .d-flex.gap-md');
+                const navActions = document.querySelector('#navActions');
+                const notificationWrapperMobile = document.getElementById('notificationWrapperMobile');
+                const notificationWrapperDesktop = document.getElementById('notificationWrapperDesktop');
+                
                 if (navActions) {
                     const avatar = `<img src="${user.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:28px;height:28px;border-radius:999px;object-fit:cover;margin-right:8px;">`;
+                    // Keep the desktop notification wrapper and add other nav items
+                    const desktopNotifHtml = notificationWrapperDesktop ? notificationWrapperDesktop.outerHTML : '';
                     navActions.innerHTML = `
+                        ${desktopNotifHtml}
                         <a href="/profile" class="nav-link">${avatar}Profile</a>
                         <a href="/dashboard" class="nav-link">Dashboard</a>
                         <button id="logoutBtn" class="btn btn-outline btn-sm">Logout</button>
@@ -582,6 +757,24 @@
                         window.location.reload();
                     });
                 }
+                
+                // Show both notification wrappers
+                if (notificationWrapperMobile) {
+                    notificationWrapperMobile.style.display = 'block';
+                }
+                
+                // Get the desktop wrapper again after innerHTML update
+                const desktopWrapper = document.getElementById('notificationWrapperDesktop');
+                if (desktopWrapper) {
+                    desktopWrapper.style.display = 'block';
+                }
+
+                // Initialize notifications after showing the buttons
+                setTimeout(() => {
+                    if (window.notificationSystem && window.notificationSystem.init) {
+                        window.notificationSystem.init();
+                    }
+                }, 100);
 
                 // Update hero CTA(s)
                 document.querySelectorAll('a[href="/register"]').forEach(a => {
@@ -694,7 +887,21 @@
         // filterReviewers removed; search is handled by server via applySearch()
 
         async function showReviewerDetail(reviewer) {
-            // Navigate to reviewer detail page
+            // Check if user is logged in
+            try {
+                const resp = await fetch('/api/auth/me', { credentials: 'include' });
+                if (!resp.ok) {
+                    // Not logged in - redirect to login page
+                    window.location.href = '/login';
+                    return;
+                }
+            } catch (err) {
+                // Error checking auth - redirect to login
+                window.location.href = '/login';
+                return;
+            }
+            
+            // User is logged in - navigate to reviewer detail page
             window.location.href = `/reviewer.html?id=${reviewer.id}`;
         }
 

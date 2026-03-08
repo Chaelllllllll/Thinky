@@ -8,6 +8,10 @@
     }
 
     let currentUser = null;
+    let _pollInterval = null;
+    let _pollBackoffTimer = null;
+    const POLL_MS = 30000;
+    const BACKOFF_MS = 60000;
     async function loadCurrentUser() {
         try {
             const r = await fetch('/api/auth/me', { credentials: 'include' });
@@ -107,6 +111,18 @@
             const urlGeneral = `/api/messages/general?since=${sinceGeneral}&limit=100&_=${Date.now()}`;
             console.debug('chatNotifier: scanning general messages URL', urlGeneral);
             const respGeneral = await fetch(urlGeneral, { credentials: 'include', cache: 'no-store' });
+            if (respGeneral.status === 429) {
+                console.debug('chatNotifier: rate limited (429), backing off');
+                if (_pollInterval) { clearInterval(_pollInterval); _pollInterval = null; }
+                if (_pollBackoffTimer) clearTimeout(_pollBackoffTimer);
+                _pollBackoffTimer = setTimeout(() => {
+                    _pollBackoffTimer = null;
+                    _pollInterval = setInterval(() => {
+                        try { poll(); } catch (e) { console.debug('chatNotifier: periodic poll error', e && e.message); }
+                    }, POLL_MS);
+                }, BACKOFF_MS);
+                return;
+            }
             if (respGeneral.ok) {
                 const d = await respGeneral.json();
                 const msgs = d && d.messages ? d.messages : [];
@@ -196,11 +212,9 @@
         if (window._chatPollingActive) {
             console.debug('chatNotifier: full chat polling active, skipping notifier poll');
         } else {
-            // Simplified: poll every 10s regardless of visibility to ensure timely delivery
-            const POLL_MS = 10000;
             // initial immediate poll
             poll();
-            setInterval(() => {
+            _pollInterval = setInterval(() => {
                 try { poll(); } catch (e) { console.debug('chatNotifier: periodic poll error', e && e.message); }
             }, POLL_MS);
         }

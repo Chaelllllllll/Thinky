@@ -6,6 +6,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         document.getElementById('profileName').textContent = user.display_name || user.username;
         document.getElementById('profileUsername').textContent = `@${user.username}`;
+        
+        // Display follower counts
+        const followerCountEl = document.getElementById('followerCount');
+        const followingCountEl = document.getElementById('followingCount');
+        if (followerCountEl) followerCountEl.textContent = user.follower_count || 0;
+        if (followingCountEl) followingCountEl.textContent = user.following_count || 0;
+        
             const img = document.getElementById('profileAvatar');
             const placeholder = document.getElementById('profileAvatarPlaceholder');
             if (img) {

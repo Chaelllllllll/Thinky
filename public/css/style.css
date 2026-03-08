@@ -672,11 +672,11 @@ textarea.form-control {
 
 .mm-bubble { max-width:72%; padding:10px 12px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); line-height:1.3; font-size:0.95rem; }
 .mm-bubble .meta { font-size:0.8rem; color:var(--dark-gray); margin-bottom:6px; }
-.mm-bubble.left { align-self:flex-start; background: #fff; border:1px solid rgba(230,220,224,0.6); }
+.mm-bubble.left { align-self:flex-start; background: var(--white); border:1px solid rgba(230,220,224,0.6); color: var(--text-dark); }
 .mm-bubble.right { align-self:flex-end; background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color:white; }
 .mm-bubble .time { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:8px; display:block; }
 
-.mm-input-area { display:flex; gap:10px; padding:12px; border-top:1px solid var(--medium-gray); align-items:flex-end; background: linear-gradient(180deg, rgba(255,255,255,0.98), #fff); }
+.mm-input-area { display:flex; gap:10px; padding:12px; border-top:1px solid var(--medium-gray); align-items:flex-end; background: var(--white); }
 .mm-input { flex:1; resize:none; padding:10px 12px; border-radius:18px; border:1px solid var(--medium-gray); font-family:inherit; font-size:0.95rem; min-height:42px; }
 .mm-send { white-space:nowrap; padding:10px 14px; border-radius:18px; cursor:pointer; }
 
@@ -688,7 +688,7 @@ textarea.form-control {
 .msg-self .msg-avatar { margin-left:12px; margin-right:8px; }
 .msg-body { display:flex; flex-direction:column; max-width: calc(100% - 72px); }
 .msg-bubble { padding:10px 14px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); line-height:1.3; font-size:0.95rem; word-break:break-word; }
-.msg-bubble.left { align-self:flex-start; background: #fff; border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
+.msg-bubble.left { align-self:flex-start; background: var(--white); border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
 .msg-bubble.right { align-self:flex-end; background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color:white; }
 .msg-time-below { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:6px; }
 .msg-self .msg-time-below { color: rgba(255,255,255,0.75); align-self: flex-end; }
@@ -1305,7 +1305,7 @@ textarea.form-control {
 .msg-avatar-link { display:inline-flex; align-items:center; text-decoration:none; }
 .msg-avatar-link .msg-avatar { display:block; }
 .chat-message .msg-bubble { padding:12px 16px; border-radius:12px; box-shadow: 0 3px 10px rgba(25,20,40,0.05); word-break:break-word; }
-.chat-message .msg-bubble.left { background: #fff; border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
+.chat-message .msg-bubble.left { background: var(--white); border:1px solid rgba(230,220,224,0.6); color:var(--text-dark); }
 .chat-message .msg-bubble.right { background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light)); color: #fff; }
 .chat-message .msg-time-below { font-size:0.75rem; color: rgba(0,0,0,0.45); margin-top:6px; }
 .chat-message.msg-self .msg-time-below { color: var(--dark-gray); align-self:flex-end; }
@@ -1785,7 +1785,7 @@ textarea.form-control {
     }
 
     /* Stack navbar items on smaller screens */
-    .navbar .d-flex {
+    .navbar #navActions.d-flex {
         flex-direction: column;
         align-items: flex-start;
         gap: 12px;
@@ -1894,3 +1894,584 @@ textarea.form-control {
     /* If a modal-helper-small class exists, tighten it further */
     .modal-helper-small { width: min(86vw, 280px) !important; max-width: 280px !important; }
 }
+
+/* =====================================================
+   REVIEWER CONTENT TABLE STYLES
+   (tables inserted via Quill and stored as HTML)
+   ===================================================== */
+.reviewer-content table,
+.ql-editor table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 10px 0;
+    table-layout: fixed;
+}
+.reviewer-content table td,
+.reviewer-content table th,
+.ql-editor table td,
+.ql-editor table th {
+    border: 1px solid var(--medium-gray);
+    padding: 8px 12px;
+    min-width: 60px;
+    word-break: break-word;
+    vertical-align: top;
+}
+.reviewer-content table tr:first-child td,
+.ql-editor table tr:first-child td {
+    background: var(--secondary-pink);
+    font-weight: 600;
+}
+
+/* Dark mode overrides for reviewer content */
+body.dark .reviewer-content { background: var(--light-gray) !important; }
+body.dark .reviewer-content table td,
+body.dark .reviewer-content table th { border-color: var(--medium-gray); }
+body.dark .reviewer-content table tr:first-child td { background: #3d2438; }
+
+/* =====================================================
+   NOTIFICATIONS
+   ===================================================== */
+
+/* Notification badge */
+.notification-badge {
+    display: inline-block;
+    min-width: 18px;
+    height: 18px;
+    line-height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--danger);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    margin-left: 6px;
+    vertical-align: middle;
+    text-align: center;
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    z-index: 10;
+}
+
+/* Notification button needs visible overflow for badge */
+.notification-btn {
+    overflow: visible !important;
+}
+
+/* Notification button wrapper */
+#notificationBtn {
+    position: relative;
+}
+
+#notificationWrapper {
+    position: relative;
+    display: none; /* Hidden by default, shown via JS when logged in */
+}
+
+#notificationWrapper[style*="display: block"] {
+    display: inline-block !important;
+}
+
+/* Notification wrapper visibility */
+.notification-wrapper-mobile {
+    display: none !important;
+}
+
+.notification-wrapper-desktop {
+    display: none !important;
+}
+
+/* Show mobile notification on small screens, desktop on large screens */
+@media (max-width: 768px) {
+    .notification-wrapper-mobile[style*="display: block"],
+    .notification-wrapper-mobile[style*="display:block"] {
+        display: inline-block !important;
+    }
+    .notification-wrapper-desktop {
+        display: none !important;
+    }
+}
+
+@media (min-width: 769px) {
+    .notification-wrapper-mobile {
+        display: none !important;
+    }
+    .notification-wrapper-desktop[style*="display: block"],
+    .notification-wrapper-desktop[style*="display:block"] {
+        display: inline-block !important;
+    }
+}
+
+/* Notification dropdown */
+.notification-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 380px;
+    max-width: 90vw;
+    background: var(--white);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    z-index: 10000;
+    overflow: hidden;
+}
+
+@media (max-width: 768px) {
+    .notification-dropdown {
+        position: fixed !important;
+        top: 60px !important;
+        right: 10px !important;
+        left: 10px !important;
+        width: auto !important;
+        max-width: none !important;
+    }
+}
+
+/* Notification header */
+.notification-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid var(--medium-gray);
+    background: var(--off-white);
+}
+
+.notification-header a {
+    text-decoration: none;
+    transition: opacity var(--transition-fast);
+}
+
+.notification-header a:hover {
+    opacity: 0.7;
+}
+
+/* Notification list */
+.notification-list {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Notification item */
+.notification-item {
+    display: flex;
+    gap: 12px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--medium-gray);
+    cursor: pointer;
+    transition: background var(--transition-fast);
+}
+
+.notification-item:hover {
+    background: var(--off-white);
+}
+
+.notification-item.unread {
+    background: var(--secondary-pink);
+}
+
+.notification-item.unread:hover {
+    background: rgba(255, 212, 224, 0.6);
+}
+
+/* Notification avatar */
+.notification-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-full);
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+/* Notification content */
+.notification-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.notification-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: var(--text-dark);
+    margin-bottom: 2px;
+}
+
+.notification-message {
+    font-size: 0.85rem;
+    color: var(--dark-gray);
+    margin-bottom: 4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notification-time {
+    font-size: 0.75rem;
+    color: var(--dark-gray);
+}
+
+/* Empty state */
+.notification-empty {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--dark-gray);
+}
+
+.notification-loading {
+    padding: 40px 20px;
+    text-align: center;
+    color: var(--dark-gray);
+}
+
+/* Dark mode overrides */
+body.dark .notification-dropdown {
+    background: var(--light-gray);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+body.dark .notification-header {
+    background: var(--off-white);
+    border-bottom-color: var(--medium-gray);
+}
+
+body.dark .notification-item {
+    border-bottom-color: var(--medium-gray);
+}
+
+body.dark .notification-item:hover {
+    background: var(--off-white);
+}
+
+body.dark .notification-item.unread {
+    background: #3d2438;
+}
+
+body.dark .notification-item.unread:hover {
+    background: rgba(61, 36, 56, 0.7);
+}
+
+/* =====================================================
+   DARK MODE
+   ===================================================== */
+
+/* Dark mode toggle button (floating, for non-sidebar pages) */
+#darkModeFloatBtn {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9000;
+    background: var(--gradient-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-full);
+    width: 46px;
+    height: 46px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    box-shadow: var(--shadow-md);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+#darkModeFloatBtn:hover {
+    transform: scale(1.1);
+    box-shadow: var(--shadow-lg);
+}
+
+/* Dark mode transition on all elements */
+body, body * {
+    transition:
+        background-color 0.25s ease,
+        background 0.25s ease,
+        color 0.25s ease,
+        border-color 0.25s ease,
+        box-shadow 0.25s ease;
+}
+
+/* ── Core variable overrides ── */
+body.dark {
+    /* Backgrounds */
+    --white:           #1e1820;
+    --off-white:       #251f28;
+    --light-gray:      #2e2831;
+    --medium-gray:     #443848;
+
+    /* Text */
+    --dark-gray:       #b09ab0;
+    --text-dark:       #f0e6ee;
+
+    /* Pink tones — primary stays vivid, secondary becomes a dark plum */
+    --secondary-pink:  #3d2438;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, #c95075 0%, #a03060 100%);
+    --gradient-accent:  linear-gradient(135deg, #d4527a 0%, #c95075 100%);
+    --gradient-soft:    linear-gradient(180deg, #251f28 0%, #1e1820 100%);
+
+    /* Shadows — neutral dark */
+    --shadow-sm:  0 2px 8px rgba(0, 0, 0, 0.35);
+    --shadow-md:  0 4px 16px rgba(0, 0, 0, 0.45);
+    --shadow-lg:  0 8px 32px rgba(0, 0, 0, 0.55);
+    --shadow-xl:  0 16px 48px rgba(0, 0, 0, 0.65);
+
+    /* Status — soften so they're not neon on dark */
+    --success: #3a7a62;
+    --warning: #7a5a3a;
+    --danger:  #7a3a38;
+    --info:    #5a3a7a;
+
+    background: var(--off-white);
+    color: var(--text-dark);
+}
+
+/* ── Quill editor dark mode ── */
+body.dark .ql-toolbar,
+body.dark #reviewerModal .ql-toolbar { background: #2e2831 !important; border-color: #443848 !important; }
+body.dark .ql-container        { background: #251f28; border-color: #443848 !important; }
+body.dark .ql-editor            { color: #f0e6ee; }
+body.dark .ql-editor.ql-blank::before { color: #b09ab0; }
+body.dark .ql-snow .ql-stroke   { stroke: #f0e6ee; }
+body.dark .ql-snow .ql-fill,
+body.dark .ql-snow .ql-stroke.ql-fill { fill: #f0e6ee; }
+body.dark .ql-picker-label      { color: #f0e6ee; }
+body.dark .ql-picker-options    { background: #2e2831; border-color: #443848; }
+body.dark .ql-picker-item       { color: #f0e6ee; }
+body.dark .ql-editor table td,
+body.dark .ql-editor table th   { border-color: #443848; }
+body.dark .ql-editor table tr:first-child td { background: #3d2438; }
+body.dark #ql-table-picker      { background: #2e2831; border-color: #443848; }
+body.dark .ql-tp-cell           { border-color: #443848; }
+
+/* ── Modals ── */
+body.dark .modal-content  { background: var(--light-gray); color: var(--text-dark); }
+body.dark .modal-header   { border-bottom-color: var(--medium-gray); }
+body.dark .modal-footer   { border-top-color: var(--medium-gray); }
+
+/* ── Forms ── */
+body.dark .form-control,
+body.dark input[type="text"],
+body.dark input[type="email"],
+body.dark input[type="password"],
+body.dark input[type="search"],
+body.dark select,
+body.dark textarea {
+    background: var(--light-gray);
+    color: var(--text-dark);
+    border-color: var(--medium-gray);
+}
+body.dark .form-control:focus,
+body.dark input:focus,
+body.dark select:focus,
+body.dark textarea:focus {
+    border-color: var(--primary-pink);
+    box-shadow: 0 0 0 3px rgba(199, 80, 117, 0.2);
+}
+body.dark .form-control::placeholder,
+body.dark input::placeholder,
+body.dark textarea::placeholder { color: var(--dark-gray); }
+
+/* ── Sidebar ── */
+body.dark .sidebar { background: #1a1620; }
+body.dark .sidebar-link       { color: #d4c0d0; }
+body.dark .sidebar-link:hover { background: var(--secondary-pink); color: var(--primary-pink-light); }
+body.dark .sidebar-link.active { background: var(--gradient-primary); color: #fff; }
+
+/* ── Cards / Panels ── */
+body.dark .card,
+body.dark .subject-card,
+body.dark .reviewer-card,
+body.dark .stat-card { background: var(--light-gray); border-color: var(--medium-gray); }
+
+/* ── Tables (data tables on admin/reviewer pages) ── */
+body.dark table th { background: var(--light-gray); color: var(--text-dark); border-color: var(--medium-gray); }
+body.dark table td { color: var(--text-dark); border-color: var(--medium-gray); }
+body.dark table tr:nth-child(even) { background: rgba(255, 255, 255, 0.03); }
+
+/* ── Buttons ── */
+body.dark .btn-light    { background: var(--medium-gray); color: var(--text-dark); }
+body.dark .btn-outline  { border-color: var(--primary-pink); color: var(--primary-pink); }
+body.dark .btn-outline:hover { background: var(--secondary-pink); }
+body.dark .btn-accent   { background: var(--primary-pink); color: #fff; }
+
+/* ── Nav / Topbar ── */
+body.dark .nav, body.dark nav { background: #1a1620; border-color: var(--medium-gray); }
+body.dark .nav-link { color: #d4c0d0; }
+
+/* ── Chat ── */
+body.dark .message-bubble { background: var(--light-gray); color: var(--text-dark); }
+body.dark .message-bubble.own { background: var(--secondary-pink); }
+body.dark .chat-input-area { background: #1a1620; border-top-color: var(--medium-gray); }
+body.dark .chat-input-area input,
+body.dark .chat-input-area textarea { background: var(--light-gray); color: var(--text-dark); }
+body.dark .conversation-item:hover,
+body.dark .conversation-item.active { background: var(--secondary-pink); }
+
+/* ── Badges ── */
+body.dark .badge { background: var(--secondary-pink); color: var(--primary-pink-light); }
+
+/* ── Scrollbar ── */
+body.dark ::-webkit-scrollbar-track { background: var(--light-gray); }
+body.dark ::-webkit-scrollbar-thumb { background: var(--primary-pink-dark); }
+
+/* ── Code blocks inside Quill ── */
+body.dark .ql-editor pre { background: #1a1620; color: #f0e6ee; }
+body.dark .ql-editor code { background: #2e2831; color: #f0e6ee; }
+
+/* ── Inline hardcoded white overrides ── */
+body.dark [style*="background: white"],
+body.dark [style*="background:white"],
+body.dark [style*="background-color: white"],
+body.dark [style*="background-color:white"] {
+    background: var(--light-gray) !important;
+}
+body.dark [style*="background: #fff"],
+body.dark [style*="background:#fff"],
+body.dark [style*="background-color: #fff"],
+body.dark [style*="background-color:#fff"] {
+    background: var(--light-gray) !important;
+}
+body.dark [style*="color: #"] { color: var(--text-dark); }
+body.dark [style*="color: var(--dark-gray)"] { color: var(--dark-gray) !important; }
+
+/* ── Toast / alert notifications ── */
+body.dark .alert, body.dark .toast { background: var(--light-gray); color: var(--text-dark); border-color: var(--medium-gray); }
+
+/* ── Reaction pills dark mode ── */
+body.dark .reaction-pill {
+    background: var(--light-gray);
+    color: var(--text-dark);
+    border-color: transparent;
+}
+body.dark .reaction-pill:hover {
+    background: var(--medium-gray);
+}
+body.dark .reaction-pill.user-reacted {
+    border-color: var(--primary-pink);
+}
+
+/* ── Comment section dark mode ── */
+body.dark .comment-bubble {
+    background: var(--secondary-pink);
+}
+body.dark .comment-input-wrap {
+    background: var(--light-gray);
+    border-color: var(--medium-gray);
+}
+body.dark .reply-input-wrap {
+    background: var(--light-gray);
+    border-color: var(--medium-gray);
+}
+
+/* Prevent transition flash on page load */
+body.dark-preload, body.dark-preload * { transition: none !important; }
+
+/* ── Quiz Builder (dashboard + reviewer) ───────────────────────────────── */
+.qb-question-row {
+    background: var(--light-gray);
+    border-radius: 14px;
+    padding: 18px 20px;
+    border: 1px solid var(--medium-gray);
+}
+.qb-q-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+.qb-q-num {
+    font-weight: 700;
+    color: var(--text-dark);
+    font-size: 0.95rem;
+}
+.qb-options-wrapper { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.qb-option-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--white);
+    border-radius: 8px;
+    padding: 8px 12px;
+    border: 1px solid var(--medium-gray);
+}
+.qb-option-row input[type="radio"] { cursor: pointer; accent-color: var(--primary-pink); width:16px; height:16px; flex-shrink:0; }
+.qb-opt-letter {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: var(--light-gray); display: flex;
+    align-items: center; justify-content: center;
+    font-weight: 700; font-size: 0.8rem; flex-shrink: 0; color: var(--text-dark);
+}
+.qb-opt-text { flex: 1; }
+
+/* dark mode for quiz builder */
+body.dark .qb-question-row { background: var(--off-white); border-color: var(--medium-gray); }
+body.dark .qb-option-row   { background: var(--white); border-color: var(--medium-gray); }
+body.dark .qb-opt-letter   { background: var(--light-gray); color: var(--text-dark); }
+
+
+/* ── Dark mode: timestamp colors ── */
+body.dark .mm-bubble .time,
+body.dark .msg-time-below,
+body.dark .chat-message .msg-time-below { color: rgba(255, 255, 255, 0.5); }
+
+/* ── Dark mode: message bubble left-side border ── */
+body.dark .mm-bubble.left,
+body.dark .msg-bubble.left,
+body.dark .chat-message .msg-bubble.left { border-color: var(--medium-gray); }
+
+/* ── Dark mode: general text & icon color ── */
+body.dark { color: var(--text-dark); }
+body.dark h1, body.dark h2, body.dark h3,
+body.dark h4, body.dark h5, body.dark h6 { color: var(--text-dark); }
+body.dark p, body.dark span, body.dark label,
+body.dark li, body.dark td, body.dark th,
+body.dark small, body.dark strong { color: inherit; }
+
+/* Bootstrap Icons inherit parent text color — force light on dark panels */
+body.dark .reviewer-header i,
+body.dark .reviewer-content i,
+body.dark .reviewer-actions i,
+body.dark .settings-sidebar i,
+body.dark .settings-content i,
+body.dark .online-users i,
+body.dark .contact-list-container i,
+body.dark .chat-tab i,
+body.dark .sidebar i { color: var(--text-dark); }
+
+/* Pink-accented action buttons keep their highlight colors */
+body.dark .btn-primary i,
+body.dark .heart-btn i,
+body.dark .back-link i { color: inherit; }
+
+/* ── Dark mode: muted / secondary text ── */
+body.dark .reviewer-date,
+body.dark .subject-name,
+body.dark .school-name,
+body.dark .meta-right,
+body.dark .card-date,
+body.dark .reviewer-card .card-meta { color: var(--dark-gray); }
+
+/* ── Dark mode: contact list / online users text ── */
+body.dark .contact-item,
+body.dark .contact-name,
+body.dark .online-user-item,
+body.dark .online-user-name { color: var(--text-dark); }
+body.dark .contact-preview,
+body.dark .online-user-status { color: var(--dark-gray); }
+
+/* ── Dark mode: input placeholder icons in search bars ── */
+body.dark .search-icon,
+body.dark .input-icon { color: var(--dark-gray); }
+
+/* ── Dark mode: chat tab & panel headers ── */
+body.dark .chat-tab,
+body.dark .chat-panel-header { color: var(--text-dark); border-color: var(--medium-gray); }
+body.dark .chat-tab.active,
+body.dark .settings-tab.active { color: var(--primary-pink-light); }
+
+/* ── Dark mode: dividers / horizontal rules ── */
+body.dark hr { border-color: var(--medium-gray); }
+
+/* ── Dark mode: floating dark mode button icon ── */
+#darkModeFloatBtn { color: #fff; }
+

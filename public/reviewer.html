@@ -14,7 +14,7 @@
             padding: 20px;
         }
         .reviewer-header {
-            background: white;
+            background: var(--white);
             border-radius: 16px;
             padding: 24px;
             margin-bottom: 20px;
@@ -32,13 +32,13 @@
         .meta-info { display:flex;flex-direction:column;min-width:0 }
         .meta-top { display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0 }
             .meta-top { display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0; }
-            .meta-name { color: #222; font-weight: 400; font-size:1rem; }
+            .meta-name { color: var(--text-dark); font-weight: 400; font-size:1rem; }
         .meta-right { display:flex;align-items:center;gap:8px;color:var(--dark-gray);white-space:nowrap }
             .subject-name { color:var(--dark-gray); font-size:0.95rem; margin-top:4px; }
             .school-icon { color:var(--dark-gray); font-size:1rem; vertical-align:middle; }
             .school-name { color:var(--dark-gray); margin-left:6px; }
         .reviewer-content {
-            background: white;
+            background: var(--white);
             border-radius: 16px;
             padding: 24px;
             margin-bottom: 20px;
@@ -46,7 +46,7 @@
             line-height: 1.8;
         }
         .reviewer-actions {
-            background: white;
+            background: var(--white);
             border-radius: 16px;
             padding: 20px;
             box-shadow: var(--shadow-sm);
@@ -112,10 +112,223 @@
             }
             /* On small screens show only the school icon and hide the full school name */
             .meta-right .school-name { display: none; }
+            /* Mobile follow button styling */
+            #reviewerFollowBtn {
+                font-size: 0.8rem;
+                padding: 4px 10px;
+            }
+            .meta-left {
+                flex-wrap: wrap;
+            }
+        }
+
+        /* ── Comment Section ── */
+        .comments-section { background:var(--white);border-radius:16px;padding:24px;margin-top:20px;box-shadow:var(--shadow-sm); }
+        .comments-header { font-size:1.1rem;font-weight:600;margin-bottom:12px;color:var(--text-dark); }
+        .comment-compose-row { display:flex;gap:10px;align-items:center;margin-bottom:14px; }
+        .comment-avatar { width:36px;height:36px;border-radius:50%;object-fit:cover;flex:0 0 36px; }
+        .comment-input-wrap { flex:1;display:flex;align-items:center;background:var(--off-white);border:1.5px solid var(--medium-gray);border-radius:24px;padding:4px 4px 4px 14px;transition:border-color 0.2s; }
+        .comment-input-wrap:focus-within { border-color:var(--primary-pink); }
+        .comment-input-wrap input { flex:1;border:none;background:none;font-size:0.95rem;color:var(--text-dark);outline:none;padding:6px 0;min-width:0; }
+        .comment-send-btn { background:var(--primary-pink);border:none;color:#fff;width:34px;height:34px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:opacity 0.15s;font-size:0.95rem; }
+        .comment-send-btn:hover { opacity:0.85; }
+        .comment-send-btn:disabled { background:var(--medium-gray);cursor:not-allowed; }
+        .comment-filter-tabs { display:flex;gap:4px;margin-bottom:14px; }
+        .cmt-tab { background:none;border:1.5px solid var(--medium-gray);border-radius:20px;padding:4px 14px;font-size:0.85rem;cursor:pointer;color:var(--dark-gray);transition:all 0.15s; }
+        .cmt-tab:hover { border-color:var(--primary-pink);color:var(--primary-pink); }
+        .cmt-tab.active { background:var(--primary-pink);border-color:var(--primary-pink);color:#fff;font-weight:600; }
+        .comment-item { display:flex;gap:6px;margin-bottom:16px; }
+        .comment-body { flex:1;min-width:0; }
+        .comment-bubble { background:var(--off-white);border-radius:12px;padding:10px 14px; }
+        .comment-user { font-weight:600;font-size:0.9rem;color:var(--text-dark);margin-bottom:2px; }
+        .comment-user.clickable-username:hover { color:var(--primary-pink);text-decoration:underline; }
+        .comment-avatar.clickable-avatar:hover { opacity:0.8;transition:opacity 0.2s; }
+        .comment-text { font-size:0.95rem;color:var(--text-dark);white-space:pre-wrap;word-break:break-word;line-height:1.5; }
+        .comment-footer { display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap; }
+        .comment-time { font-size:0.8rem;color:var(--dark-gray); }
+        .comment-action-btn { background:none;border:none;cursor:pointer;font-size:0.82rem;color:var(--dark-gray);padding:2px 6px;border-radius:4px;transition:background 0.15s,color 0.15s; }
+        .comment-action-btn:hover { background:var(--light-gray);color:var(--text-dark); }
+        .reaction-pills { display:flex;gap:4px;flex-wrap:wrap; }
+        .reaction-pill { display:inline-flex;align-items:center;gap:2px;background:var(--light-gray);border:1.5px solid transparent;border-radius:20px;padding:2px 8px;font-size:0.82rem;cursor:pointer;transition:border-color 0.15s,background 0.15s; }
+        .reaction-pill:hover { background:var(--medium-gray); }
+        .reaction-pill.user-reacted { border-color:var(--primary-pink); }
+        
+        /* Reaction tooltip styles */
+        .reaction-tooltip {
+            position: fixed;
+            background: var(--white);
+            border: 1.5px solid var(--medium-gray);
+            border-radius: 12px;
+            padding: 12px;
+            box-shadow: var(--shadow-lg);
+            z-index: 10001;
+            max-width: 280px;
+            transform: translate(-50%, -100%);
+            pointer-events: auto;
+        }
+        .reaction-tooltip-header {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-dark);
+            margin-bottom: 8px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--medium-gray);
+        }
+        .reaction-tooltip-users {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .reaction-tooltip-user {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px;
+            border-radius: 6px;
+            transition: background 0.15s;
+        }
+        .reaction-tooltip-user:hover {
+            background: var(--light-gray);
+        }
+        .reaction-tooltip-user img {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .reaction-tooltip-user span {
+            font-size: 0.88rem;
+            color: var(--text-dark);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .reaction-tooltip-loading,
+        .reaction-tooltip-error {
+            font-size: 0.85rem;
+            color: var(--dark-gray);
+            text-align: center;
+            padding: 4px;
+        }
+        .reaction-tooltip-more {
+            font-size: 0.82rem;
+            color: var(--dark-gray);
+            text-align: center;
+            padding: 4px;
+            font-style: italic;
+        }
+        
+        .reaction-picker-wrap { position:relative;display:inline-block; }
+        .reaction-picker { position:absolute;bottom:calc(100% + 4px);left:0;background:var(--white);border:1.5px solid var(--medium-gray);border-radius:12px;padding:6px 10px;display:flex;gap:6px;box-shadow:var(--shadow-md);z-index:200;white-space:nowrap; }
+        .reaction-picker button { background:none;border:none;cursor:pointer;font-size:1.3rem;padding:2px 4px;border-radius:6px;transition:background 0.15s,transform 0.1s; }
+        .reaction-picker button:hover { background:var(--light-gray);transform:scale(1.2); }
+        .replies-list { margin-top:8px;border-left:2px solid var(--medium-gray);padding-left:12px; }
+        .replies-list .replies-list { padding-left:8px; } /* Reduce indent for nested replies */
+        .replies-list .replies-list .replies-list { padding-left:6px; } /* Further reduce for deeply nested */
+        .reply-form { display:flex;gap:8px;margin-top:8px;align-items:center; }
+        .reply-input-wrap { flex:1;display:flex;align-items:center;background:var(--off-white);border:1.5px solid var(--medium-gray);border-radius:20px;padding:3px 4px 3px 12px;transition:border-color 0.2s; }
+        .reply-input-wrap:focus-within { border-color:var(--primary-pink); }
+        .reply-input-wrap input { flex:1;border:none;background:none;font-size:0.9rem;color:var(--text-dark);outline:none;padding:5px 0;min-width:0; }
+        .comment-delete-btn,.comment-pin-btn { background:none;border:none;cursor:pointer;color:var(--dark-gray);font-size:0.82rem;padding:2px 6px;border-radius:4px;transition:color 0.15s,background 0.15s; }
+        .comment-delete-btn:hover { color:#c0392b;background:#fde8e8; }
+        .comment-pin-btn:hover { color:var(--primary-pink);background:var(--light-gray); }
+        .comment-pin-btn.pinned { color:var(--primary-pink); }
+        .pinned-badge { display:inline-flex;align-items:center;gap:4px;border:1.5px solid var(--primary-pink);border-radius:20px;padding:1px 8px;font-size:0.75rem;color:var(--primary-pink);font-weight:600;margin-bottom:6px; }
+        .login-to-comment { text-align:center;color:var(--dark-gray);font-size:0.95rem;margin-bottom:14px;padding:10px 0; }
+        .login-to-comment a { color:var(--primary-pink);text-decoration:underline; }
+        .comments-empty { text-align:center;color:var(--dark-gray);font-size:0.95rem;padding:20px 0; }
+        .comment-load-more { display:block;width:100%;margin-top:8px; }
+        @media(max-width:600px){.comments-section{padding:14px;}}
+
+        /* ── Follow Prompt Modal ── */
+        .fpm-overlay {
+            position: fixed; inset: 0; z-index: 9999;
+            background: rgba(0,0,0,0.55);
+            display: flex; align-items: center; justify-content: center;
+            padding: 16px;
+            opacity: 0; transition: opacity 0.28s ease;
+        }
+        .fpm-overlay.fpm-visible { opacity: 1; }
+        .fpm-card {
+            background: var(--card-bg, #fff);
+            border-radius: 18px;
+            padding: 36px 28px 28px;
+            max-width: 380px; width: 100%;
+            text-align: center;
+            position: relative;
+            transform: translateY(24px); transition: transform 0.28s ease;
+            box-shadow: 0 12px 48px rgba(0,0,0,0.22);
+        }
+        .fpm-overlay.fpm-visible .fpm-card { transform: translateY(0); }
+        .fpm-close {
+            position: absolute; top: 14px; right: 18px;
+            background: none; border: none; font-size: 1.5rem;
+            line-height: 1; cursor: pointer;
+            color: var(--dark-gray, #888); transition: color 0.15s;
+        }
+        .fpm-close:hover { color: var(--primary-pink, #e91e8c); }
+        .fpm-icon {
+            font-size: 2.8rem; color: var(--primary-pink, #e91e8c);
+            margin-bottom: 10px; line-height: 1;
+        }
+        .fpm-title {
+            font-size: 1.25rem; font-weight: 700;
+            margin: 0 0 10px; color: var(--text-primary, #111);
+        }
+        .fpm-body {
+            font-size: 0.95rem; color: var(--text-secondary, #555);
+            margin: 0 0 24px; line-height: 1.5;
+        }
+        .fpm-actions { display: flex; flex-direction: column; gap: 10px; }
+        .fpm-btn-follow { font-size: 1rem; padding: 10px 0; border-radius: 30px; width: 100%; }
+        .fpm-btn-later {
+            background: none; border: none;
+            color: var(--dark-gray, #888); font-size: 0.9rem;
+            cursor: pointer; padding: 4px 0; text-decoration: underline;
+        }
+        .fpm-btn-later:hover { color: var(--primary-pink, #e91e8c); }
+
+        /* ── Page Loading Spinner ── */
+        #pageLoader {
+            position: fixed; inset: 0; z-index: 99999;
+            background: var(--body-bg, #f5f5f5);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 18px;
+            transition: opacity 0.35s ease;
+        }
+        #pageLoader.loader-hide {
+            opacity: 0;
+            pointer-events: none;
+        }
+        .loader-spinner {
+            width: 52px; height: 52px;
+            border: 5px solid rgba(0,0,0,0.08);
+            border-top-color: var(--primary-pink, #e91e8c);
+            border-radius: 50%;
+            animation: spin 0.75s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loader-text {
+            font-size: 0.95rem;
+            color: var(--dark-gray, #888);
+            font-weight: 500;
+            letter-spacing: 0.02em;
         }
     </style>
 </head>
 <body>
+    <!-- Page Loading Spinner -->
+    <div id="pageLoader">
+        <div class="loader-spinner"></div>
+        <span class="loader-text">Loading reviewer…</span>
+    </div>
+
+    <script src="/js/darkMode.js"></script>
+    <button id="darkModeFloatBtn" onclick="toggleDarkMode()" aria-label="Toggle dark mode" title="Toggle dark mode"><i class="bi bi-moon-stars"></i></button>
     <div class="reviewer-detail-container">
         <a href="javascript:history.back()" class="back-link">
             <i class="bi bi-arrow-left"></i> Back
@@ -136,6 +349,7 @@
                             <div id="metaSubject" class="subject-name"></div>
                         </div>
                     </a>
+                    <button id="reviewerFollowBtn" class="btn btn-primary btn-sm" style="display:none;margin-left:12px;">Follow</button>
                 </div>
                 <div class="meta-right" id="metaRight">
                     <span id="metaSchool"><i class="bi bi-building school-icon" aria-hidden="true"></i> <span class="school-name"></span></span>
@@ -148,29 +362,69 @@
         </div>
 
         <div class="reviewer-actions">
-            <div>
+            <div style="display:flex;gap:8px;align-items:center;">
                 <button id="heartBtn" class="heart-btn" title="React">
                     <i id="heartIcon" class="bi bi-heart"></i>
                     <span id="heartCount" style="font-weight:600;margin-left:6px;">0</span>
+                </button>
+                <button id="shareBtn" class="btn btn-outline btn-sm" title="Share this reviewer" onclick="shareReviewer()">
+                    <i class="bi bi-share"></i>
                 </button>
             </div>
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <button class="btn btn-outline" id="savePdfBtn" onclick="saveAsPdf()">
                     <i class="bi bi-file-pdf"></i> Save as PDF
                 </button>
-                <button class="btn btn-light" onclick="openFlashcardsForReviewer()">
+                <button class="btn btn-light" id="flashcardsBtn" onclick="openFlashcardsForReviewer()" style="display:none;align-items:center;gap:8px;">
                     <i class="bi bi-lightning"></i> Open Flashcards
                 </button>
+                <a id="takeQuizBtn" href="#" class="btn btn-accent" style="display:none;align-items:center;gap:8px;">
+                    <i class="bi bi-patch-question-fill"></i> Take Quiz
+                </a>
                 <button class="btn btn-danger" id="reportBtn" style="display:inline-flex;align-items:center;gap:8px;">
-                    <i class="bi bi-exclamation-triangle-fill"></i> Report
+                    <i class="bi bi-exclamation-triangle-fill"></i>
                 </button>
             </div>
         </div>
+
+    <!-- Comment section -->
+    <div class="comments-section" id="commentsSection">
+        <div class="comments-header" id="commentsHeader">Comments</div>
+
+        <!-- Compose row (shown when logged in) -->
+        <div id="commentComposeWrap" style="display:none;">
+            <div class="comment-compose-row">
+                <img id="commentMyAvatar" src="/images/default-avatar.svg" alt="avatar" class="comment-avatar">
+                <div class="comment-input-wrap">
+                    <input type="text" id="commentInput" placeholder="Write a comment…" maxlength="2000" autocomplete="off">
+                    <button class="comment-send-btn" id="commentSendBtn" onclick="submitComment()" title="Send"><i class="bi bi-send-fill"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Auth prompt (shown when not logged in) -->
+        <div id="commentLoginPrompt" class="login-to-comment" style="display:none;">
+            <a href="/login.html">Log in</a> to leave a comment.
+        </div>
+
+        <!-- Filter tabs -->
+        <div class="comment-filter-tabs" id="commentFilterTabs" style="display:none;">
+            <button class="cmt-tab active" id="tabNewest" onclick="setCommentSort('newest')">Newest</button>
+            <button class="cmt-tab" id="tabTop" onclick="setCommentSort('top')">Top</button>
+        </div>
+
+        <!-- Comment list -->
+        <div id="commentsList"></div>
+
+        <!-- Load more -->
+        <button class="btn btn-light comment-load-more" id="loadMoreBtn" style="display:none;" onclick="loadMoreComments()">Load more comments</button>
     </div>
+</div>
 
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/flashcards.js"></script>
+
     <script src="/js/modalAlerts.js"></script>
     <script src="/js/moderation.js"></script>
     <script>
@@ -198,12 +452,23 @@
                 const { reviewer } = await response.json();
                 currentReviewer = reviewer;
                 displayReviewer(reviewer);
+                setupQuizButtons(reviewer);
                 loadReactions(reviewerId);
+                initComments(reviewerId);
+                hidePageLoader();
             } catch (error) {
                 console.error('Error loading reviewer:', error);
+                hidePageLoader();
                 window.showAlert('error', 'Failed to load reviewer');
                 setTimeout(() => history.back(), 1500);
             }
+        }
+
+        function hidePageLoader() {
+            const loader = document.getElementById('pageLoader');
+            if (!loader) return;
+            loader.classList.add('loader-hide');
+            setTimeout(() => loader.remove(), 380);
         }
 
         async function displayReviewer(reviewer) {
@@ -257,6 +522,74 @@
                 }
             }
 
+            // Setup follow button
+            const followBtn = document.getElementById('reviewerFollowBtn');
+            if (followBtn && uploaderId) {
+                try {
+                    // Check if current user is logged in
+                    const meResp = await fetch('/api/auth/me', { credentials: 'include' });
+                    if (meResp.ok) {
+                        const { user: currentUser } = await meResp.json();
+                        const currentUserId = currentUser?.id || null;
+                        
+                        // Show follow button only if viewing another user's reviewer
+                        if (currentUserId && String(currentUserId) !== String(uploaderId)) {
+                            followBtn.style.display = 'inline-flex';
+                            
+                            // Check follow status
+                            let isFollowingUploader = false;
+                            const followStatusResp = await fetch(`/api/users/${encodeURIComponent(uploaderId)}/follow-status`, { credentials: 'include' });
+                            if (followStatusResp.ok) {
+                                const { following } = await followStatusResp.json();
+                                isFollowingUploader = !!following;
+                                updateFollowButton(following);
+                            }
+
+                            // Setup follow prompt modal (shown after scrolling through content)
+                            initFollowPrompt({
+                                uploaderId,
+                                displayName,
+                                currentUserId,
+                                isFollowing: isFollowingUploader,
+                                reviewerId: reviewer.id
+                            });
+                            
+                            // Wire follow button click
+                            followBtn.onclick = async () => {
+                                const isFollowing = followBtn.textContent === 'Unfollow';
+                                followBtn.disabled = true;
+
+                                try {
+                                    const method = isFollowing ? 'DELETE' : 'POST';
+                                    const resp = await fetch(`/api/users/${encodeURIComponent(uploaderId)}/follow`, {
+                                        method,
+                                        credentials: 'include'
+                                    });
+
+                                    if (!resp.ok) {
+                                        const data = await resp.json();
+                                        window.showAlert && window.showAlert('error', data.error || 'Failed to update follow status');
+                                        return;
+                                    }
+
+                                    const { following } = await resp.json();
+                                    updateFollowButton(following);
+                                    
+                                    window.showAlert && window.showAlert('success', following ? 'Successfully followed!' : 'Unfollowed', 2000);
+                                } catch (error) {
+                                    console.error('Toggle follow error:', error);
+                                    window.showAlert && window.showAlert('error', 'Failed to update follow status');
+                                } finally {
+                                    followBtn.disabled = false;
+                                }
+                            };
+                        }
+                    }
+                } catch (e) {
+                    // Not logged in, hide follow button
+                }
+            }
+
             // Try to resolve school name if subject references a school UUID
             const schoolId = reviewer.subjects && reviewer.subjects.school;
             if (metaSchoolEl) {
@@ -299,6 +632,21 @@
             // Report button
             const reportBtn = document.getElementById('reportBtn');
             reportBtn.onclick = () => openReportModal(reviewer.id);
+        }
+
+        function updateFollowButton(following) {
+            const followBtn = document.getElementById('reviewerFollowBtn');
+            if (!followBtn) return;
+            
+            if (following) {
+                followBtn.textContent = 'Unfollow';
+                followBtn.classList.remove('btn-primary');
+                followBtn.classList.add('btn-outline');
+            } else {
+                followBtn.textContent = 'Follow';
+                followBtn.classList.remove('btn-outline');
+                followBtn.classList.add('btn-primary');
+            }
         }
 
         async function loadReactions(reviewerId) {
@@ -372,19 +720,625 @@
             window.print();
         }
 
+        async function shareReviewer() {
+            if (!currentReviewer) return;
+            
+            const reviewerUrl = window.location.href;
+            const reviewerTitle = currentReviewer.title || 'Reviewer';
+            
+            // Try to use Web Share API if available (mobile)
+            if (navigator.share) {
+                try {
+                    await navigator.share({
+                        title: reviewerTitle,
+                        text: `Check out this reviewer: ${reviewerTitle}`,
+                        url: reviewerUrl
+                    });
+                    return;
+                } catch (err) {
+                    // User cancelled share or share failed, fall back to copy
+                    if (err.name !== 'AbortError') {
+                        console.log('Share failed:', err);
+                    }
+                }
+            }
+            
+            // Fallback: Copy to clipboard
+            try {
+                await navigator.clipboard.writeText(reviewerUrl);
+                window.showAlert('success', 'Link copied to clipboard!');
+            } catch (err) {
+                // Fallback for older browsers
+                const textArea = document.createElement('textarea');
+                textArea.value = reviewerUrl;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    window.showAlert('success', 'Link copied to clipboard!');
+                } catch (e) {
+                    window.showAlert('error', 'Failed to copy link');
+                }
+                document.body.removeChild(textArea);
+            }
+        }
+
         function openFlashcardsForReviewer() {
             if (!currentReviewer || !currentReviewer.flashcards || currentReviewer.flashcards.length === 0) {
                 window.showAlert('info', 'No flashcards available for this reviewer');
                 return;
             }
-            
+
             if (typeof openFlashcardViewer === 'function') {
                 openFlashcardViewer(currentReviewer.flashcards);
+            }
+        }
+
+        // ─── Action buttons ─────────────────────────────────────────────────
+        function setupQuizButtons(reviewer) {
+            const hasQuiz = reviewer.quiz && Array.isArray(reviewer.quiz.questions) && reviewer.quiz.questions.length > 0;
+            const hasFlashcards = Array.isArray(reviewer.flashcards) && reviewer.flashcards.length > 0;
+
+            const flashBtn = document.getElementById('flashcardsBtn');
+            if (flashBtn) flashBtn.style.display = hasFlashcards ? 'inline-flex' : 'none';
+
+            const takeBtn = document.getElementById('takeQuizBtn');
+            if (takeBtn) {
+                if (hasQuiz) {
+                    takeBtn.href = `/quiz.html?reviewer=${encodeURIComponent(reviewer.id)}`;
+                    takeBtn.style.display = 'inline-flex';
+                } else {
+                    takeBtn.style.display = 'none';
+                }
+            }
+        }
+
+        // ─── Comments ──────────────────────────────────────────────────────────
+        const REACTION_EMOJIS = { like: '👍', haha: '😂', sad: '😢', wow: '😮', heart: '❤️' };
+        const REACTION_LABELS = { like: 'Like', haha: 'Haha', sad: 'Sad', wow: 'Wow', heart: 'Heart' };
+        const COMMENTS_PAGE_SIZE = 10;
+        let _commentsMeId = null;
+        let _commentsMeAvatar = '/images/default-avatar.svg';
+        let _commentsReviewerId = null;
+        let _pickerListenerAdded = false;
+        let _allComments = [];
+        let _displayCount = COMMENTS_PAGE_SIZE;
+        let _commentSort = 'newest';
+
+        async function initComments(reviewerId) {
+            _commentsReviewerId = reviewerId;
+            try {
+                const r = await fetch('/api/auth/me', { credentials: 'include' });
+                if (r.ok) {
+                    const d = await r.json();
+                    _commentsMeId = (d.user && d.user.id) || null;
+                    _commentsMeAvatar = (d.user && d.user.profile_picture_url) || '/images/default-avatar.svg';
+                    const av = document.getElementById('commentMyAvatar');
+                    if (av) av.src = _commentsMeAvatar;
+                    document.getElementById('commentComposeWrap').style.display = '';
+                    document.getElementById('commentLoginPrompt').style.display = 'none';
+                } else {
+                    document.getElementById('commentComposeWrap').style.display = 'none';
+                    document.getElementById('commentLoginPrompt').style.display = '';
+                }
+            } catch(e) {
+                document.getElementById('commentComposeWrap').style.display = 'none';
+                document.getElementById('commentLoginPrompt').style.display = '';
+            }
+            // Enter to submit
+            const inp = document.getElementById('commentInput');
+            if (inp) inp.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment(); } });
+            ensurePickerCloseListener();
+            loadComments();
+        }
+
+        async function loadComments() {
+            if (!_commentsReviewerId) return;
+            try {
+                const r = await fetch(`/api/reviewers/${_commentsReviewerId}/comments`);
+                if (!r.ok) {
+                    const d = await r.json().catch(() => ({}));
+                    console.error('Failed to load comments:', r.status, d);
+                    document.getElementById('commentsList').innerHTML =
+                        '<div class="comments-empty" style="color:#c0392b;">Failed to load comments. Please refresh the page.</div>';
+                    return;
+                }
+                const data = await r.json();
+                _allComments = data.comments || [];
+                _displayCount = COMMENTS_PAGE_SIZE;
+                renderComments();
+            } catch(e) {
+                console.error('Failed to load comments', e);
+                document.getElementById('commentsList').innerHTML =
+                    '<div class="comments-empty" style="color:#c0392b;">Failed to load comments. Please refresh the page.</div>';
+            }
+        }
+
+        function totalReactions(c) {
+            return Object.values(c.reactions || {}).reduce((a, b) => a + b, 0);
+        }
+
+        function getSortedComments() {
+            const pinned = _allComments.filter(c => c.is_pinned);
+            const rest = _allComments.filter(c => !c.is_pinned);
+            if (_commentSort === 'top') {
+                rest.sort((a, b) => totalReactions(b) - totalReactions(a) || new Date(b.created_at) - new Date(a.created_at));
+            } else {
+                rest.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+            }
+            return { pinned, rest };
+        }
+
+        function renderComments() {
+            const list = document.getElementById('commentsList');
+            const header = document.getElementById('commentsHeader');
+            const filterTabs = document.getElementById('commentFilterTabs');
+            const loadMoreBtn = document.getElementById('loadMoreBtn');
+            const total = _allComments.reduce((n, c) => n + 1 + (c.replies ? c.replies.length : 0), 0);
+            if (header) header.textContent = `Comments (${total})`;
+
+            if (_allComments.length === 0) {
+                list.innerHTML = '<div class="comments-empty">No comments yet. Be the first!</div>';
+                if (filterTabs) filterTabs.style.display = 'none';
+                if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+                return;
+            }
+
+            if (filterTabs) filterTabs.style.display = '';
+
+            const { pinned, rest } = getSortedComments();
+            const visible = rest.slice(0, _displayCount);
+            const hasMore = rest.length > _displayCount;
+
+            if (loadMoreBtn) loadMoreBtn.style.display = hasMore ? '' : 'none';
+
+            list.innerHTML = [
+                ...pinned.map(c => renderCommentNode(c, false)),
+                ...visible.map(c => renderCommentNode(c, false))
+            ].join('');
+        }
+
+        function escHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function formatCommentTime(ts) {
+            const d = new Date(ts), now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+            if (diff < 2592000) return `${Math.floor(diff/86400)}d ago`;
+            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+
+        function buildReactionPills(c) {
+            return Object.keys(REACTION_EMOJIS).filter(t => c.reactions && c.reactions[t] > 0).map(t => {
+                const isUser = c.userReaction === t;
+                return `<button class="reaction-pill${isUser ? ' user-reacted' : ''}" 
+                    onclick="toggleReactionFromPill('${c.id}','${t}')" 
+                    data-comment-id="${c.id}" 
+                    data-reaction-type="${t}"
+                    onmouseenter="showReactionTooltip(event, '${c.id}', '${t}')"
+                    onmouseleave="hideReactionTooltip()"
+                    ontouchstart="showReactionTooltip(event, '${c.id}', '${t}')"
+                    ontouchend="hideReactionTooltip()"
+                    title="${REACTION_LABELS[t]}">${REACTION_EMOJIS[t]} ${c.reactions[t]}</button>`;
+            }).join('');
+        }
+
+        function buildReactionPickerHtml(commentId) {
+            const buttons = Object.entries(REACTION_EMOJIS).map(([type, emoji]) =>
+                `<button onclick="sendReaction('${commentId}','${type}')" title="${REACTION_LABELS[type]}">${emoji}</button>`
+            ).join('');
+            return `<div class="reaction-picker-wrap"><button class="comment-action-btn" onclick="toggleReactionPicker(event,'${commentId}')" title="React"><i class="bi bi-emoji-smile"></i></button><div class="reaction-picker" id="rp_${commentId}" style="display:none;">${buttons}</div></div>`;
+        }
+
+        function renderCommentNode(c, isReply) {
+            const avatar = (c.user && c.user.profile_picture_url) ? escHtml(c.user.profile_picture_url) : '/images/default-avatar.svg';
+            const name = escHtml((c.user && (c.user.display_name || c.user.username)) || 'Anonymous');
+            const userId = c.user && c.user.id;
+            const timeStr = formatCommentTime(c.created_at);
+            const pinnedBadge = c.is_pinned ? `<div class="pinned-badge"><i class="bi bi-pin-angle-fill"></i> Pinned</div>` : '';
+            
+            // Make avatar and username clickable if user exists
+            const avatarHtml = userId 
+                ? `<img src="${avatar}" class="comment-avatar clickable-avatar" alt="avatar" onerror="this.src='/images/default-avatar.svg'" onclick="window.location.href='/user.html?user=${userId}'" style="cursor:pointer;">` 
+                : `<img src="${avatar}" class="comment-avatar" alt="avatar" onerror="this.src='/images/default-avatar.svg'">`;
+            
+            const userNameHtml = userId
+                ? `<div class="comment-user clickable-username" onclick="window.location.href='/user.html?user=${userId}'" style="cursor:pointer;">${name}</div>`
+                : `<div class="comment-user">${name}</div>`;
+            
+            const repliesHtml = (c.replies && c.replies.length)
+                ? `<div class="replies-list">${c.replies.map(r => renderCommentNode(r, true)).join('')}</div>` : '';
+            const replyFormHtml = _commentsMeId
+                ? `<div class="reply-form" id="replyForm_${c.id}" style="display:none;"><img src="${escHtml(_commentsMeAvatar)}" class="comment-avatar" alt="avatar" style="width:28px;height:28px;flex:0 0 28px;"><div class="reply-input-wrap"><input type="text" placeholder="Write a reply…" maxlength="2000" id="replyInput_${c.id}" onkeydown="if(event.key==='Enter'){event.preventDefault();submitReply('${c.id}');}"><button class="comment-send-btn" style="width:28px;height:28px;font-size:0.8rem;" onclick="submitReply('${c.id}')" title="Reply"><i class="bi bi-send-fill"></i></button></div></div>` : '';
+            const reactionPills = buildReactionPills(c);
+            const reactionPickerHtml = _commentsMeId ? buildReactionPickerHtml(c.id) : '';
+            const isReviewerOwner = currentReviewer && _commentsMeId && currentReviewer.user_id === _commentsMeId;
+            const pinHtml = (!isReply && isReviewerOwner)
+                ? `<button class="comment-pin-btn${c.is_pinned?' pinned':''}" onclick="pinComment('${c.id}')" title="${c.is_pinned?'Unpin':'Pin'}"><i class="bi bi-pin-angle${c.is_pinned?'-fill':''}"></i></button>` : '';
+            // Allow delete if user is comment owner OR reviewer owner
+            const canDelete = _commentsMeId && (userId === _commentsMeId || isReviewerOwner);
+            const deleteHtml = canDelete
+                ? `<button class="comment-delete-btn" onclick="deleteComment('${c.id}')" title="Delete"><i class="bi bi-trash3"></i></button>` : '';
+            const replyBtnHtml = _commentsMeId
+                ? `<button class="comment-action-btn" onclick="toggleReplyForm('${c.id}')"><i class="bi bi-reply"></i> Reply</button>` : '';
+            return `<div class="comment-item" id="cmt_${c.id}">${avatarHtml}<div class="comment-body">${pinnedBadge}<div class="comment-bubble">${userNameHtml}<div class="comment-text">${escHtml(c.content)}</div></div><div class="comment-footer"><span class="comment-time">${timeStr}</span>${reactionPickerHtml}<div class="reaction-pills">${reactionPills}</div>${replyBtnHtml}${pinHtml}${deleteHtml}</div>${replyFormHtml}${repliesHtml}</div></div>`;
+        }
+
+        function setCommentSort(sort) {
+            _commentSort = sort;
+            _displayCount = COMMENTS_PAGE_SIZE;
+            document.querySelectorAll('.cmt-tab').forEach(t => t.classList.remove('active'));
+            const tab = document.getElementById(sort === 'newest' ? 'tabNewest' : 'tabTop');
+            if (tab) tab.classList.add('active');
+            renderComments();
+        }
+
+        function loadMoreComments() {
+            _displayCount += COMMENTS_PAGE_SIZE;
+            renderComments();
+        }
+
+        function ensurePickerCloseListener() {
+            if (_pickerListenerAdded) return;
+            _pickerListenerAdded = true;
+            document.addEventListener('click', (e) => {
+                if (!e.target.closest('.reaction-picker-wrap')) closeAllReactionPickers();
+            });
+        }
+
+        function closeAllReactionPickers() {
+            document.querySelectorAll('.reaction-picker').forEach(p => p.style.display = 'none');
+        }
+
+        function toggleReactionPicker(e, commentId) {
+            e.stopPropagation();
+            const picker = document.getElementById('rp_' + commentId);
+            const isHidden = !picker || picker.style.display === 'none';
+            closeAllReactionPickers();
+            if (picker && isHidden) picker.style.display = 'flex';
+        }
+
+        async function sendReaction(commentId, reactionType) {
+            if (!_commentsMeId) { window.location.href = '/login.html'; return; }
+            closeAllReactionPickers();
+            
+            // Clear cache for all reaction types of this comment
+            Object.keys(_cachedReactionUsers).forEach(key => {
+                if (key.startsWith(commentId + '_')) {
+                    delete _cachedReactionUsers[key];
+                }
+            });
+            
+            try {
+                const r = await fetch(`/api/comments/${commentId}/reactions`, {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ reaction_type: reactionType })
+                });
+                if (r.status === 401) { window.location.href = '/login.html'; return; }
+                if (r.ok) loadComments();
+            } catch(e) { console.error('Reaction error', e); }
+        }
+
+        async function toggleReactionFromPill(commentId, reactionType) {
+            if (!_commentsMeId) { window.location.href = '/login.html'; return; }
+            await sendReaction(commentId, reactionType);
+        }
+
+        let _reactionTooltip = null;
+        let _tooltipTimeout = null;
+        let _cachedReactionUsers = {};
+
+        async function showReactionTooltip(event, commentId, reactionType) {
+            event.stopPropagation();
+            
+            // Clear any existing timeout
+            if (_tooltipTimeout) {
+                clearTimeout(_tooltipTimeout);
+                _tooltipTimeout = null;
+            }
+
+            // Create tooltip if it doesn't exist
+            if (!_reactionTooltip) {
+                _reactionTooltip = document.createElement('div');
+                _reactionTooltip.className = 'reaction-tooltip';
+                _reactionTooltip.style.display = 'none';
+                document.body.appendChild(_reactionTooltip);
+            }
+
+            // Show loading state
+            _reactionTooltip.innerHTML = '<div class="reaction-tooltip-loading">Loading...</div>';
+            _reactionTooltip.style.display = 'block';
+
+            // Position tooltip near the button
+            const button = event.currentTarget;
+            const rect = button.getBoundingClientRect();
+            _reactionTooltip.style.left = rect.left + (rect.width / 2) + 'px';
+            _reactionTooltip.style.top = (rect.top - 10) + 'px';
+
+            // Check cache first
+            const cacheKey = `${commentId}_${reactionType}`;
+            if (_cachedReactionUsers[cacheKey]) {
+                renderReactionTooltip(_cachedReactionUsers[cacheKey], reactionType);
+                return;
+            }
+
+            // Fetch users who reacted
+            try {
+                const response = await fetch(`/api/comments/${commentId}/reactions/${reactionType}/users`, {
+                    credentials: 'include'
+                });
+
+                if (!response.ok) throw new Error('Failed to fetch reaction users');
+
+                const data = await response.json();
+                _cachedReactionUsers[cacheKey] = data.users;
+                renderReactionTooltip(data.users, reactionType);
+            } catch (error) {
+                console.error('Error fetching reaction users:', error);
+                _reactionTooltip.innerHTML = '<div class="reaction-tooltip-error">Failed to load users</div>';
+            }
+        }
+
+        function renderReactionTooltip(users, reactionType) {
+            if (!_reactionTooltip || !users) return;
+
+            if (users.length === 0) {
+                _reactionTooltip.style.display = 'none';
+                return;
+            }
+
+            const emoji = REACTION_EMOJIS[reactionType];
+            const label = REACTION_LABELS[reactionType];
+
+            let html = `<div class="reaction-tooltip-header">${emoji} ${label}</div><div class="reaction-tooltip-users">`;
+            
+            users.slice(0, 10).forEach(user => {
+                const avatar = user.profile_picture_url || '/images/default-avatar.svg';
+                const name = user.display_name || user.username || 'Anonymous';
+                html += `
+                    <div class="reaction-tooltip-user">
+                        <img src="${avatar}" onerror="this.src='/images/default-avatar.svg'" alt="${name}">
+                        <span>${escHtml(name)}</span>
+                    </div>
+                `;
+            });
+
+            if (users.length > 10) {
+                html += `<div class="reaction-tooltip-more">+${users.length - 10} more</div>`;
+            }
+
+            html += '</div>';
+            _reactionTooltip.innerHTML = html;
+        }
+
+        function hideReactionTooltip() {
+            // Delay hiding to allow hovering over tooltip
+            _tooltipTimeout = setTimeout(() => {
+                if (_reactionTooltip) {
+                    _reactionTooltip.style.display = 'none';
+                }
+            }, 200);
+        }
+
+        // Allow hovering over tooltip itself
+        document.addEventListener('DOMContentLoaded', () => {
+            document.body.addEventListener('mouseover', (e) => {
+                if (e.target.closest('.reaction-tooltip')) {
+                    if (_tooltipTimeout) {
+                        clearTimeout(_tooltipTimeout);
+                        _tooltipTimeout = null;
+                    }
+                }
+            });
+            
+            // Hide tooltip when mouse leaves the tooltip
+            document.body.addEventListener('mouseout', (e) => {
+                if (e.target.closest('.reaction-tooltip') && !e.relatedTarget?.closest('.reaction-tooltip')) {
+                    hideReactionTooltip();
+                }
+            });
+            
+            // Close tooltip on click outside
+            document.addEventListener('click', (e) => {
+                if (_reactionTooltip && !e.target.closest('.reaction-pill') && !e.target.closest('.reaction-tooltip')) {
+                    if (_reactionTooltip) {
+                        _reactionTooltip.style.display = 'none';
+                    }
+                }
+            });
+        });
+
+        function toggleReplyForm(commentId) {
+            const form = document.getElementById('replyForm_' + commentId);
+            if (!form) return;
+            const isHidden = form.style.display === 'none';
+            form.style.display = isHidden ? 'flex' : 'none';
+            if (isHidden) { const inp = document.getElementById('replyInput_' + commentId); if (inp) inp.focus(); }
+        }
+
+        async function submitReply(commentId) {
+            if (!_commentsMeId) { window.location.href = '/login.html'; return; }
+            const inp = document.getElementById('replyInput_' + commentId);
+            if (!inp) return;
+            const content = (inp.value || '').trim();
+            if (!content) { inp.focus(); return; }
+            const form = document.getElementById('replyForm_' + commentId);
+            try {
+                const r = await fetch(`/api/reviewers/${_commentsReviewerId}/comments`, {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content, parent_id: commentId })
+                });
+                if (r.status === 401) { window.location.href = '/login.html'; return; }
+                if (r.ok) { inp.value = ''; if (form) form.style.display = 'none'; loadComments(); }
+                else { const d = await r.json(); window.showAlert && window.showAlert('error', d.error || 'Failed to post reply'); }
+            } catch(e) { console.error('Submit reply error', e); }
+        }
+
+        async function submitComment() {
+            const inp = document.getElementById('commentInput');
+            const btn = document.getElementById('commentSendBtn');
+            const content = inp ? (inp.value || '').trim() : '';
+            if (!content) {
+                if (inp) { inp.focus(); inp.style.setProperty('border-color', 'var(--primary-pink)', 'important'); setTimeout(() => inp.style.removeProperty('border-color'), 1000); }
+                return;
+            }
+            if (!_commentsMeId) { window.location.href = '/login.html'; return; }
+            if (btn) btn.disabled = true;
+            try {
+                const r = await fetch(`/api/reviewers/${_commentsReviewerId}/comments`, {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content })
+                });
+                if (r.status === 401) { window.location.href = '/login.html'; return; }
+                if (r.ok) { if (inp) inp.value = ''; loadComments(); }
+                else { const d = await r.json(); window.showAlert && window.showAlert('error', d.error || 'Failed to post comment'); }
+            } catch(e) {
+                console.error('Submit comment error', e);
+                window.showAlert && window.showAlert('error', 'Failed to post comment');
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        }
+
+        async function deleteComment(commentId) {
+            if (!_commentsMeId) return;
+            if (!confirm('Delete this comment?')) return;
+            try {
+                const r = await fetch(`/api/comments/${commentId}`, { method: 'DELETE', credentials: 'include' });
+                if (r.ok) loadComments();
+                else { const d = await r.json(); window.showAlert && window.showAlert('error', d.error || 'Failed to delete comment'); }
+            } catch(e) { console.error('Delete comment error', e); }
+        }
+
+        async function pinComment(commentId) {
+            if (!_commentsMeId) return;
+            try {
+                const r = await fetch(`/api/comments/${commentId}/pin`, {
+                    method: 'POST', credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                if (r.ok) loadComments();
+                else { const d = await r.json(); window.showAlert && window.showAlert('error', d.error || 'Failed to pin comment'); }
+            } catch(e) { console.error('Pin comment error', e); }
+        }
+
+        // ── Follow Prompt Modal ────────────────────────────────────────────
+        let _followPromptUploaderName = '';
+        let _followPromptUploaderId = null;
+        let _followPromptCurrentUserId = null;
+        let _followPromptReviewerId = null;
+        let _followPromptIsFollowing = false;
+
+        function initFollowPrompt({ uploaderId, displayName, currentUserId, isFollowing, reviewerId }) {
+            _followPromptUploaderId    = uploaderId;
+            _followPromptUploaderName  = displayName;
+            _followPromptCurrentUserId = currentUserId;
+            _followPromptIsFollowing   = isFollowing;
+            _followPromptReviewerId    = reviewerId;
+
+            // Don't set up observer if modal should never appear
+            if (!currentUserId || String(currentUserId) === String(uploaderId) || isFollowing) return;
+            const sessionKey = `followPromptShown_${reviewerId}`;
+            if (sessionStorage.getItem(sessionKey)) return;
+
+            const target = document.querySelector('.reviewer-actions');
+            if (!target) return;
+
+            // Wait until content is fully rendered, then only observe if the page
+            // is actually tall enough that the user must scroll to reach the actions bar.
+            setTimeout(() => {
+                // If the page doesn't require scrolling, don't show the prompt
+                if (document.documentElement.scrollHeight <= window.innerHeight + 80) return;
+
+                const observer = new IntersectionObserver((entries) => {
+                    if (entries[0].isIntersecting) {
+                        observer.disconnect();
+                        setTimeout(() => showFollowPromptModal(), 800);
+                    }
+                }, { threshold: 0.5, rootMargin: '0px 0px -60px 0px' });
+                observer.observe(target);
+            }, 500);
+        }
+
+        function showFollowPromptModal() {
+            const sessionKey = `followPromptShown_${_followPromptReviewerId}`;
+            if (sessionStorage.getItem(sessionKey)) return;
+            sessionStorage.setItem(sessionKey, '1');
+
+            const nameEl = document.getElementById('fpmUploaderName');
+            const bodyEl = document.getElementById('fpmBody');
+            if (nameEl) nameEl.textContent = _followPromptUploaderName;
+            if (bodyEl) bodyEl.textContent = `Follow ${_followPromptUploaderName} to get notified when they post new reviewers.`;
+
+            const modal = document.getElementById('followPromptModal');
+            if (modal) {
+                modal.style.display = 'flex';
+                requestAnimationFrame(() => modal.classList.add('fpm-visible'));
+            }
+        }
+
+        function closeFollowPromptModal() {
+            const modal = document.getElementById('followPromptModal');
+            if (!modal) return;
+            modal.classList.remove('fpm-visible');
+            setTimeout(() => { modal.style.display = 'none'; }, 280);
+        }
+
+        async function followFromModal() {
+            const followBtn = document.getElementById('reviewerFollowBtn');
+            const modalBtn = document.getElementById('fpmFollowBtn');
+            if (modalBtn) { modalBtn.disabled = true; modalBtn.textContent = 'Following…'; }
+            try {
+                const resp = await fetch(`/api/users/${encodeURIComponent(_followPromptUploaderId)}/follow`, {
+                    method: 'POST', credentials: 'include'
+                });
+                if (resp.ok) {
+                    const { following } = await resp.json();
+                    updateFollowButton(following);
+                    if (modalBtn) { modalBtn.textContent = '✓ Following'; }
+                    window.showAlert && window.showAlert('success', `Now following ${_followPromptUploaderName}!`, 2500);
+                    setTimeout(() => closeFollowPromptModal(), 900);
+                } else {
+                    const d = await resp.json();
+                    window.showAlert && window.showAlert('error', d.error || 'Failed to follow');
+                    closeFollowPromptModal();
+                }
+            } catch (e) {
+                console.error('Follow from modal error:', e);
+                closeFollowPromptModal();
             }
         }
 
         // Load reviewer on page load
         loadReviewer();
     </script>
+
+    <!-- Follow Prompt Modal -->
+    <div id="followPromptModal" role="dialog" aria-modal="true" aria-labelledby="fpmUploaderName" style="display:none;" class="fpm-overlay">
+        <div class="fpm-card">
+            <button class="fpm-close" onclick="closeFollowPromptModal()" aria-label="Close">&times;</button>
+            <div class="fpm-icon">
+                <i class="bi bi-person-heart"></i>
+            </div>
+            <h3 class="fpm-title">Enjoying this reviewer?</h3>
+            <p id="fpmBody" class="fpm-body">Follow <span id="fpmUploaderName"></span> to get notified when they post new reviewers.</p>
+            <div class="fpm-actions">
+                <button id="fpmFollowBtn" class="btn btn-primary fpm-btn-follow" onclick="followFromModal()">
+                    <i class="bi bi-person-plus-fill"></i> Follow
+                </button>
+                <button class="btn btn-ghost fpm-btn-later" onclick="closeFollowPromptModal()">Maybe Later</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

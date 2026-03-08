@@ -281,7 +281,7 @@ app.use(cors({
 // Rate limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
+    max: 500, // limit each IP to 500 requests per windowMs
     message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -787,7 +787,11 @@ const upload = multer({ storage: memoryStorage, limits: { fileSize: 2 * 1024 * 1
 let mailTransporter = null;
 if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
     // Allow opt-in for self-signed certificates in development via SMTP_ALLOW_SELF_SIGNED=true
-    const tlsOptions = {};
+    const tlsOptions = {
+        minVersion: 'TLSv1.2',
+        ciphers: 'HIGH:!aNULL:!MD5',
+    };
+    
     if (process.env.SMTP_ALLOW_SELF_SIGNED === 'true') {
         tlsOptions.rejectUnauthorized = false;
         console.warn('SMTP_ALLOW_SELF_SIGNED is enabled — the transporter will accept self-signed certificates (INSECURE, for testing only)');
@@ -801,7 +805,13 @@ if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
             user: process.env.SMTP_USER,
             pass: process.env.SMTP_PASS
         },
-        tls: Object.keys(tlsOptions).length ? tlsOptions : undefined
+        tls: tlsOptions,
+        connectionTimeout: 10000, // 10 seconds
+        greetingTimeout: 10000,
+        socketTimeout: 10000,
+        requireTLS: true,
+        logger: false, // Set to true for debugging
+        debug: false   // Set to true for detailed debugging
     });
 } else {
     console.warn('SMTP not configured. Verification emails will fail until SMTP env vars are set.');
@@ -1893,51 +1903,6 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 last_seen: new Date().toISOString()
             });
 
-        // Ensure the session cookie is sent to the client. Some deployments
-        // (proxies, mismatched cookie attributes, or client behavior) can
-        // prevent the `Set-Cookie` header from being delivered. As a
-        // defensive measure set the cookie explicitly using the same options
-        // we configured for the session middleware.
-        try {
-            const baseCookie = (sessionOptions && sessionOptions.cookie) ? sessionOptions.cookie : {};
-            // Derive whether the cookie should be marked `secure` from the
-            // actual incoming request (req.session cookie flag, req.secure,
-            // x-forwarded-proto or origin) so that local HTTP requests don't
-            // accidentally get a `secure` cookie which browsers will ignore.
-            let secureFlag;
-            if (req && req.session && req.session.cookie && typeof req.session.cookie.secure !== 'undefined') {
-                secureFlag = !!req.session.cookie.secure;
-            } else if (req && req.secure) {
-                secureFlag = true;
-            } else {
-                const xfpHeader = (req && req.headers) ? (req.headers['x-forwarded-proto'] || req.headers['X-Forwarded-Proto'] || '') : '';
-                const xfp = String(xfpHeader || '').split(',')[0].trim().toLowerCase();
-                secureFlag = xfp === 'https';
-                if (!secureFlag && req && req.headers && req.headers.origin) {
-                    try {
-                        secureFlag = String(req.headers.origin).toLowerCase().startsWith('https://');
-                    } catch (err) {
-                        // ignore
-                    }
-                }
-            }
-            if (typeof secureFlag === 'undefined') secureFlag = !!baseCookie.secure;
-
-            const cookieOpts = {
-                httpOnly: !!baseCookie.httpOnly,
-                secure: !!secureFlag,
-                sameSite: baseCookie.sameSite || undefined,
-                maxAge: baseCookie.maxAge || undefined
-            };
-            if (sessionOptions && sessionOptions.cookie && sessionOptions.cookie.domain) {
-                cookieOpts.domain = sessionOptions.cookie.domain;
-            }
-            res.cookie('connect.sid', req.sessionID, cookieOpts);
-            console.info('Explicitly set connect.sid cookie on login response', { cookieOpts });
-        } catch (e) {
-            console.warn('Failed to explicitly set session cookie on login response:', e && e.message ? e.message : e);
-        }
-
         res.json({
             message: 'Login successful',
             user: {
@@ -1983,7 +1948,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
             meQuery = await withTimeout(
                 supabase
                     .from('users')
-                    .select('id, email, username, role, display_name, profile_picture_url, created_at, is_dev')
+                    .select('id, email, username, role, display_name, profile_picture_url, created_at, is_dev, follower_count, following_count')
                     .eq('id', req.session.userId)
                     .single(),
                 8000
@@ -2258,6 +2223,10 @@ app.get('/api/reviewers/public-guest', async (req, res) => {
             query = query.eq('user_id', student);
         }
 
+        if (req.query.subject_id && UUID_REGEX.test(req.query.subject_id)) {
+            query = query.eq('subject_id', req.query.subject_id);
+        }
+
         query = query.order('created_at', { ascending: false }).range(start, end);
 
         let result;
@@ -2277,6 +2246,32 @@ app.get('/api/reviewers/public-guest', async (req, res) => {
         res.json({ reviewers, count: count || 0, limit, offset });
     } catch (error) {
         console.error('Get public reviewers (guest) error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Subjects with at least one public reviewer (used for index page filter chips)
+app.get('/api/subjects/public', async (req, res) => {
+    try {
+        const { data, error } = await withTimeout(
+            supabase
+                .from('reviewers')
+                .select('subject_id, subjects:subject_id(id, name)')
+                .eq('is_public', true),
+            8000
+        );
+        if (error) return res.status(500).json({ error: 'Failed to fetch subjects' });
+
+        const seen = new Map();
+        for (const r of data || []) {
+            if (r.subjects && r.subjects.id && !seen.has(r.subjects.id)) {
+                seen.set(r.subjects.id, { id: r.subjects.id, name: r.subjects.name });
+            }
+        }
+        const subjects = Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+        res.json({ subjects });
+    } catch (e) {
+        console.error('Get public subjects error:', e);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -2384,6 +2379,42 @@ app.post('/api/reviewers/:id/reactions', requireAuth, async (req, res) => {
                 console.error('Insert reaction error:', insertErr);
                 return res.status(500).json({ error: 'Failed to add reaction' });
             }
+
+            // Create notification for the reviewer owner
+            // Get reviewer title and user info
+            const { data: reviewer } = await supabaseAdmin
+                .from('reviewers')
+                .select('title, user_id')
+                .eq('id', id)
+                .single();
+            
+            const { data: reactingUser } = await supabaseAdmin
+                .from('users')
+                .select('username')
+                .eq('id', userId)
+                .single();
+
+            if (reviewer && reactingUser && reviewer.user_id !== userId) {
+                // Map reaction types to emoji and text
+                const reactionDisplay = {
+                    'like': '❤️ liked',
+                    'haha': '😂 laughed at',
+                    'sad': '😢 felt sad about',
+                    'wow': '😮 was amazed by',
+                    'heart': '💖 loved'
+                };
+                const reactionText = reactionDisplay[reactionType] || 'reacted to';
+
+                await createNotification({
+                    userId: reviewer.user_id,
+                    type: 'reaction',
+                    title: 'New Reaction',
+                    message: `${reactingUser.username} ${reactionText} your reviewer "${reviewer.title}"`,
+                    link: `/reviewer.html?id=${id}`,
+                    relatedUserId: userId,
+                    relatedItemId: id
+                });
+            }
         }
 
         // Return updated count and current user state
@@ -2478,6 +2509,58 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to create reviewer' });
         }
 
+        // Notify followers about new reviewer (async, don't block response)
+        (async () => {
+            try {
+                const { data: followers } = await supabaseAdmin
+                    .from('followers')
+                    .select('follower_id, users:follower_id(email, username)')
+                    .eq('following_id', req.session.userId);
+
+                if (followers && followers.length > 0) {
+                    const { data: author } = await supabaseAdmin
+                        .from('users')
+                        .select('username')
+                        .eq('id', req.session.userId)
+                        .single();
+
+                    const authorName = author?.username || 'A user you follow';
+                    
+                    // Send emails to followers
+                    for (const follower of followers) {
+                        if (follower.users && follower.users.email) {
+                            try {
+                                await mailTransporter.sendMail({
+                                    from: process.env.SMTP_FROM || 'Thinky <no-reply@thinky.com>',
+                                    to: follower.users.email,
+                                    subject: `${authorName} posted a new reviewer on Thinky`,
+                                    html: `
+                                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                                            <h2 style="color: #ff69b4;">New Reviewer from ${authorName}</h2>
+                                            <p>Hello ${follower.users.username},</p>
+                                            <p><strong>${authorName}</strong> just posted a new reviewer: <strong>${title}</strong></p>
+                                            <p>Check it out on Thinky!</p>
+                                            <a href="${process.env.PRODUCTION_URL || 'http://localhost:3000'}/reviewer.html?id=${reviewer.id}" 
+                                               style="display: inline-block; padding: 12px 24px; background: #ff69b4; color: white; text-decoration: none; border-radius: 999px; margin: 16px 0;">
+                                                View Reviewer
+                                            </a>
+                                            <p style="color: #666; font-size: 12px; margin-top: 24px;">
+                                                You received this email because you follow ${authorName} on Thinky.
+                                            </p>
+                                        </div>
+                                    `
+                                });
+                            } catch (emailErr) {
+                                console.error('Failed to send email to follower:', follower.follower_id, emailErr);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to notify followers:', err);
+            }
+        })();
+
         res.json({ reviewer });
     } catch (error) {
         console.error('Create reviewer error:', error);
@@ -2544,7 +2627,7 @@ app.get('/api/users/:id', async (req, res) => {
         const { id } = req.params;
         const { data: user, error } = await supabase
             .from('users')
-            .select('id, username, display_name, profile_picture_url, created_at, is_dev')
+            .select('id, username, display_name, profile_picture_url, created_at, is_dev, follower_count, following_count')
             .eq('id', id)
             .maybeSingle();
 
@@ -2600,6 +2683,115 @@ app.get('/api/users/:id/reviewers', async (req, res) => {
         res.json({ reviewers, count: count || 0, limit, offset });
     } catch (error) {
         console.error('Get user reviewers error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/users/:id/follow - Follow a user
+app.post('/api/users/:id/follow', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const followerId = req.session.userId;
+
+        if (id === followerId) {
+            return res.status(400).json({ error: 'Cannot follow yourself' });
+        }
+
+        // Check if already following
+        const { data: existing } = await supabaseAdmin
+            .from('followers')
+            .select('id')
+            .eq('follower_id', followerId)
+            .eq('following_id', id)
+            .single();
+
+        if (existing) {
+            return res.status(400).json({ error: 'Already following this user' });
+        }
+
+        // Insert follow relationship
+        const { error: insertError } = await supabaseAdmin
+            .from('followers')
+            .insert([{
+                follower_id: followerId,
+                following_id: id
+            }]);
+
+        if (insertError) {
+            console.error('Follow user error:', insertError);
+            return res.status(500).json({ error: 'Failed to follow user' });
+        }
+
+        // Create notification for the followed user
+        try {
+            const { data: follower } = await supabaseAdmin
+                .from('users')
+                .select('username')
+                .eq('id', followerId)
+                .single();
+
+            if (follower) {
+                await createNotification({
+                    userId: id,
+                    type: 'follow',
+                    title: 'New Follower',
+                    message: `${follower.username} started following you`,
+                    link: `/user.html?user=${followerId}`,
+                    relatedUserId: followerId,
+                    relatedItemId: null
+                });
+            }
+        } catch (notifErr) {
+            console.error('Failed to create follow notification:', notifErr);
+        }
+
+        res.json({ success: true, following: true });
+    } catch (error) {
+        console.error('Follow user error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/users/:id/follow - Unfollow a user
+app.delete('/api/users/:id/follow', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const followerId = req.session.userId;
+
+        const { error } = await supabaseAdmin
+            .from('followers')
+            .delete()
+            .eq('follower_id', followerId)
+            .eq('following_id', id);
+
+        if (error) {
+            console.error('Unfollow user error:', error);
+            return res.status(500).json({ error: 'Failed to unfollow user' });
+        }
+
+        res.json({ success: true, following: false });
+    } catch (error) {
+        console.error('Unfollow user error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/users/:id/follow-status - Check if current user follows this user
+app.get('/api/users/:id/follow-status', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const followerId = req.session.userId;
+
+        const { data: follow } = await supabaseAdmin
+            .from('followers')
+            .select('id')
+            .eq('follower_id', followerId)
+            .eq('following_id', id)
+            .single();
+
+        res.json({ following: !!follow });
+    } catch (error) {
+        console.error('Get follow status error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -2675,6 +2867,433 @@ app.delete('/api/reviewers/:id', requireAuth, async (req, res) => {
         res.json({ message: 'Reviewer deleted successfully' });
     } catch (error) {
         console.error('Delete reviewer error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ─── Quiz Routes ──────────────────────────────────────────────────────────────
+
+// PUT /api/reviewers/:id/quiz  – create or replace quiz (owner only)
+app.put('/api/reviewers/:id/quiz', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'Invalid reviewer ID' });
+
+        const { quiz } = req.body;
+
+        // Basic structure validation
+        if (!quiz || !Array.isArray(quiz.questions) || quiz.questions.length < 1) {
+            return res.status(400).json({ error: 'Quiz must have at least 1 question' });
+        }
+        if (quiz.questions.length > 100) {
+            return res.status(400).json({ error: 'Quiz cannot exceed 100 questions' });
+        }
+
+        for (const q of quiz.questions) {
+            if (!q.question || typeof q.question !== 'string' || !q.question.trim()) {
+                return res.status(400).json({ error: 'All questions must have text' });
+            }
+            if (!Array.isArray(q.options) || q.options.length < 2 || q.options.length > 6) {
+                return res.status(400).json({ error: 'Each question must have 2–6 options' });
+            }
+            for (const opt of q.options) {
+                if (!opt || typeof opt !== 'string' || !opt.trim()) {
+                    return res.status(400).json({ error: 'All answer options must have text' });
+                }
+            }
+            if (typeof q.correct !== 'number' || q.correct < 0 || q.correct >= q.options.length) {
+                return res.status(400).json({ error: 'Each question must have a valid correct answer index' });
+            }
+        }
+
+        // Sanitise – only keep known fields, truncate lengths
+        const sanitizedQuiz = {
+            timer: (typeof quiz.timer === 'number' && quiz.timer > 0)
+                ? Math.min(Math.floor(quiz.timer), 7200)
+                : null,
+            questions: quiz.questions.map(q => ({
+                id: (typeof q.id === 'string' && UUID_REGEX.test(q.id))
+                    ? q.id
+                    : crypto.randomUUID(),
+                question: String(q.question).trim().slice(0, 1000),
+                options:  q.options.map(o => String(o).trim().slice(0, 500)),
+                correct:  Math.floor(q.correct)
+            }))
+        };
+
+        const { data, error } = await supabaseAdmin
+            .from('reviewers')
+            .update({ quiz: sanitizedQuiz })
+            .eq('id', id)
+            .eq('user_id', req.session.userId)
+            .select('id')
+            .single();
+
+        if (error || !data) {
+            return res.status(403).json({ error: 'Reviewer not found or you are not the owner' });
+        }
+
+        res.json({ success: true, quiz: sanitizedQuiz });
+    } catch (error) {
+        console.error('Save quiz error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/reviewers/:id/quiz  – remove quiz (owner only)
+app.delete('/api/reviewers/:id/quiz', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'Invalid reviewer ID' });
+
+        const { data, error } = await supabaseAdmin
+            .from('reviewers')
+            .update({ quiz: null })
+            .eq('id', id)
+            .eq('user_id', req.session.userId)
+            .select('id')
+            .single();
+
+        if (error || !data) {
+            return res.status(403).json({ error: 'Reviewer not found or you are not the owner' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete quiz error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ─── Comment Routes ────────────────────────────────────────────────────────────
+
+// GET /api/reviewers/:id/comments  — public
+app.get('/api/reviewers/:id/comments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'Invalid reviewer ID' });
+
+        const { data: reviewer } = await supabase.from('reviewers').select('id').eq('id', id).single();
+        if (!reviewer) return res.status(404).json({ error: 'Reviewer not found' });
+
+        // Try full query with is_pinned; fall back if the column doesn't exist yet
+        let comments = null;
+
+        const fullResult = await supabaseAdmin
+            .from('reviewer_comments')
+            .select(`id, content, created_at, updated_at, parent_id, is_pinned, users:user_id (id, username, display_name, profile_picture_url)`)
+            .eq('reviewer_id', id)
+            .order('is_pinned', { ascending: false })
+            .order('created_at', { ascending: false });
+
+        if (fullResult.error) {
+            // Fallback: select without is_pinned (migration may not be applied yet)
+            const fallback = await supabaseAdmin
+                .from('reviewer_comments')
+                .select(`id, content, created_at, updated_at, parent_id, users:user_id (id, username, display_name, profile_picture_url)`)
+                .eq('reviewer_id', id)
+                .order('created_at', { ascending: false });
+
+            if (fallback.error) {
+                console.error('Fetch comments error:', fallback.error);
+                return res.status(500).json({ error: 'Failed to fetch comments' });
+            }
+            comments = fallback.data;
+        } else {
+            comments = fullResult.data;
+        }
+
+        const commentIds = (comments || []).map(c => c.id);
+        let reactions = [];
+        if (commentIds.length > 0) {
+            const { data: rxData } = await supabaseAdmin
+                .from('reviewer_comment_reactions')
+                .select('comment_id, user_id, reaction_type')
+                .in('comment_id', commentIds);
+            reactions = rxData || [];
+        }
+
+        const sessionUserId = req.session && req.session.userId;
+        const reactMap = {};
+        const userReactMap = {};
+        for (const rx of reactions) {
+            if (!reactMap[rx.comment_id]) reactMap[rx.comment_id] = {};
+            reactMap[rx.comment_id][rx.reaction_type] = (reactMap[rx.comment_id][rx.reaction_type] || 0) + 1;
+            if (sessionUserId && rx.user_id === sessionUserId) {
+                userReactMap[rx.comment_id] = rx.reaction_type;
+            }
+        }
+
+        const byId = {};
+        const topLevel = [];
+        for (const c of (comments || [])) {
+            byId[c.id] = {
+                id: c.id, content: c.content, created_at: c.created_at,
+                updated_at: c.updated_at, parent_id: c.parent_id,
+                is_pinned: c.is_pinned || false,
+                user: c.users || null,
+                reactions: reactMap[c.id] || {},
+                userReaction: userReactMap[c.id] || null,
+                replies: []
+            };
+        }
+        for (const c of (comments || [])) {
+            if (c.parent_id && byId[c.parent_id]) {
+                byId[c.parent_id].replies.push(byId[c.id]);
+            } else if (!c.parent_id) {
+                topLevel.push(byId[c.id]);
+            }
+        }
+
+        res.json({ comments: topLevel });
+    } catch (error) {
+        console.error('Comments GET error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/reviewers/:id/comments  — auth required
+app.post('/api/reviewers/:id/comments', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!UUID_REGEX.test(id)) return res.status(400).json({ error: 'Invalid reviewer ID' });
+
+        const content = sanitizeString(req.body.content, 2000);
+        if (!content || content.length < 1) return res.status(400).json({ error: 'Content is required' });
+
+        const parentId = req.body.parent_id || null;
+        if (parentId) {
+            if (!UUID_REGEX.test(parentId)) return res.status(400).json({ error: 'Invalid parent_id' });
+            const { data: parent } = await supabase
+                .from('reviewer_comments')
+                .select('id')
+                .eq('id', parentId)
+                .eq('reviewer_id', id)
+                .single();
+            if (!parent) return res.status(404).json({ error: 'Parent comment not found' });
+        }
+
+        const { data: comment, error } = await supabaseAdmin
+            .from('reviewer_comments')
+            .insert([{ reviewer_id: id, user_id: req.session.userId, parent_id: parentId, content }])
+            .select(`id, content, created_at, updated_at, parent_id, users:user_id (id, username, display_name, profile_picture_url)`)
+            .single();
+
+        if (error) {
+            console.error('Post comment error:', error);
+            return res.status(500).json({ error: 'Failed to post comment' });
+        }
+
+        // Create notification for the reviewer owner or parent comment owner
+        try {
+            const { data: currentUser } = await supabaseAdmin
+                .from('users')
+                .select('username')
+                .eq('id', req.session.userId)
+                .single();
+
+            if (parentId) {
+                // Reply notification - notify parent comment owner
+                const { data: parentComment } = await supabaseAdmin
+                    .from('reviewer_comments')
+                    .select('user_id')
+                    .eq('id', parentId)
+                    .single();
+
+                if (parentComment && parentComment.user_id !== req.session.userId && currentUser) {
+                    // Fetch reviewer title for context
+                    const { data: reviewer } = await supabaseAdmin
+                        .from('reviewers')
+                        .select('title')
+                        .eq('id', id)
+                        .single();
+
+                    const reviewerTitle = reviewer?.title || 'a reviewer';
+                    await createNotification({
+                        userId: parentComment.user_id,
+                        type: 'reply',
+                        title: 'New Reply',
+                        message: `${currentUser.username} replied to your comment on "${reviewerTitle}"`,
+                        link: `/reviewer.html?id=${id}#comment-${parentId}`,
+                        relatedUserId: req.session.userId,
+                        relatedItemId: comment.id
+                    });
+                }
+            } else {
+                // Comment notification - notify reviewer owner
+                const { data: reviewer } = await supabaseAdmin
+                    .from('reviewers')
+                    .select('title, user_id')
+                    .eq('id', id)
+                    .single();
+
+                if (reviewer && reviewer.user_id !== req.session.userId && currentUser) {
+                    await createNotification({
+                        userId: reviewer.user_id,
+                        type: 'comment',
+                        title: 'New Comment',
+                        message: `${currentUser.username} commented on your reviewer "${reviewer.title}"`,
+                        link: `/reviewer.html?id=${id}`,
+                        relatedUserId: req.session.userId,
+                        relatedItemId: comment.id
+                    });
+                }
+            }
+        } catch (notifErr) {
+            console.error('Failed to create comment notification:', notifErr);
+            // Don't fail the request if notification creation fails
+        }
+
+        res.status(201).json({
+            comment: { ...comment, user: comment.users || null, reactions: {}, userReaction: null, replies: [] }
+        });
+    } catch (error) {
+        console.error('Post comment error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/comments/:commentId  — auth required, owner only
+app.delete('/api/comments/:commentId', requireAuth, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        if (!UUID_REGEX.test(commentId)) return res.status(400).json({ error: 'Invalid comment ID' });
+
+        // Get the comment with reviewer info using admin client to bypass RLS
+        const { data: comment, error: fetchError } = await supabaseAdmin
+            .from('reviewer_comments')
+            .select('id, user_id, reviewer_id, reviewers!inner(user_id)')
+            .eq('id', commentId)
+            .single();
+
+        if (fetchError || !comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+
+        // Allow deletion if user is comment owner OR reviewer owner
+        const isCommentOwner = comment.user_id === req.session.userId;
+        const isReviewerOwner = comment.reviewers.user_id === req.session.userId;
+
+        if (!isCommentOwner && !isReviewerOwner) {
+            return res.status(403).json({ error: 'You do not have permission to delete this comment' });
+        }
+
+        // Delete the comment
+        const { error: deleteError } = await supabaseAdmin
+            .from('reviewer_comments')
+            .delete()
+            .eq('id', commentId);
+
+        if (deleteError) throw deleteError;
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete comment error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/comments/:commentId/reactions  — auth required, toggle model
+app.post('/api/comments/:commentId/reactions', requireAuth, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        if (!UUID_REGEX.test(commentId)) return res.status(400).json({ error: 'Invalid comment ID' });
+
+        const VALID_REACTIONS = ['like', 'haha', 'sad', 'wow', 'heart'];
+        const reactionType = req.body.reaction_type;
+        if (!VALID_REACTIONS.includes(reactionType)) {
+            return res.status(400).json({ error: 'Invalid reaction type' });
+        }
+
+        const { data: existing } = await supabase
+            .from('reviewer_comment_reactions')
+            .select('id, reaction_type')
+            .eq('comment_id', commentId)
+            .eq('user_id', req.session.userId)
+            .maybeSingle();
+
+        if (existing) {
+            if (existing.reaction_type === reactionType) {
+                await supabaseAdmin.from('reviewer_comment_reactions').delete().eq('id', existing.id);
+                return res.json({ reacted: false, reaction_type: null });
+            } else {
+                await supabaseAdmin.from('reviewer_comment_reactions').update({ reaction_type: reactionType }).eq('id', existing.id);
+                return res.json({ reacted: true, reaction_type: reactionType });
+            }
+        } else {
+            await supabaseAdmin.from('reviewer_comment_reactions').insert([{ comment_id: commentId, user_id: req.session.userId, reaction_type: reactionType }]);
+            return res.json({ reacted: true, reaction_type: reactionType });
+        }
+    } catch (error) {
+        console.error('Comment reaction error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/comments/:commentId/reactions/:reactionType/users  — get users who reacted with specific type
+app.get('/api/comments/:commentId/reactions/:reactionType/users', async (req, res) => {
+    try {
+        const { commentId, reactionType } = req.params;
+        if (!UUID_REGEX.test(commentId)) return res.status(400).json({ error: 'Invalid comment ID' });
+        
+        const VALID_REACTIONS = ['like', 'haha', 'sad', 'wow', 'heart'];
+        if (!VALID_REACTIONS.includes(reactionType)) {
+            return res.status(400).json({ error: 'Invalid reaction type' });
+        }
+
+        const { data: reactions, error } = await supabase
+            .from('reviewer_comment_reactions')
+            .select('user_id, users(id, username, display_name, profile_picture_url)')
+            .eq('comment_id', commentId)
+            .eq('reaction_type', reactionType)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+
+        const users = reactions.map(r => r.users).filter(u => u);
+        res.json({ users });
+    } catch (error) {
+        console.error('Get reaction users error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/comments/:commentId/pin  — auth required, reviewer owner only (toggle)
+app.post('/api/comments/:commentId/pin', requireAuth, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        if (!UUID_REGEX.test(commentId)) return res.status(400).json({ error: 'Invalid comment ID' });
+
+        const { data: comment } = await supabase
+            .from('reviewer_comments')
+            .select('id, reviewer_id, is_pinned')
+            .eq('id', commentId)
+            .maybeSingle();
+
+        if (!comment) return res.status(404).json({ error: 'Comment not found' });
+
+        const { data: reviewer } = await supabase
+            .from('reviewers')
+            .select('id')
+            .eq('id', comment.reviewer_id)
+            .eq('user_id', req.session.userId)
+            .maybeSingle();
+
+        if (!reviewer) return res.status(403).json({ error: 'Not the reviewer owner' });
+
+        const toPin = !comment.is_pinned;
+
+        if (toPin) {
+            await supabaseAdmin.from('reviewer_comments').update({ is_pinned: false }).eq('reviewer_id', comment.reviewer_id);
+            await supabaseAdmin.from('reviewer_comments').update({ is_pinned: true }).eq('id', commentId);
+        } else {
+            await supabaseAdmin.from('reviewer_comments').update({ is_pinned: false }).eq('id', commentId);
+        }
+
+        res.json({ pinned: toPin });
+    } catch (error) {
+        console.error('Pin comment error:', error);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -3371,6 +3990,24 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
         if (error) {
             console.error('Send message error:', error);
             return res.status(500).json({ error: 'Failed to send message' });
+        }
+
+        // Create notification for private messages
+        if (chat_type === 'private' && recipient_id && recipient_id !== req.session.userId) {
+            try {
+                await createNotification({
+                    userId: recipient_id,
+                    type: 'message',
+                    title: 'New Message',
+                    message: `${req.session.username} sent you a message`,
+                    link: `/chat.html?with=${req.session.userId}`,
+                    relatedUserId: req.session.userId,
+                    relatedItemId: newMessage.id
+                });
+            } catch (notifErr) {
+                console.error('Failed to create message notification:', notifErr);
+                // Don't fail the request if notification creation fails
+            }
         }
 
         try { console.debug('New message inserted:', newMessage && newMessage.id ? { id: newMessage.id, user_id: newMessage.user_id, chat_type: newMessage.chat_type } : newMessage); } catch (e) {}
@@ -4581,6 +5218,119 @@ app.get('/settings.html', (req, res) => {
 
 
 // =====================================================
+// NOTIFICATIONS API
+// =====================================================
+
+// Helper function to create a notification
+async function createNotification({ userId, type, title, message, link, relatedUserId, relatedItemId }) {
+    try {
+        const { error } = await supabaseAdmin
+            .from('notifications')
+            .insert([{
+                user_id: userId,
+                type,
+                title,
+                message,
+                link,
+                related_user_id: relatedUserId,
+                related_item_id: relatedItemId
+            }]);
+        
+        if (error) {
+            console.error('Failed to create notification:', error);
+        }
+    } catch (err) {
+        console.error('Create notification error:', err);
+    }
+}
+
+// GET /api/notifications - Get user's notifications
+app.get('/api/notifications', requireAuth, async (req, res) => {
+    try {
+        const userId = req.session.userId;
+        const limit = parseInt(req.query.limit) || 50;
+        const unreadOnly = req.query.unread === 'true';
+
+        let query = supabaseAdmin
+            .from('notifications')
+            .select('*, related_user:related_user_id(username, profile_picture_url)')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .limit(limit);
+
+        if (unreadOnly) {
+            query = query.eq('is_read', false);
+        }
+
+        const { data: notifications, error } = await query;
+
+        if (error) {
+            console.error('Get notifications error:', error);
+            return res.status(500).json({ error: 'Failed to fetch notifications' });
+        }
+
+        // Get unread count
+        const { count: unreadCount } = await supabaseAdmin
+            .from('notifications')
+            .select('id', { count: 'exact', head: true })
+            .eq('user_id', userId)
+            .eq('is_read', false);
+
+        res.json({ notifications: notifications || [], unreadCount: unreadCount || 0 });
+    } catch (error) {
+        console.error('Get notifications error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// PUT /api/notifications/:id/read - Mark notification as read
+app.put('/api/notifications/:id/read', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const userId = req.session.userId;
+
+        const { error } = await supabaseAdmin
+            .from('notifications')
+            .update({ is_read: true })
+            .eq('id', id)
+            .eq('user_id', userId);
+
+        if (error) {
+            console.error('Mark notification as read error:', error);
+            return res.status(500).json({ error: 'Failed to mark notification as read' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Mark notification as read error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// PUT /api/notifications/read-all - Mark all notifications as read
+app.put('/api/notifications/read-all', requireAuth, async (req, res) => {
+    try {
+        const userId = req.session.userId;
+
+        const { error } = await supabaseAdmin
+            .from('notifications')
+            .update({ is_read: true })
+            .eq('user_id', userId)
+            .eq('is_read', false);
+
+        if (error) {
+            console.error('Mark all notifications as read error:', error);
+            return res.status(500).json({ error: 'Failed to mark all notifications as read' });
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Mark all notifications as read error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// =====================================================
 // ERROR HANDLING
 // =====================================================
 
@@ -4618,6 +5368,37 @@ app.use((err, req, res, next) => {
     const message = isProd ? 'Internal server error' : (err.message || 'Internal server error');
     res.status(statusCode).json({ error: message });
 });
+
+// =====================================================
+// NOTIFICATION CLEANUP JOB
+// =====================================================
+
+// Function to clean up notifications older than 30 days
+async function cleanupOldNotifications() {
+    try {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const { data, error } = await supabaseAdmin
+            .from('notifications')
+            .delete()
+            .lt('created_at', thirtyDaysAgo.toISOString());
+
+        if (error) {
+            console.error('Failed to cleanup old notifications:', error);
+        } else {
+            console.log('✓ Cleaned up old notifications');
+        }
+    } catch (err) {
+        console.error('Notification cleanup error:', err);
+    }
+}
+
+// Run cleanup every 24 hours
+setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
+
+// Run cleanup on startup
+cleanupOldNotifications();
 
 // =====================================================
 // START SERVER
