@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Chat - Thinky</title>
     
     <!-- Google Fonts -->
@@ -390,6 +390,11 @@
 
         .chat-input:focus { border-color: var(--primary-pink); background: var(--white); }
 
+        /* Hide back button on desktop — only needed for mobile sidebar navigation */
+        @media (min-width: 769px) {
+            #chatBackBtn { display: none !important; }
+        }
+
         /* ─── Mobile responsive ─── */
         @media (max-width: 768px) {
             body { overflow: hidden; }
@@ -408,8 +413,28 @@
                 pointer-events: none;
             }
 
+            /* Safe area: top of sidebar header (status bar / notch) */
+            .cps-header {
+                padding-top: max(20px, env(safe-area-inset-top));
+            }
+
+            /* Safe area: top of chat header when sidebar is hidden */
+            .chat-header {
+                padding-top: max(14px, env(safe-area-inset-top));
+            }
+
+            /* Safe area: bottom of input (Android nav bar / iOS home indicator) */
+            .chat-input-container {
+                padding-bottom: max(16px, env(safe-area-inset-bottom));
+            }
+
             .chat-main { width: 100%; }
-            .chat-back-btn { display: flex !important; align-items: center; }
+
+            /* On mobile, hide the right-side "Back" button — chatBackBtn on the left handles it */
+            #closePrivateBtn { display: none !important; }
+
+            /* Back button visibility is controlled entirely by JS (hidePeopleSidebarMobile / showPeopleSidebarMobile) */
+            .chat-back-btn { align-items: center; }
 
             .chat-message { padding-right: 16px; }
             .chat-message.msg-self { padding-left: 8px; }
@@ -472,11 +497,6 @@
         </nav>
     </div>
 
-    <!-- Mobile Toggle -->
-    <button class="sidebar-toggle" onclick="toggleSidebar()">
-        <i class="bi bi-list"></i>
-    </button>
-
     <!-- Main Content -->
     <div class="main-content">
         <div class="chat-layout">
@@ -485,7 +505,12 @@
             <aside class="chat-people-sidebar" id="chatPeopleSidebar">
                 <!-- Header with search -->
                 <div class="cps-header">
-                    <h2><i class="bi bi-chat-dots" style="margin-right:8px;"></i>Messages</h2>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+                        <h2 style="margin:0;"><i class="bi bi-chat-dots" style="margin-right:8px;"></i>Messages</h2>
+                        <button class="sidebar-toggle" onclick="toggleSidebar()" style="position:static;width:36px;height:36px;box-shadow:none;flex-shrink:0;">
+                            <i class="bi bi-list"></i>
+                        </button>
+                    </div>
                     <div class="cps-search-wrap">
                         <i class="bi bi-search"></i>
                         <input type="text" class="cps-search" id="sidebarSearch" placeholder="Search conversations..." oninput="filterSidebarContacts(this.value)">

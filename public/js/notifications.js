@@ -1,56 +1,50 @@
 // Notifications system for reviewer reactions, comments, and messages
 (function() {
-    const POLL_INTERVAL = 30000; // Poll every 30 seconds
+    const POLL_INTERVAL = 30000;
+    const PAGE_LIMIT = 10;
+
     let pollInterval = null;
     let notificationsCache = [];
     let isInitialized = false;
+
+    // Lazy loading state
+    let _offset = 0;
+    let _hasMore = false;
+    let _isLoadingMore = false;
 
     // Initialize notifications on page load
     function initNotifications() {
         const notifBtns = document.querySelectorAll('.notification-btn');
         const notifDropdowns = document.querySelectorAll('.notification-dropdown');
 
-        if (notifBtns.length === 0 || notifDropdowns.length === 0) {
-            console.debug('Notification elements not found on this page');
-            return;
-        }
+        if (notifBtns.length === 0 || notifDropdowns.length === 0) return;
 
-        // Prevent double initialization
-        if (isInitialized) {
-            console.debug('Notifications already initialized');
-            return;
-        }
-
-        isInitialized = true;
-        console.debug('Notifications initialized for', notifBtns.length, 'button(s)');
-
-        // Setup each notification button and dropdown
+        // Setup each notification button and dropdown (skip already-bound ones)
         notifBtns.forEach((btn, index) => {
             const dropdown = notifDropdowns[index];
             if (!dropdown) return;
+            if (btn.dataset.notifBound === '1') return; // already has listener
+            btn.dataset.notifBound = '1';
 
             // Toggle dropdown on button click
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 e.preventDefault();
-                
+
                 // Close all other dropdowns
-                notifDropdowns.forEach((d, i) => {
-                    if (i !== index) {
-                        d.style.display = 'none';
-                    }
-                });
+                notifDropdowns.forEach((d, i) => { if (i !== index) d.style.display = 'none'; });
 
                 const isVisible = dropdown.style.display === 'block';
-                
-                console.debug('Notification button clicked, current visibility:', isVisible);
-                
                 if (isVisible) {
                     dropdown.style.display = 'none';
                 } else {
                     dropdown.style.display = 'block';
-                    console.debug('Dropdown should now be visible');
-                    await loadNotifications();
+                    // Reset and load first page
+                    notificationsCache = [];
+                    _offset = 0;
+                    _hasMore = false;
+                    _isLoadingMore = false;
+                    await loadNotifications(true);
                 }
             });
 
@@ -62,47 +56,135 @@
             });
         });
 
-        // Mark all as read buttons
-        const markAllReadBtns = document.querySelectorAll('.mark-all-read-btn');
-        markAllReadBtns.forEach(btn => {
+        // Mark all as read buttons (skip already-bound)
+        document.querySelectorAll('.mark-all-read-btn').forEach(btn => {
+            if (btn.dataset.notifBound === '1') return;
+            btn.dataset.notifBound = '1';
             btn.addEventListener('click', async (e) => {
                 e.preventDefault();
                 await markAllAsRead();
             });
         });
 
-        // Start polling for new notifications
-        startPolling();
+        // Infinite scroll on notification lists
+        document.querySelectorAll('.notification-list').forEach(list => {
+            if (list.dataset.scrollBound === '1') return;
+            list.dataset.scrollBound = '1';
+            list.addEventListener('scroll', async () => {
+                if (_isLoadingMore || !_hasMore) return;
+                if (list.scrollHeight - list.scrollTop - list.clientHeight < 80) {
+                    await loadNotifications(false);
+                }
+            });
+        });
 
-        // Initial load
-        loadNotifications();
+        if (!isInitialized) {
+            startPolling();
+            isInitialized = true;
+        }
     }
 
-    // Load notifications from API
-    async function loadNotifications() {
+    // Load notifications — reset=true replaces list, reset=false appends
+    async function loadNotifications(reset = true) {
+        if (_isLoadingMore) return;
+        if (!reset && !_hasMore) return;
+
+        _isLoadingMore = true;
+
+        const lists = document.querySelectorAll('.notification-list');
+
+        if (reset) {
+            lists.forEach(list => {
+                list.innerHTML = '<div class="notification-loading">Loading...</div>';
+            });
+        } else {
+            // Show bottom spinner
+            lists.forEach(list => {
+                if (!list.querySelector('.notif-more-spinner')) {
+                    const s = document.createElement('div');
+                    s.className = 'notif-more-spinner notification-loading';
+                    s.textContent = 'Loading more...';
+                    list.appendChild(s);
+                }
+            });
+        }
+
         try {
-            const response = await fetch('/api/notifications?limit=20', {
+            const response = await fetch(`/api/notifications?limit=${PAGE_LIMIT}&offset=${_offset}`, {
                 credentials: 'include'
             });
 
-            if (!response.ok) {
-                console.error('Failed to fetch notifications:', response.statusText);
-                return;
-            }
+            if (!response.ok) return;
 
             const data = await response.json();
-            notificationsCache = data.notifications || [];
-            updateBadge(data.unreadCount || 0);
-            renderNotifications(notificationsCache);
+            const fresh = data.notifications || [];
+
+            _hasMore = fresh.length >= PAGE_LIMIT;
+            _offset += fresh.length;
+
+            if (reset) {
+                notificationsCache = fresh;
+            } else {
+                notificationsCache = [...notificationsCache, ...fresh];
+            }
+
+            updateBadge(data.unreadCount ?? notificationsCache.filter(n => !n.is_read).length);
+
+            lists.forEach(list => {
+                // Remove spinners
+                list.querySelectorAll('.notification-loading, .notif-more-spinner').forEach(el => el.remove());
+
+                if (reset && fresh.length === 0) {
+                    list.innerHTML = '<div class="notification-empty">No notifications</div>';
+                    return;
+                }
+
+                const html = fresh.map(notif => buildNotifHtml(notif)).join('');
+                if (reset) {
+                    list.innerHTML = html;
+                } else {
+                    list.insertAdjacentHTML('beforeend', html);
+                }
+
+                // Attach click handlers only to new items
+                list.querySelectorAll('.notification-item:not([data-bound])').forEach(item => {
+                    item.dataset.bound = '1';
+                    item.addEventListener('click', async () => {
+                        const notifId = item.dataset.id;
+                        const link = item.dataset.link;
+                        await markAsRead(notifId);
+                        if (link) window.location.href = link;
+                    });
+                });
+            });
         } catch (error) {
             console.error('Error loading notifications:', error);
+        } finally {
+            _isLoadingMore = false;
+            document.querySelectorAll('.notif-more-spinner').forEach(s => s.remove());
         }
+    }
+
+    function buildNotifHtml(notif) {
+        const unreadClass = notif.is_read ? '' : 'unread';
+        const avatar = (notif.related_user && notif.related_user.profile_picture_url)
+            ? notif.related_user.profile_picture_url : '/images/default-avatar.svg';
+        const timeAgo = formatTimeAgo(new Date(notif.created_at));
+        return `
+            <div class="notification-item ${unreadClass}" data-id="${notif.id}" data-link="${notif.link || ''}">
+                <img src="${escapeHtml(avatar)}" onerror="this.src='/images/default-avatar.svg'"
+                     alt="avatar" class="notification-avatar">
+                <div class="notification-content">
+                    <div class="notification-title">${escapeHtml(notif.title)}</div>
+                    <div class="notification-message">${escapeHtml(notif.message)}</div>
+                    <div class="notification-time">${timeAgo}</div>
+                </div>
+            </div>`;
     }
 
     // Update notification badge
     function updateBadge(count) {
-        const badges = document.querySelectorAll('.notification-badge');
-        badges.forEach(badge => {
+        document.querySelectorAll('.notification-badge').forEach(badge => {
             if (count > 0) {
                 badge.textContent = count > 99 ? '99+' : count.toString();
                 badge.style.display = 'inline-block';
@@ -112,70 +194,13 @@
         });
     }
 
-    // Render notifications in dropdown
-    function renderNotifications(notifications) {
-        const lists = document.querySelectorAll('.notification-list');
-        lists.forEach(list => {
-            if (notifications.length === 0) {
-                list.innerHTML = '<div class="notification-empty">No notifications</div>';
-                return;
-            }
-
-            list.innerHTML = notifications.map(notif => {
-                const unreadClass = notif.is_read ? '' : 'unread';
-                const avatar = notif.related_user?.profile_picture_url || '/images/default-avatar.svg';
-                const timeAgo = formatTimeAgo(new Date(notif.created_at));
-                
-                return `
-                    <div class="notification-item ${unreadClass}" data-id="${notif.id}" data-link="${notif.link}">
-                        <img src="${avatar}" 
-                             onerror="this.src='/images/default-avatar.svg'" 
-                             alt="avatar" 
-                             class="notification-avatar">
-                        <div class="notification-content">
-                            <div class="notification-title">${escapeHtml(notif.title)}</div>
-                            <div class="notification-message">${escapeHtml(notif.message)}</div>
-                            <div class="notification-time">${timeAgo}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Add click handlers to notification items
-            list.querySelectorAll('.notification-item').forEach(item => {
-                item.addEventListener('click', async () => {
-                    const notifId = item.dataset.id;
-                    const link = item.dataset.link;
-                    
-                    // Mark as read
-                    await markAsRead(notifId);
-                    
-                    // Navigate to the link
-                    if (link) {
-                        window.location.href = link;
-                    }
-                });
-            });
-        });
-    }
-
     // Mark a notification as read
     async function markAsRead(notifId) {
         try {
-            await fetch(`/api/notifications/${notifId}/read`, {
-                method: 'PUT',
-                credentials: 'include'
-            });
-
-            // Update local cache
+            await fetch(`/api/notifications/${notifId}/read`, { method: 'PUT', credentials: 'include' });
             const notif = notificationsCache.find(n => n.id === notifId);
-            if (notif) {
-                notif.is_read = true;
-            }
-
-            // Update badge
-            const unreadCount = notificationsCache.filter(n => !n.is_read).length;
-            updateBadge(unreadCount);
+            if (notif) notif.is_read = true;
+            updateBadge(notificationsCache.filter(n => !n.is_read).length);
         } catch (error) {
             console.error('Error marking notification as read:', error);
         }
@@ -184,59 +209,43 @@
     // Mark all notifications as read
     async function markAllAsRead() {
         try {
-            await fetch('/api/notifications/read-all', {
-                method: 'PUT',
-                credentials: 'include'
-            });
-
-            // Update local cache
-            notificationsCache.forEach(notif => {
-                notif.is_read = true;
-            });
-
-            // Update UI
+            await fetch('/api/notifications/read-all', { method: 'PUT', credentials: 'include' });
+            notificationsCache.forEach(n => { n.is_read = true; });
             updateBadge(0);
-            renderNotifications(notificationsCache);
+            // Visually remove unread highlight
+            document.querySelectorAll('.notification-item.unread').forEach(el => el.classList.remove('unread'));
         } catch (error) {
             console.error('Error marking all notifications as read:', error);
         }
     }
 
-    // Start polling for new notifications
+    // Start polling for unread count (does not replace list)
     function startPolling() {
-        if (pollInterval) {
-            clearInterval(pollInterval);
-        }
+        if (pollInterval) clearInterval(pollInterval);
 
         let prevUnreadCount = -1;
         pollInterval = setInterval(async () => {
             try {
-                const response = await fetch('/api/notifications?unread=true', {
-                    credentials: 'include'
-                });
-
+                const response = await fetch('/api/notifications?unread=true&limit=1', { credentials: 'include' });
                 if (response.ok) {
                     const data = await response.json();
                     const newCount = data.unreadCount || 0;
                     updateBadge(newCount);
-                    // When new notifications have arrived since the last poll,
-                    // refresh the full list so the dropdown reflects them immediately
-                    // without the user needing to close and reopen it.
+                    // If new notifications arrived, reset list next time dropdown opens
                     if (prevUnreadCount >= 0 && newCount > prevUnreadCount) {
-                        await loadNotifications();
+                        // Mark cache stale so next open reloads
+                        _offset = 0;
+                        notificationsCache = [];
                     }
                     prevUnreadCount = newCount;
                 }
-            } catch (error) {
-                console.debug('Notification polling error:', error);
-            }
+            } catch (_) {}
         }, POLL_INTERVAL);
     }
 
     // Format time ago
     function formatTimeAgo(date) {
         const seconds = Math.floor((new Date() - date) / 1000);
-        
         if (seconds < 60) return 'just now';
         if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
         if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -247,18 +256,13 @@
     // Escape HTML to prevent XSS
     function escapeHtml(text) {
         const div = document.createElement('div');
-        div.textContent = text;
+        div.textContent = text || '';
         return div.innerHTML;
     }
 
-    // Don't auto-start - wait for manual initialization after login detection
-    // The notification button is dynamically created after login, so we need to
-    // wait for that to happen before initializing
-
-    // Expose functions globally if needed
     window.notificationSystem = {
         init: initNotifications,
-        loadNotifications,
+        loadNotifications: () => loadNotifications(true),
         markAsRead,
         markAllAsRead
     };

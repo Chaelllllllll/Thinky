@@ -282,32 +282,31 @@ function displaySubjects() {
         
         const card = document.createElement('div');
         card.className = 'subject-card';
+        const dateStr = new Date(subject.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         card.innerHTML = `
-            <div class="subject-header-row">
-                <div>
-                    <div class="subject-name">${escapeHtml(subject.name)}</div>
-                    ${subject.description ? `<div class="subject-description">${escapeHtml(subject.description)}</div>` : ''}
-                </div>
+            <div class="subject-card-body">
+                <div class="subject-name">${escapeHtml(subject.name)}</div>
+                ${subject.description ? `<div class="subject-description">${escapeHtml(subject.description)}</div>` : ''}
                 <div class="subject-meta">
-                    <div style="text-align:right; font-size:0.9rem; color:var(--dark-gray);">
-                        <div>${reviewersCount} reviewer${reviewersCount !== 1 ? 's' : ''}</div>
-                        <div style="margin-top:6px;">${new Date(subject.created_at).toLocaleDateString()}</div>
-                    </div>
+                    <span><i class="bi bi-journal-text"></i> ${reviewersCount} reviewer${reviewersCount !== 1 ? 's' : ''}</span>
+                    <span><i class="bi bi-calendar3"></i> ${dateStr}</span>
                 </div>
             </div>
-            <div class="subject-actions">
-                <button class="btn btn-accent btn-sm" onclick="openReviewerModal('${subject.id}')">
-                    <i class="bi bi-plus"></i> Add Reviewer
+            <div class="subject-card-footer">
+                <button class="btn btn-accent btn-sm icon-btn" onclick="openReviewerModal('${subject.id}')" title="Add Reviewer">
+                    <i class="bi bi-plus-lg"></i>
                 </button>
-                <button class="btn btn-light btn-sm" onclick="openReviewersList('${subject.id}')">
-                    <i class="bi bi-eye"></i> View Reviewers
-                </button>
-                <button class="btn btn-light btn-sm" onclick="editSubject('${subject.id}')">
-                    <i class="bi bi-pencil"></i>
-                </button>
-                <button class="btn btn-danger btn-sm" onclick="deleteSubject('${subject.id}')">
-                    <i class="bi bi-trash"></i>
-                </button>
+                <div class="footer-right">
+                    <button class="btn btn-light btn-sm icon-btn" onclick="openReviewersList('${subject.id}')" title="View Reviewers">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                    <button class="btn btn-light btn-sm icon-btn" onclick="editSubject('${subject.id}')" title="Edit Subject">
+                        <i class="bi bi-pencil"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm icon-btn" onclick="deleteSubject('${subject.id}')" title="Delete Subject">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
             </div>
         `;
         grid.appendChild(card);

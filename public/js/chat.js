@@ -543,14 +543,22 @@ function updateChatInputState() {
 // ─── Load messages ────────────────────────────────────────────────────────────
 async function loadMessages(silent = false) {
     try {
-        let url = `/api/messages/${currentChatType}`;
+        // During polling (silent=true with existing messages) only fetch NEW messages
+        // using ?since= so we can append them without wiping lazy-loaded history.
+        const isPolling = silent && messages.length > 0;
+        const lastMsg = isPolling ? messages[messages.length - 1] : null;
+
+        const params = new URLSearchParams();
+        params.set('limit', '30');
         if (currentChatType === 'private') {
             if (!currentRecipientId) return;
-            url += `?with=${encodeURIComponent(currentRecipientId)}&limit=100`;
-        } else {
-            url += '?limit=100';
+            params.set('with', currentRecipientId);
+        }
+        if (isPolling && lastMsg) {
+            params.set('since', lastMsg.created_at);
         }
 
+        const url = `/api/messages/${currentChatType}?${params.toString()}`;
         const response = await fetch(url, { credentials: 'include' });
         if (!response.ok) {
             if (response.status === 401) { window.location.href = '/login'; return; }
@@ -560,22 +568,20 @@ async function loadMessages(silent = false) {
         const data = await response.json();
         const newMessages = data.messages || [];
 
-        // Detect new messages for notification
-        const hadMessages = messages.length;
-        const newCount = newMessages.length - messages.length;
-
-        messages = newMessages;
-        if (messages.length > 0) oldestMessageId = messages[0].id;
-        hasMoreMessages = messages.length >= 100;
-
-        displayMessages(silent);
-
-        // Fire notification for new private messages (while user is in general or another chat)
-        if (silent && newCount > 0 && currentChatType === 'general') {
-            // Someone sent a new general message while we were looking; handled by unread polling
-        }
-        if (silent && newCount > 0 && currentChatType === 'private') {
-            // Update the sidebar contact's last message preview on next refresh
+        if (isPolling) {
+            // Append only messages not already in the list
+            if (newMessages.length === 0) return;
+            const existingIds = new Set(messages.map(m => m.id));
+            const fresh = newMessages.filter(m => !existingIds.has(m.id));
+            if (fresh.length === 0) return;
+            messages = [...messages, ...fresh];
+            displayMessages(true);
+        } else {
+            // Initial full load for this chat
+            messages = newMessages;
+            if (messages.length > 0) oldestMessageId = messages[0].id;
+            hasMoreMessages = messages.length >= 30;
+            displayMessages(false);
         }
     } catch (err) {
         if (!silent) console.error('loadMessages error:', err);
@@ -906,19 +912,32 @@ function closePrivateChat() { selectGeneral(); }
 async function loadOlderMessages() {
     if (!oldestMessageId || !hasMoreMessages) return;
 
+    // Show a subtle top-of-list loading indicator
+    const container = document.getElementById('chatMessages');
+    let indicator = null;
+    if (container) {
+        indicator = document.createElement('div');
+        indicator.id = 'olderMsgsLoader';
+        indicator.style.cssText = 'text-align:center;padding:12px;color:var(--dark-gray);font-size:0.85rem;';
+        indicator.innerHTML = '<span class="spinner" style="width:18px;height:18px;border-width:2px;"></span>';
+        container.prepend(indicator);
+    }
+
     try {
-        let url = `/api/messages/${currentChatType}?limit=50&before=${oldestMessageId}`;
+        const params = new URLSearchParams({ limit: '30', before: oldestMessageId });
         if (currentChatType === 'private') {
-            if (!currentRecipientId) return;
-            url += `&with=${encodeURIComponent(currentRecipientId)}`;
+            if (!currentRecipientId) { if (indicator) indicator.remove(); return; }
+            params.set('with', currentRecipientId);
         }
 
+        const url = `/api/messages/${currentChatType}?${params.toString()}`;
         const response = await fetch(url, { credentials: 'include' });
         if (!response.ok) { hasMoreMessages = false; return; }
 
         const data = await response.json();
         const older = (data && Array.isArray(data.messages)) ? data.messages : [];
         if (older.length === 0) { hasMoreMessages = false; return; }
+        if (older.length < 30) hasMoreMessages = false;
 
         messages = [...older, ...messages];
         oldestMessageId = older[0].id;
@@ -926,6 +945,8 @@ async function loadOlderMessages() {
     } catch (err) {
         console.error('loadOlderMessages error:', err);
         hasMoreMessages = false;
+    } finally {
+        if (indicator) indicator.remove();
     }
 }
 

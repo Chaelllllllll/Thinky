@@ -928,12 +928,14 @@
                 const notificationWrapperDesktop = document.getElementById('notificationWrapperDesktop');
                 
                 if (navActions) {
-                    const avatar = `<img src="${user.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:28px;height:28px;border-radius:999px;object-fit:cover;margin-right:8px;">`;
-                    // Keep the desktop notification wrapper and add other nav items
+                    const avatarSrc = user.profile_picture_url || '/images/default-avatar.svg';
                     const desktopNotifHtml = notificationWrapperDesktop ? notificationWrapperDesktop.outerHTML : '';
                     navActions.innerHTML = `
+                        <a href="/profile" title="My Profile" style="display:inline-flex;align-items:center;text-decoration:none;flex-shrink:0;">
+                            <img src="${avatarSrc}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar"
+                                 style="width:34px;height:34px;border-radius:999px;object-fit:cover;border:2px solid var(--primary-pink);box-shadow:0 1px 4px rgba(0,0,0,0.12);">
+                        </a>
                         ${desktopNotifHtml}
-                        <a href="/profile" class="nav-link">${avatar}Profile</a>
                         <a href="/dashboard" class="nav-link">Dashboard</a>
                         <button id="logoutBtn" class="btn btn-outline btn-sm">Logout</button>
                     `;
@@ -942,10 +944,19 @@
                         window.location.reload();
                     });
                 }
-                
-                // Show both notification wrappers
+
+                // Add profile avatar in mobile nav before the notification wrapper
                 if (notificationWrapperMobile) {
                     notificationWrapperMobile.style.display = 'block';
+                    if (!document.getElementById('mobileNavAvatar')) {
+                        const avatarLink = document.createElement('a');
+                        avatarLink.id = 'mobileNavAvatar';
+                        avatarLink.href = '/profile';
+                        avatarLink.title = 'My Profile';
+                        avatarLink.style.cssText = 'display:inline-flex;align-items:center;text-decoration:none;flex-shrink:0;';
+                        avatarLink.innerHTML = `<img src="${user.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:32px;height:32px;border-radius:999px;object-fit:cover;border:2px solid var(--primary-pink);">`;
+                        notificationWrapperMobile.parentNode.insertBefore(avatarLink, notificationWrapperMobile);
+                    }
                 }
                 
                 // Get the desktop wrapper again after innerHTML update
@@ -955,11 +966,9 @@
                 }
 
                 // Initialize notifications after showing the buttons
-                setTimeout(() => {
-                    if (window.notificationSystem && window.notificationSystem.init) {
-                        window.notificationSystem.init();
-                    }
-                }, 100);
+                if (window.notificationSystem && window.notificationSystem.init) {
+                    window.notificationSystem.init();
+                }
 
                 // Update hero CTA(s)
                 document.querySelectorAll('a[href="/register"]').forEach(a => {

@@ -2026,6 +2026,11 @@ body.dark .reviewer-content table tr:first-child td { background: #3d2438; }
     overflow: visible !important;
 }
 
+/* Disable ripple animation on notification buttons — it overflows and covers badge */
+.notification-btn::before {
+    display: none !important;
+}
+
 /* Notification button wrapper */
 #notificationBtn {
     position: relative;
@@ -2076,7 +2081,7 @@ body.dark .reviewer-content table tr:first-child td { background: #3d2438; }
     top: calc(100% + 8px);
     right: 0;
     width: 380px;
-    max-width: 90vw;
+    max-width: min(380px, calc(100vw - 20px));
     background: var(--white);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-lg);
@@ -2087,11 +2092,16 @@ body.dark .reviewer-content table tr:first-child td { background: #3d2438; }
 @media (max-width: 768px) {
     .notification-dropdown {
         position: fixed !important;
-        top: 60px !important;
+        top: 66px !important;
         right: 10px !important;
         left: 10px !important;
         width: auto !important;
         max-width: none !important;
+        max-height: calc(100vh - 80px);
+        overflow: hidden;
+    }
+    .notification-list {
+        max-height: calc(100vh - 160px) !important;
     }
 }
 

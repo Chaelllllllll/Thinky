@@ -4001,6 +4001,13 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                 sentQuery = sentQuery.gt('created_at', hiddenAt.toISOString());
                 receivedQuery = receivedQuery.gt('created_at', hiddenAt.toISOString());
             }
+
+            // Apply since filter (polling: only fetch messages newer than given timestamp)
+            const since = req.query.since || null;
+            if (since) {
+                sentQuery = sentQuery.gt('created_at', since);
+                receivedQuery = receivedQuery.gt('created_at', since);
+            }
             
             // Apply before filter if provided
             if (before) {
@@ -5482,7 +5489,8 @@ async function createNotification({ userId, type, title, message, link, relatedU
 app.get('/api/notifications', requireAuth, async (req, res) => {
     try {
         const userId = req.session.userId;
-        const limit = parseInt(req.query.limit) || 50;
+        const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
         const unreadOnly = req.query.unread === 'true';
 
         let query = supabaseAdmin
@@ -5490,7 +5498,7 @@ app.get('/api/notifications', requireAuth, async (req, res) => {
             .select('*, related_user:related_user_id(username, profile_picture_url)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
-            .limit(limit);
+            .range(offset, offset + limit - 1);
 
         if (unreadOnly) {
             query = query.eq('is_read', false);

@@ -95,70 +95,85 @@
 
         .subjects-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
             gap: 20px;
         }
 
         .subject-card {
-            background: linear-gradient(180deg, var(--white) 0%, var(--off-white) 100%);
-            padding: 20px;
-            border-radius: 12px;
-            box-shadow: 0 6px 18px rgba(25,20,40,0.06);
-            border: 1px solid rgba(200,200,200,0.25);
+            background: var(--white);
+            padding: 20px 20px 16px;
+            border-radius: 14px;
+            box-shadow: 0 4px 16px rgba(25,20,40,0.07);
+            border: 1px solid rgba(200,190,210,0.2);
             transition: transform 200ms ease, box-shadow 200ms ease;
             display: flex;
             flex-direction: column;
-            justify-content: space-between;
         }
 
         .subject-card:hover {
-            transform: translateY(-6px);
-            box-shadow: 0 10px 30px rgba(25,20,40,0.08);
-            border-color: rgba(255,158,180,0.25);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(25,20,40,0.1);
+            border-color: rgba(255,158,180,0.3);
+        }
+
+        .subject-card-body {
+            flex: 1;
         }
 
         .subject-name {
-            font-size: 1.25rem;
-            font-weight: 600;
+            font-size: 1.15rem;
+            font-weight: 700;
             color: var(--text-dark);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
+            line-height: 1.35;
         }
 
         .subject-description {
             color: var(--dark-gray);
-            font-size: 0.9rem;
-            margin-bottom: 16px;
+            font-size: 0.875rem;
+            margin-bottom: 12px;
+            line-height: 1.5;
         }
 
         .subject-meta {
             display: flex;
             align-items: center;
-            gap: 16px;
-            font-size: 0.875rem;
+            justify-content: space-between;
+            font-size: 0.82rem;
             color: var(--dark-gray);
-            margin-bottom: 16px;
+            margin-top: 10px;
         }
 
-        .subject-header-row {
+        .subject-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .subject-card-footer {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 12px;
-            margin-bottom: 12px;
+            gap: 6px;
+            margin-top: 16px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(0,0,0,0.06);
         }
 
-        .subject-actions { 
-            display: flex; 
-            gap: 8px; 
-            align-items: center; 
-            justify-content: flex-end;
-            margin-top: 12px;
-            flex-wrap: wrap;
+        .subject-card-footer .icon-btn {
+            width: 34px;
+            height: 34px;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            flex-shrink: 0;
         }
 
-        .subject-actions {
+        .subject-card-footer .footer-right {
             display: flex;
-            gap: 8px;
+            gap: 6px;
         }
 
         .reviewers-list {
@@ -226,8 +241,6 @@
         }
         /* Keep the editor toolbar visible when the reviewer modal body scrolls */
         #reviewerModal .modal-body {
-            max-height: 60vh;
-            overflow: auto;
             position: relative;
         }
 
@@ -237,6 +250,8 @@
             z-index: 20;
             background: var(--white);
             border-bottom: 1px solid var(--medium-gray);
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         /* Ensure the editor container does not force the modal to jump */
@@ -244,17 +259,7 @@
             min-height: 240px;
         }
 
-        /* View reviewer modal — fixed footer */
-        #viewReviewerModal .modal-content {
-            display: flex;
-            flex-direction: column;
-            max-height: 85vh;
-        }
-        #viewReviewerModal .modal-body {
-            overflow-y: auto;
-            flex: 1;
-            min-height: 0;
-        }
+        /* View reviewer modal — footer pinned by modal-helper-box */
         #viewReviewerModal .modal-footer {
             flex-shrink: 0;
         }
@@ -362,6 +367,29 @@
             .reviewer-row > div:last-child {
                 flex-wrap: wrap !important;
                 gap: 6px !important;
+            }
+
+            /* Flashcard rows — stack vertically on mobile */
+            .flashcard-row {
+                flex-direction: column !important;
+                align-items: stretch !important;
+            }
+
+            .flashcard-row .remove-flashcard {
+                align-self: flex-end;
+                width: auto !important;
+            }
+
+            /* Reviewer modal footer — 2 rows: secondary | primary */
+            #aiGenerateReviewerBtn,
+            #toggleFlashcardsBtn {
+                flex: 1 1 calc(50% - 4px) !important;
+                margin-right: 0 !important;
+            }
+
+            #reviewerModal .modal-footer .btn-light,
+            #saveReviewerBtn {
+                flex: 1 1 calc(50% - 4px) !important;
             }
         }
 
@@ -570,7 +598,7 @@
 
     <!-- Reviewer Modal -->
     <div id="reviewerModal" class="modal">
-        <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-content modal-helper-box" style="max-width: 900px;">
             <div class="modal-header">
                 <h3 class="modal-title" id="reviewerModalTitle">Add Reviewer</h3>
                 <button class="modal-close" onclick="closeReviewerModal()">&times;</button>
@@ -676,7 +704,7 @@
 
     <!-- View Reviewer Modal -->
     <div id="viewReviewerModal" class="modal">
-        <div class="modal-content" style="max-width: 900px;">
+        <div class="modal-content modal-helper-box" style="max-width: 900px;">
             <div class="modal-header">
                 <h3 class="modal-title" id="viewReviewerTitle"></h3>
                 <button class="modal-close" onclick="closeViewReviewerModal()">&times;</button>
@@ -695,7 +723,7 @@
 
     <!-- Reviewers List Modal (per subject) -->
     <div id="reviewersListModal" class="modal reviewers-list-modal">
-        <div class="modal-content" style="max-width: 720px;">
+        <div class="modal-content modal-helper-box" style="max-width: 720px;">
             <div class="modal-header">
                 <h3 class="modal-title" id="reviewersListTitle">Reviewers</h3>
                 <button class="modal-close" onclick="closeReviewersListModal()">&times;</button>
@@ -704,7 +732,7 @@
                         <div style="margin-bottom:12px;">
                             <input id="reviewersListSearch" class="form-control" placeholder="Search reviewers..." style="width:100%;padding:10px;border:1px solid var(--medium-gray);border-radius:8px;">
                         </div>
-                        <div id="reviewersListContainer" class="reviewers-list-scroll" style="overflow:auto;max-height:60vh;padding:4px 0;">
+                        <div id="reviewersListContainer" class="reviewers-list-scroll" style="padding:4px 0;">
                             <!-- Rendered dynamically -->
                         </div>
                     </div>
