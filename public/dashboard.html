@@ -690,11 +690,11 @@
             <div class="modal-body">
                 <!-- Daily usage indicator removed from here -->
                 <p style="color:var(--dark-gray);font-size:0.9rem;margin:0 0 16px;">Upload a PDF, Word (.docx), or text file and we&rsquo;ll automatically generate the reviewer for you.</p>
-                <div class="ai-drop-zone" id="aiDropZone" onclick="document.getElementById('aiFileInput').click()">
+                <label class="ai-drop-zone" id="aiDropZone" for="aiFileInput" style="display:block;">
                     <i class="bi bi-cloud-arrow-up" style="font-size:2.2rem;color:var(--primary-pink);"></i>
-                    <div style="margin-top:10px;font-weight:500;">Drop file here or click to browse</div>
+                    <div style="margin-top:10px;font-weight:500;">Tap to browse or drop file here</div>
                     <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:4px;">PDF, DOCX, TXT &mdash; up to 10 MB</div>
-                </div>
+                </label>
                 <input type="file" id="aiFileInput" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" style="display:none;" onchange="aiFileSelected(this)">
                 <div id="aiSelectedFile" style="display:none;padding:10px 12px;background:var(--light-gray);border-radius:10px;margin-top:12px;font-size:0.88rem;align-items:center;gap:8px;">
                     <i class="bi bi-file-earmark" style="font-size:1.1rem;color:var(--primary-pink);"></i>

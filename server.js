@@ -5773,7 +5773,11 @@ const aiUpload = multer({
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
             'text/plain'
         ];
-        if (allowed.includes(file.mimetype)) {
+        // iOS / Android WebView often sends application/octet-stream regardless of file type
+        // Fall back to extension check in that case
+        const ext = (file.originalname || '').toLowerCase().split('.').pop();
+        const allowedExts = ['pdf', 'docx', 'txt'];
+        if (allowed.includes(file.mimetype) || (file.mimetype === 'application/octet-stream' && allowedExts.includes(ext))) {
             cb(null, true);
         } else {
             cb(new Error('Only PDF, DOCX, and TXT files are allowed'));
