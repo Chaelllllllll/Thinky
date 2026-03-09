@@ -1452,7 +1452,9 @@ function limitReachedMsg(data) {
     const nextUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
     const resetTimeStr = nextUtcMidnight.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
     const isSameDay = nextUtcMidnight.toLocaleDateString() === now.toLocaleDateString();
-    const resetLabel = isSameDay ? `tonight at ${resetTimeStr}` : `${nextUtcMidnight.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at ${resetTimeStr}`;
+    const isEvening = nextUtcMidnight.getHours() >= 18;
+    const sameDayLabel = isEvening ? 'tonight' : 'today';
+    const resetLabel = isSameDay ? `${sameDayLabel} at ${resetTimeStr}` : `${nextUtcMidnight.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at ${resetTimeStr}`;
     return (data.error || 'Daily limit reached.').replace(/\. ?Limit resets at midnight UTC\.?$/, '') + `. Resets ${resetLabel}.`;
 }
 
@@ -1479,7 +1481,9 @@ function aiOpenGeneratePanel() {
             const resetTimeStr = nextUtcMidnight.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
             const resetDateStr = nextUtcMidnight.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
             const isSameDay = nextUtcMidnight.toLocaleDateString() === now.toLocaleDateString();
-            const resetLabel = isSameDay ? `tonight at ${resetTimeStr}` : `${resetDateStr} at ${resetTimeStr}`;
+            const isEvening = nextUtcMidnight.getHours() >= 18;
+            const sameDayLabel = isEvening ? 'tonight' : 'today';
+            const resetLabel = isSameDay ? `${sameDayLabel} at ${resetTimeStr}` : `${resetDateStr} at ${resetTimeStr}`;
 
             if (remaining === 0) {
                 banner.style.background = 'rgba(220,53,69,0.1)';
