@@ -1158,6 +1158,48 @@ function renderEmailTemplate(name, vars) {
                                 </body>
                                 </html>`;
                 }
+        if (name === 'school_request_approved') {
+            const { username = '', schoolName = '', adminNote = '' } = vars;
+            return `<!doctype html>
+            <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+            <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f8f6f8;margin:0;padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f8;padding:24px 0;">
+                    <tr><td align="center">
+                        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.06);">
+                            <tr><td style="padding:28px 36px;text-align:center;background:linear-gradient(90deg,#ff9eb4,#ffd4e0);color:#fff;font-weight:700;font-size:20px;">School Request Approved</td></tr>
+                            <tr><td style="padding:28px 36px;color:#333;">
+                                <p style="margin:0 0 12px 0;font-size:16px;">Hi ${escapeHtml(username)},</p>
+                                <p style="margin:0 0 12px 0;color:#555;">Great news! Your request to add <strong>${escapeHtml(schoolName)}</strong> has been <strong style="color:#28a745;">approved</strong> and is now available in the school list.</p>
+                                ${adminNote ? `<p style="margin:12px 0;padding:12px;background:#f0fff4;border-left:4px solid #28a745;border-radius:4px;color:#333;"><strong>Admin note:</strong> ${escapeHtml(adminNote)}</p>` : ''}
+                                <p style="margin:12px 0 0 0;color:#555;">You can now select it when creating a new subject.</p>
+                            </td></tr>
+                            <tr><td style="padding:18px 36px;background:#faf5f7;color:#999;font-size:12px;text-align:center;">© ${new Date().getFullYear()} Thinky — All rights reserved</td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </body></html>`;
+        }
+        if (name === 'school_request_rejected') {
+            const { username = '', schoolName = '', adminNote = '' } = vars;
+            return `<!doctype html>
+            <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+            <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f8f6f8;margin:0;padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f8;padding:24px 0;">
+                    <tr><td align="center">
+                        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.06);">
+                            <tr><td style="padding:28px 36px;text-align:center;background:linear-gradient(90deg,#ff9eb4,#ffd4e0);color:#fff;font-weight:700;font-size:20px;">School Request Update</td></tr>
+                            <tr><td style="padding:28px 36px;color:#333;">
+                                <p style="margin:0 0 12px 0;font-size:16px;">Hi ${escapeHtml(username)},</p>
+                                <p style="margin:0 0 12px 0;color:#555;">We reviewed your request to add <strong>${escapeHtml(schoolName)}</strong>, but it was <strong style="color:#dc3545;">not approved</strong> at this time.</p>
+                                ${adminNote ? `<p style="margin:12px 0;padding:12px;background:#fff5f5;border-left:4px solid #dc3545;border-radius:4px;color:#333;"><strong>Admin note:</strong> ${escapeHtml(adminNote)}</p>` : ''}
+                                <p style="margin:12px 0 0 0;color:#555;">If you believe this is a mistake, please contact the admin team.</p>
+                            </td></tr>
+                            <tr><td style="padding:18px 36px;background:#faf5f7;color:#999;font-size:12px;text-align:center;">© ${new Date().getFullYear()} Thinky — All rights reserved</td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </body></html>`;
+        }
         // default simple template
         return `<div style="font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial;">${escapeHtml(vars.message || subject || '')}</div>`;
 }
@@ -2185,6 +2227,231 @@ app.get('/api/schools', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('Get schools error:', error);
         res.json({ schools: [] });
+    }
+});
+
+// ── School request routes ─────────────────────────────────────────────────────
+
+// POST /api/school-requests — authenticated user submits a request
+app.post('/api/school-requests', requireAuth, async (req, res) => {
+    try {
+        const { school_name, reason } = req.body;
+        if (!school_name || !String(school_name).trim()) {
+            return res.status(400).json({ error: 'School name is required' });
+        }
+        const cleanName = String(school_name).trim().slice(0, 200);
+        const cleanReason = reason ? String(reason).trim().slice(0, 500) : null;
+
+        // Block new request if user already has any pending request
+        const { data: existing } = await supabaseAdmin
+            .from('school_requests')
+            .select('id, school_name')
+            .eq('user_id', req.session.userId)
+            .eq('status', 'pending')
+            .maybeSingle();
+
+        if (existing) {
+            return res.status(409).json({ error: `You already have a pending request for "${existing.school_name}". Please wait for it to be reviewed before submitting another.` });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('school_requests')
+            .insert([{ user_id: req.session.userId, school_name: cleanName, reason: cleanReason }])
+            .select()
+            .single();
+
+        if (error) {
+            console.error('School request insert error:', error);
+            return res.status(500).json({ error: 'Failed to submit request' });
+        }
+
+        // Notify admins via Discord activity webhook
+        const _base = (process.env.BASE_URL || process.env.PRODUCTION_URL || '').replace(/\/$/, '');
+        _activityDiscord('School Request Submitted', [
+            ['School Name', cleanName],
+            ['Reason', cleanReason || '(none)'],
+            ['Requester', _base ? `[${req.session.username}](${_base}/user?id=${req.session.userId})` : (req.session.username || 'n/a')],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
+
+        res.json({ success: true, id: data.id });
+    } catch (error) {
+        console.error('School request error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/school-requests/my — returns the authenticated user's most recent school request
+app.get('/api/school-requests/my', requireAuth, async (req, res) => {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('school_requests')
+            .select('id, school_name, reason, status, admin_note, created_at')
+            .eq('user_id', req.session.userId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (error) return res.status(500).json({ error: 'Server error' });
+        res.json({ request: data || null });
+    } catch (e) {
+        console.error('Get my school request error:', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/admin/school-requests — admin views all requests (filterable by status)
+app.get('/api/admin/school-requests', requireAdmin, async (req, res) => {
+    try {
+        const status = req.query.status || 'pending';
+        let query = supabaseAdmin
+            .from('school_requests')
+            .select('*, users:user_id(username, email)')
+            .order('created_at', { ascending: false });
+
+        if (status !== 'all') query = query.eq('status', status);
+
+        const { data, error } = await query;
+        if (error) {
+            console.error('Get school requests error:', error);
+            return res.status(500).json({ error: 'Failed to fetch requests' });
+        }
+        res.json({ requests: data || [] });
+    } catch (error) {
+        console.error('Get school requests error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// PUT /api/admin/school-requests/:id/approve — approve and auto-create the school
+app.put('/api/admin/school-requests/:id/approve', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { admin_note } = req.body;
+
+        if (!isValidUUID(id)) return res.status(400).json({ error: 'Invalid request ID' });
+
+        const { data: reqRow, error: fetchErr } = await supabaseAdmin
+            .from('school_requests')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !reqRow) return res.status(404).json({ error: 'Request not found' });
+        if (reqRow.status !== 'pending') return res.status(409).json({ error: 'Request already processed' });
+
+        // Add the school to verified_schools
+        const { error: schoolErr } = await supabaseAdmin
+            .from('verified_schools')
+            .insert([{ name: reqRow.school_name }]);
+
+        // Duplicate school name is acceptable (unique constraint may reject — treat as non-fatal)
+        if (schoolErr && !schoolErr.message?.includes('unique')) {
+            console.error('Approve: insert school error:', schoolErr);
+            return res.status(500).json({ error: 'Failed to add school to verified list' });
+        }
+
+        // Mark request approved
+        await supabaseAdmin
+            .from('school_requests')
+            .update({ status: 'approved', admin_note: admin_note || null, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        // Notify requester (in-app + push + email) — non-blocking
+        (async () => {
+            try {
+                const { data: requester } = await supabaseAdmin
+                    .from('users')
+                    .select('id, email, username')
+                    .eq('id', reqRow.user_id)
+                    .single();
+                if (!requester) return;
+
+                // In-app notification + push
+                await createNotification({
+                    userId: requester.id,
+                    type: 'school_request',
+                    title: 'School Request Approved',
+                    message: `Your request to add "${reqRow.school_name}" has been approved! You can now select it when creating a subject.`,
+                    link: '/dashboard'
+                });
+
+                // Email
+                sendTemplatedEmail({
+                    to: requester.email,
+                    subject: `Your school request for "${reqRow.school_name}" was approved`,
+                    template: 'school_request_approved',
+                    variables: { username: requester.username, schoolName: reqRow.school_name, adminNote: admin_note || '' }
+                }).catch(() => {});
+            } catch (notifyErr) {
+                console.warn('Failed to notify requester on school approval:', notifyErr.message);
+            }
+        })();
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Approve school request error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// PUT /api/admin/school-requests/:id/reject — reject a request
+app.put('/api/admin/school-requests/:id/reject', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { admin_note } = req.body;
+
+        if (!isValidUUID(id)) return res.status(400).json({ error: 'Invalid request ID' });
+
+        const { data: reqRow, error: fetchErr } = await supabaseAdmin
+            .from('school_requests')
+            .select('id, status, user_id, school_name')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !reqRow) return res.status(404).json({ error: 'Request not found' });
+        if (reqRow.status !== 'pending') return res.status(409).json({ error: 'Request already processed' });
+
+        await supabaseAdmin
+            .from('school_requests')
+            .update({ status: 'rejected', admin_note: admin_note || null, updated_at: new Date().toISOString() })
+            .eq('id', id);
+
+        // Notify requester (in-app + push + email) — non-blocking
+        (async () => {
+            try {
+                const { data: requester } = await supabaseAdmin
+                    .from('users')
+                    .select('id, email, username')
+                    .eq('id', reqRow.user_id)
+                    .single();
+                if (!requester) return;
+
+                // In-app notification + push
+                await createNotification({
+                    userId: requester.id,
+                    type: 'school_request',
+                    title: 'School Request Update',
+                    message: `Your request to add "${reqRow.school_name}" was not approved at this time.${admin_note ? ' Reason: ' + admin_note : ''}`,
+                    link: '/dashboard'
+                });
+
+                // Email
+                sendTemplatedEmail({
+                    to: requester.email,
+                    subject: `Update on your school request for "${reqRow.school_name}"`,
+                    template: 'school_request_rejected',
+                    variables: { username: requester.username, schoolName: reqRow.school_name, adminNote: admin_note || '' }
+                }).catch(() => {});
+            } catch (notifyErr) {
+                console.warn('Failed to notify requester on school rejection:', notifyErr.message);
+            }
+        })();
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Reject school request error:', error);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 
@@ -4436,7 +4703,7 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
                 const preview = cleanMessage.length > 80 ? cleanMessage.slice(0, 80) + '…' : cleanMessage;
                 await createNotification({
                     userId: recipient_id,
-                    type: 'private_message',
+                    type: 'message',
                     title: `💬 ${req.session.username} sent you a message`,
                     message: preview,
                     link: `/chat.html?with=${req.session.userId}`,
@@ -4446,6 +4713,47 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
             } catch (notifErr) {
                 console.error('Failed to create message notification:', notifErr);
             }
+        }
+
+        // Fire-and-forget push notifications for general / school chat
+        if (chat_type !== 'private') {
+            (async () => {
+                try {
+                    // Find all users with push subscriptions (excluding sender)
+                    const { data: subUsers } = await supabaseAdmin
+                        .from('push_subscriptions')
+                        .select('user_id')
+                        .neq('user_id', req.session.userId);
+
+                    if (!subUsers || subUsers.length === 0) return;
+
+                    const subUserIds = [...new Set(subUsers.map(s => s.user_id))];
+
+                    // Filter to those who have general chat notifications enabled
+                    const { data: notifUsers } = await supabaseAdmin
+                        .from('users')
+                        .select('id')
+                        .in('id', subUserIds)
+                        .eq('notif_general_chat', true);
+
+                    if (!notifUsers || notifUsers.length === 0) return;
+
+                    const preview = cleanMessage.length > 80 ? cleanMessage.slice(0, 80) + '…' : cleanMessage;
+                    const chatLabel = chat_type === 'general' ? 'General Chat' : 'School Chat';
+
+                    await Promise.allSettled(
+                        notifUsers.map(u => sendPushToUser(u.id, {
+                            title: `💬 ${req.session.username} — ${chatLabel}`,
+                            body: preview,
+                            url: '/chat.html',
+                            type: 'message',
+                            tag: `chat-${chat_type}-${newMessage.id}`
+                        }))
+                    );
+                } catch (pushErr) {
+                    console.warn('[push] general chat push error:', pushErr.message);
+                }
+            })();
         }
 
         try { console.debug('New message inserted:', newMessage && newMessage.id ? { id: newMessage.id, user_id: newMessage.user_id, chat_type: newMessage.chat_type } : newMessage); } catch (e) {}
@@ -4658,13 +4966,17 @@ app.get('/api/online-users', requireAuth, async (req, res) => {
 // Update online status
 app.post('/api/online-status', requireAuth, async (req, res) => {
     try {
-        await supabase
+        await supabaseAdmin
             .from('online_users')
             .upsert({
                 user_id: req.session.userId,
                 username: req.session.username,
                 last_seen: new Date().toISOString()
             });
+
+        // Fire-and-forget: clean up users who haven't pinged in over 5 minutes
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        supabaseAdmin.from('online_users').delete().lt('last_seen', fiveMinAgo).then(() => {}).catch(() => {});
 
         res.json({ message: 'Status updated' });
     } catch (error) {
@@ -5185,19 +5497,118 @@ app.post('/api/auth/2fa/verify', async (req, res) => {
 // Get analytics
 app.get('/api/admin/analytics', requireAdmin, async (req, res) => {
     try {
-        const { data: analytics, error } = await supabase
-            .from('admin_analytics')
-            .select('*')
-            .single();
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+        const [analyticsResult, onlineCountResult] = await Promise.all([
+            supabase.from('admin_analytics').select('*').single(),
+            supabaseAdmin.from('online_users').select('user_id', { count: 'exact', head: true }).gte('last_seen', fiveMinAgo)
+        ]);
 
-        if (error) {
-            console.error('Get analytics error:', error);
+        if (analyticsResult.error) {
+            console.error('Get analytics error:', analyticsResult.error);
             return res.status(500).json({ error: 'Failed to fetch analytics' });
         }
 
+        // Override the view's stale count with a live count filtered to the last 5 minutes
+        const analytics = { ...analyticsResult.data, current_online_users: onlineCountResult.count || 0 };
         res.json({ analytics });
     } catch (error) {
         console.error('Get analytics error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ── Analytics drill-down paginated endpoints ──────────────────────────────────
+
+// GET /api/admin/users/list?page=1&limit=20&role=  (all users or filtered by role)
+app.get('/api/admin/users/list', requireAdmin, async (req, res) => {
+    try {
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(50, parseInt(req.query.limit) || 20);
+        const role  = req.query.role || null;
+        const from  = (page - 1) * limit;
+        const to    = from + limit - 1;
+
+        let q = supabaseAdmin
+            .from('users')
+            .select('id, username, display_name, profile_picture_url, role', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(from, to);
+
+        if (role) q = q.eq('role', role);
+
+        const { data, error, count } = await q;
+        if (error) return res.status(500).json({ error: 'Failed to fetch users' });
+        res.json({ items: data || [], total: count || 0, page, limit });
+    } catch (e) {
+        console.error('Admin users list error:', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/admin/subjects/list?page=1&limit=20
+app.get('/api/admin/subjects/list', requireAdmin, async (req, res) => {
+    try {
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(50, parseInt(req.query.limit) || 20);
+        const from  = (page - 1) * limit;
+        const to    = from + limit - 1;
+
+        const { data, error, count } = await supabaseAdmin
+            .from('subjects')
+            .select('id, name, created_at, users!user_id(id, username, display_name)', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(from, to);
+
+        if (error) return res.status(500).json({ error: 'Failed to fetch subjects' });
+        res.json({ items: data || [], total: count || 0, page, limit });
+    } catch (e) {
+        console.error('Admin subjects list error:', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/admin/reviewers/list?page=1&limit=20
+app.get('/api/admin/reviewers/list', requireAdmin, async (req, res) => {
+    try {
+        const page  = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit = Math.min(50, parseInt(req.query.limit) || 20);
+        const from  = (page - 1) * limit;
+        const to    = from + limit - 1;
+
+        const { data, error, count } = await supabaseAdmin
+            .from('reviewers')
+            .select('id, title, created_at, users!user_id(id, username, display_name)', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(from, to);
+
+        if (error) return res.status(500).json({ error: 'Failed to fetch reviewers' });
+        res.json({ items: data || [], total: count || 0, page, limit });
+    } catch (e) {
+        console.error('Admin reviewers list error:', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/admin/online-users/list?page=1&limit=20
+app.get('/api/admin/online-users/list', requireAdmin, async (req, res) => {
+    try {
+        const page     = Math.max(1, parseInt(req.query.page)  || 1);
+        const limit    = Math.min(50, parseInt(req.query.limit) || 20);
+        const from     = (page - 1) * limit;
+        const to       = from + limit - 1;
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+        const { data, error, count } = await supabaseAdmin
+            .from('online_users')
+            .select('user_id, username, last_seen, users!user_id(id, username, display_name, profile_picture_url)', { count: 'exact' })
+            .gte('last_seen', fiveMinAgo)
+            .order('last_seen', { ascending: false })
+            .range(from, to);
+
+        if (error) return res.status(500).json({ error: 'Failed to fetch online users' });
+        res.json({ items: data || [], total: count || 0, page, limit });
+    } catch (e) {
+        console.error('Admin online users list error:', e);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -6936,7 +7347,7 @@ async function applyStartupMigrations() {
                     EXECUTE format('ALTER TABLE notifications DROP CONSTRAINT %I', v_name);
                     EXECUTE 'ALTER TABLE notifications
                         ADD CONSTRAINT notifications_type_check
-                        CHECK (type IN (''reaction'', ''comment'', ''message'', ''reply'', ''follow'', ''new_reviewer''))';
+                        CHECK (type IN (''reaction'', ''comment'', ''message'', ''reply'', ''follow'', ''new_reviewer'', ''school_request''))';
                 END IF;
             END $$;
         `);

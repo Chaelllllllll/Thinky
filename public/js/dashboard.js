@@ -207,6 +207,88 @@ async function loadSchools() {
     }
 }
 
+// ── School Request modal ──────────────────────────────────────────────────────
+async function openSchoolRequestModal() {
+    // Reset to checking state
+    document.getElementById('schoolReqChecking').style.display = '';
+    document.getElementById('schoolReqPendingView').style.display = 'none';
+    document.getElementById('schoolReqForm').style.display = 'none';
+    document.getElementById('schoolReqBtn').style.display = 'none';
+    document.getElementById('schoolReqName').value = '';
+    document.getElementById('schoolReqReason').value = '';
+    document.getElementById('schoolRequestModal').classList.add('show');
+
+    try {
+        const resp = await fetch('/api/school-requests/my', { credentials: 'include' });
+        const data = await resp.json();
+        const req = data.request;
+
+        document.getElementById('schoolReqChecking').style.display = 'none';
+
+        if (req && req.status === 'pending') {
+            // Show pending details
+            document.getElementById('pendingReqSchool').textContent = req.school_name;
+            if (req.reason) {
+                document.getElementById('pendingReqReason').textContent = req.reason;
+                document.getElementById('pendingReqReasonRow').style.display = '';
+            } else {
+                document.getElementById('pendingReqReasonRow').style.display = 'none';
+            }
+            document.getElementById('pendingReqDate').textContent =
+                new Date(req.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+            document.getElementById('schoolReqPendingView').style.display = '';
+        } else {
+            // Show the form
+            document.getElementById('schoolReqForm').style.display = '';
+            document.getElementById('schoolReqBtn').style.display = '';
+        }
+    } catch {
+        document.getElementById('schoolReqChecking').style.display = 'none';
+        document.getElementById('schoolReqForm').style.display = '';
+        document.getElementById('schoolReqBtn').style.display = '';
+    }
+}
+
+function closeSchoolRequestModal() {
+    document.getElementById('schoolRequestModal').classList.remove('show');
+}
+
+async function submitSchoolRequest() {
+    const name = document.getElementById('schoolReqName').value.trim();
+    const reason = document.getElementById('schoolReqReason').value.trim();
+
+    if (!name) {
+        window.showAlert('error', 'Please enter a school name.');
+        return;
+    }
+
+    const btn = document.getElementById('schoolReqBtn');
+    const txt = document.getElementById('schoolReqText');
+    const spin = document.getElementById('schoolReqSpinner');
+    btn.disabled = true;
+    txt.style.display = 'none';
+    spin.style.display = 'inline-block';
+
+    try {
+        const resp = await fetch('/api/school-requests', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ school_name: name, reason })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Failed to submit request');
+        closeSchoolRequestModal();
+        window.showAlert('success', 'Request submitted! An admin will review it shortly.');
+    } catch (e) {
+        window.showAlert('error', e.message || 'Failed to submit request. Please try again.');
+    } finally {
+        btn.disabled = false;
+        txt.style.display = '';
+        spin.style.display = 'none';
+    }
+}
+
 async function loadSubjects() {
     try {
         document.getElementById('loadingSubjects').style.display = 'block';

@@ -1513,3 +1513,144 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ── Analytics drill-down modal ────────────────────────────────────────────────
+let _aModal = { type: null, page: 0, limit: 20, total: 0, loading: false, done: false, observer: null };
+
+const _aModalTitles = {
+    users:     'All Users',
+    students:  'Students',
+    admins:    'Admins',
+    subjects:  'Subjects',
+    reviewers: 'Reviewers',
+    online:    'Online Now',
+};
+
+function openAnalyticsModal(type) {
+    _aModal.type    = type;
+    _aModal.page    = 0;
+    _aModal.total   = 0;
+    _aModal.loading = false;
+    _aModal.done    = false;
+
+    document.getElementById('analyticsModalTitle').textContent = _aModalTitles[type] || type;
+    document.getElementById('analyticsModalList').innerHTML = '';
+    document.getElementById('analyticsModalLoader').style.display = 'none';
+    document.getElementById('analyticsModalEnd').style.display = 'none';
+    document.getElementById('analyticsListModal').classList.add('show');
+
+    // Set up IntersectionObserver on sentinel
+    if (_aModal.observer) _aModal.observer.disconnect();
+    const sentinel = document.getElementById('analyticsModalSentinel');
+    _aModal.observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !_aModal.loading && !_aModal.done) {
+            _loadAnalyticsPage();
+        }
+    }, { root: document.getElementById('analyticsModalBody'), threshold: 0.1 });
+    _aModal.observer.observe(sentinel);
+
+    _loadAnalyticsPage();
+}
+
+function closeAnalyticsModal() {
+    document.getElementById('analyticsListModal').classList.remove('show');
+    if (_aModal.observer) { _aModal.observer.disconnect(); _aModal.observer = null; }
+    _aModal.type = null;
+}
+
+async function _loadAnalyticsPage() {
+    if (_aModal.loading || _aModal.done) return;
+    _aModal.loading = true;
+    document.getElementById('analyticsModalLoader').style.display = 'block';
+
+    try {
+        const nextPage = _aModal.page + 1;
+        let url;
+        const { type, limit } = _aModal;
+
+        if (type === 'users')     url = `/api/admin/users/list?page=${nextPage}&limit=${limit}`;
+        else if (type === 'students') url = `/api/admin/users/list?page=${nextPage}&limit=${limit}&role=student`;
+        else if (type === 'admins')   url = `/api/admin/users/list?page=${nextPage}&limit=${limit}&role=admin`;
+        else if (type === 'subjects') url = `/api/admin/subjects/list?page=${nextPage}&limit=${limit}`;
+        else if (type === 'reviewers') url = `/api/admin/reviewers/list?page=${nextPage}&limit=${limit}`;
+        else if (type === 'online')    url = `/api/admin/online-users/list?page=${nextPage}&limit=${limit}`;
+
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('Failed to load');
+        const data = await resp.json();
+
+        _aModal.page  = nextPage;
+        _aModal.total = data.total || 0;
+
+        const list = document.getElementById('analyticsModalList');
+        (data.items || []).forEach(item => {
+            list.appendChild(_renderAnalyticsItem(type, item));
+        });
+
+        const loaded = nextPage * limit;
+        if (loaded >= _aModal.total || (data.items || []).length < limit) {
+            _aModal.done = true;
+            if (_aModal.total > 0) document.getElementById('analyticsModalEnd').style.display = 'block';
+        }
+    } catch (e) {
+        console.error('Analytics modal load error:', e);
+    } finally {
+        _aModal.loading = false;
+        document.getElementById('analyticsModalLoader').style.display = 'none';
+    }
+}
+
+function _renderAnalyticsItem(type, item) {
+    const el = document.createElement('div');
+    el.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--card-bg,#fff);border:1px solid var(--border-color,#eee);border-radius:10px;';
+
+    if (type === 'users' || type === 'students' || type === 'admins' || type === 'online') {
+        // For online users the fields are nested inside item.users
+        const u = (type === 'online' && item.users) ? item.users : item;
+        const uid = u.id || item.user_id;
+        const avatar = u.profile_picture_url || '/images/default-avatar.svg';
+        const name = escapeHtml(u.display_name || u.username || 'User');
+        const uname = escapeHtml(u.username || '');
+        el.innerHTML = `
+            <img src="${escapeHtml(avatar)}" alt="${name}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;flex-shrink:0;"
+                 onerror="this.src='/images/default-avatar.svg'">
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+                ${name !== uname ? `<div style="font-size:0.78rem;color:var(--dark-gray);">@${uname}</div>` : `<div style="font-size:0.78rem;color:var(--dark-gray);">@${uname}</div>`}
+            </div>
+            <a href="/user.html?user=${encodeURIComponent(uid)}" target="_blank"
+               style="flex-shrink:0;padding:5px 12px;border-radius:7px;background:var(--primary,#ff9eb4);color:#fff;font-size:0.82rem;font-weight:600;text-decoration:none;white-space:nowrap;">
+               View
+            </a>`;
+    } else if (type === 'subjects') {
+        const u = item.users || {};
+        const creator = escapeHtml(u.display_name || u.username || 'Unknown');
+        el.innerHTML = `
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.name || '')}</div>
+                <div style="font-size:0.78rem;color:var(--dark-gray);">by ${creator}</div>
+            </div>`;
+    } else if (type === 'reviewers') {
+        const u = item.users || {};
+        const uploader = escapeHtml(u.display_name || u.username || 'Unknown');
+        el.innerHTML = `
+            <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(item.title || '')}</div>
+                <div style="font-size:0.78rem;color:var(--dark-gray);">by ${uploader}</div>
+            </div>
+            <a href="/reviewer.html?id=${encodeURIComponent(item.id)}" target="_blank"
+               style="flex-shrink:0;padding:5px 12px;border-radius:7px;background:var(--primary,#ff9eb4);color:#fff;font-size:0.82rem;font-weight:600;text-decoration:none;white-space:nowrap;">
+               View
+            </a>`;
+    }
+
+    return el;
+}
+
+// Close modal when clicking outside
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('analyticsListModal');
+    if (modal && modal.classList.contains('show') && e.target === modal) {
+        closeAnalyticsModal();
+    }
+});

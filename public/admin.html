@@ -248,29 +248,47 @@
 
         <!-- Analytics Section -->
         <div class="analytics-grid" id="analyticsGrid">
-            <div class="analytics-card badge">
+            <div class="analytics-card badge" style="cursor:pointer;" onclick="openAnalyticsModal('users')" title="View all users">
                 <div class="analytics-value" id="totalUsers">0</div>
                 <div class="analytics-label">Total Users</div>
             </div>
-            <div class="analytics-card badge">
+            <div class="analytics-card badge" style="cursor:pointer;" onclick="openAnalyticsModal('students')" title="View students">
                 <div class="analytics-value" id="totalStudents">0</div>
                 <div class="analytics-label">Students</div>
             </div>
-            <div class="analytics-card badge">
+            <div class="analytics-card badge" style="cursor:pointer;" onclick="openAnalyticsModal('admins')" title="View admins">
                 <div class="analytics-value" id="totalAdmins">0</div>
                 <div class="analytics-label">Admins</div>
             </div>
-            <div class="analytics-card badge">
+            <div class="analytics-card badge" style="cursor:pointer;" onclick="openAnalyticsModal('subjects')" title="View subjects">
                 <div class="analytics-value" id="totalSubjects">0</div>
                 <div class="analytics-label">Subjects</div>
             </div>
-            <div class="analytics-card badge">
+            <div class="analytics-card badge" style="cursor:pointer;" onclick="openAnalyticsModal('reviewers')" title="View reviewers">
                 <div class="analytics-value" id="totalReviewers">0</div>
                 <div class="analytics-label">Reviewers</div>
             </div>
-            <div class="analytics-card badge">
+            <div class="analytics-card badge" style="cursor:pointer;" onclick="openAnalyticsModal('online')" title="View online users">
                 <div class="analytics-value" id="onlineUsers">0</div>
                 <div class="analytics-label">Online Now</div>
+            </div>
+        </div>
+
+        <!-- Analytics Drill-down Modal -->
+        <div id="analyticsListModal" class="modal" style="z-index:10001;">
+            <div class="modal-content" style="max-width:520px;max-height:80vh;display:flex;flex-direction:column;">
+                <div class="modal-header" style="flex-shrink:0;">
+                    <h3 class="modal-title" id="analyticsModalTitle">List</h3>
+                    <button class="modal-close" onclick="closeAnalyticsModal()">&times;</button>
+                </div>
+                <div id="analyticsModalBody" style="flex:1;overflow-y:auto;padding:16px 20px;">
+                    <div id="analyticsModalList" style="display:flex;flex-direction:column;gap:10px;"></div>
+                    <div id="analyticsModalSentinel" style="height:1px;"></div>
+                    <div id="analyticsModalLoader" style="text-align:center;padding:16px;display:none;">
+                        <span class="spinner" style="width:20px;height:20px;border-width:2px;"></span>
+                    </div>
+                    <div id="analyticsModalEnd" style="text-align:center;padding:12px;color:var(--dark-gray);font-size:0.85rem;display:none;">No more items</div>
+                </div>
             </div>
         </div>
 

@@ -581,6 +581,11 @@
                             <select id="subjectSchool" class="form-control" required>
                                 <option value="">Select a school</option>
                             </select>
+                            <div style="margin-top:6px;">
+                                <a href="#" onclick="openSchoolRequestModal(); return false;" style="font-size:0.82rem; color:var(--primary); text-decoration:none;">
+                                    <i class="bi bi-plus-circle"></i> Can't find your school? Request to add it
+                                </a>
+                            </div>
                         </div>
 
                         <div class="form-group">
@@ -602,6 +607,63 @@
                     <button type="button" class="btn btn-primary" onclick="saveSubject()" id="saveSubjectBtn">
                         <span id="saveSubjectText">Save Subject</span>
                         <span id="saveSubjectSpinner" class="spinner spinner-sm" style="display: none;"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- School Request Modal -->
+    <div id="schoolRequestModal" class="modal">
+        <div class="modal-content modal-helper-box" style="max-width:480px;">
+            <div class="modal-header">
+                <h3 class="modal-title"><i class="bi bi-building-add"></i> Request a School</h3>
+                <button class="modal-close" onclick="closeSchoolRequestModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Checking state -->
+                <div id="schoolReqChecking" style="text-align:center;padding:24px 0;">
+                    <span class="spinner" style="display:inline-block;"></span>
+                </div>
+                <!-- Pending request details (shown when user already has a pending request) -->
+                <div id="schoolReqPendingView" style="display:none;">
+                    <div style="background:var(--warning-light,#fff8e1);border:1px solid var(--warning,#ffc107);border-radius:10px;padding:16px 18px;margin-bottom:4px;">
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                            <i class="bi bi-hourglass-split" style="color:var(--warning,#e6a817);font-size:1.2rem;"></i>
+                            <strong style="font-size:0.95rem;">You have a pending request</strong>
+                        </div>
+                        <div style="font-size:0.88rem;color:var(--dark-gray);line-height:1.7;">
+                            <div><span style="opacity:.7;">School:</span> <strong id="pendingReqSchool"></strong></div>
+                            <div id="pendingReqReasonRow" style="display:none;"><span style="opacity:.7;">Reason:</span> <span id="pendingReqReason"></span></div>
+                            <div><span style="opacity:.7;">Submitted:</span> <span id="pendingReqDate"></span></div>
+                        </div>
+                    </div>
+                    <p style="margin:14px 0 0 0;font-size:0.85rem;color:var(--dark-gray);">
+                        Your request is being reviewed by an admin. You'll receive a notification once a decision is made. You cannot submit another request while this one is pending.
+                    </p>
+                </div>
+                <!-- Request form (hidden when pending request exists) -->
+                <div id="schoolReqForm">
+                    <p style="margin:0 0 16px 0; color:var(--dark-gray); font-size:0.9rem;">
+                        Submit your school's name and an admin will review and add it to the list.
+                    </p>
+                    <div class="form-group">
+                        <label class="form-label">School Name <span style="color:var(--danger)">*</span></label>
+                        <input type="text" id="schoolReqName" class="form-control" placeholder="e.g., Pamantasan ng Lungsod ng Muntinlupa" maxlength="200">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Reason <span style="color:var(--dark-gray); font-weight:400;">(optional)</span></label>
+                        <textarea id="schoolReqReason" class="form-control" rows="2" maxlength="500" placeholder="Why should this school be added?"></textarea>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer custom-footer">
+                <div></div>
+                <div class="right-actions">
+                    <button class="btn btn-light" onclick="closeSchoolRequestModal()">Close</button>
+                    <button class="btn btn-primary" onclick="submitSchoolRequest()" id="schoolReqBtn" style="display:none;">
+                        <span id="schoolReqText"><i class="bi bi-send"></i> Submit Request</span>
+                        <span id="schoolReqSpinner" class="spinner spinner-sm" style="display:none;"></span>
                     </button>
                 </div>
             </div>

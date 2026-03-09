@@ -197,6 +197,27 @@
             </form>
         </div>
 
+        <!-- Pending School Requests -->
+        <div class="schools-container" id="requestsSection">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+                <h2 style="margin:0;">
+                    <i class="bi bi-inbox" style="color:var(--primary);"></i> School Requests
+                    <span id="requestsBadge" style="display:none;background:var(--primary);color:#fff;border-radius:999px;font-size:0.75rem;padding:2px 8px;margin-left:6px;vertical-align:middle;"></span>
+                </h2>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn btn-outline" data-status="pending" onclick="loadRequests('pending')" id="reqTabPending">Pending</button>
+                    <button class="btn btn-light" data-status="approved" onclick="loadRequests('approved')" id="reqTabApproved">Approved</button>
+                    <button class="btn btn-light" data-status="rejected" onclick="loadRequests('rejected')" id="reqTabRejected">Rejected</button>
+                </div>
+            </div>
+            <div id="requestsLoading" style="text-align:center;padding:24px;color:var(--dark-gray);">Loading requests…</div>
+            <div id="requestsEmpty" class="empty-state" style="display:none;">
+                <i class="bi bi-inbox"></i>
+                <p>No requests found.</p>
+            </div>
+            <div id="requestsList"></div>
+        </div>
+
         <div class="schools-container">
             <h2 style="margin: 0 0 16px 0;">Schools</h2>
             <div id="loadingState" style="text-align: center; padding: 24px; color: var(--dark-gray);">
@@ -466,10 +487,129 @@
             addSchool(name);
         });
 
+        // ── School Requests ──────────────────────────────────────────────────
+        let _currentReqStatus = 'pending';
+
+        async function loadRequests(status) {
+            _currentReqStatus = status || 'pending';
+
+            // Update tab styles
+            ['pending','approved','rejected'].forEach(s => {
+                const btn = document.getElementById(`reqTab${s.charAt(0).toUpperCase()+s.slice(1)}`);
+                if (btn) {
+                    btn.className = s === _currentReqStatus ? 'btn btn-outline' : 'btn btn-light';
+                }
+            });
+
+            document.getElementById('requestsLoading').style.display = 'block';
+            document.getElementById('requestsEmpty').style.display = 'none';
+            document.getElementById('requestsList').innerHTML = '';
+
+            try {
+                const resp = await fetch(`/api/admin/school-requests?status=${_currentReqStatus}`, { credentials: 'include' });
+                if (!resp.ok) throw new Error('Failed');
+                const data = await resp.json();
+                const requests = data.requests || [];
+
+                document.getElementById('requestsLoading').style.display = 'none';
+
+                // Update badge (pending count)
+                if (_currentReqStatus === 'pending') {
+                    const badge = document.getElementById('requestsBadge');
+                    if (requests.length > 0) {
+                        badge.textContent = requests.length;
+                        badge.style.display = 'inline';
+                    } else {
+                        badge.style.display = 'none';
+                    }
+                }
+
+                if (requests.length === 0) {
+                    document.getElementById('requestsEmpty').style.display = 'block';
+                    return;
+                }
+
+                document.getElementById('requestsList').innerHTML = requests.map(r => `
+                    <div style="border:1px solid rgba(0,0,0,0.07);border-radius:10px;padding:16px;margin-bottom:12px;background:#fafafa;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+                            <div>
+                                <div style="font-weight:600;font-size:1rem;">${escapeHtml(r.school_name)}</div>
+                                <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:2px;">
+                                    By <strong>${escapeHtml(r.users?.username || 'Unknown')}</strong>
+                                    (${escapeHtml(r.users?.email || '')})
+                                    &bull; ${new Date(r.created_at).toLocaleString()}
+                                </div>
+                                ${r.reason ? `<div style="margin-top:6px;font-size:0.88rem;color:#555;">${escapeHtml(r.reason)}</div>` : ''}
+                                ${r.admin_note ? `<div style="margin-top:4px;font-size:0.82rem;color:var(--dark-gray);font-style:italic;">Admin note: ${escapeHtml(r.admin_note)}</div>` : ''}
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                                <span style="padding:3px 10px;border-radius:999px;font-size:0.78rem;font-weight:600;
+                                    background:${r.status==='pending'?'#fff3cd':r.status==='approved'?'#d4edda':'#f8d7da'};
+                                    color:${r.status==='pending'?'#856404':r.status==='approved'?'#155724':'#721c24'};">
+                                    ${r.status.charAt(0).toUpperCase()+r.status.slice(1)}
+                                </span>
+                                ${r.status === 'pending' ? `
+                                    <button class="btn btn-primary" style="padding:5px 14px;font-size:0.83rem;" onclick="approveRequest('${r.id}','${escapeHtml(r.school_name)}')">
+                                        <i class="bi bi-check-lg"></i> Approve
+                                    </button>
+                                    <button class="btn btn-light" style="padding:5px 14px;font-size:0.83rem;color:var(--danger);border-color:var(--danger);" onclick="rejectRequest('${r.id}')">
+                                        <i class="bi bi-x-lg"></i> Reject
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                document.getElementById('requestsLoading').style.display = 'none';
+                window.showAlert('error', 'Failed to load school requests');
+            }
+        }
+
+        async function approveRequest(id, schoolName) {
+            const note = prompt(`Approve "${schoolName}" and add it to verified schools?\n\nOptional admin note:`, '');
+            if (note === null) return; // cancelled
+            try {
+                const resp = await fetch(`/api/admin/school-requests/${id}/approve`, {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_note: note || null })
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'Failed');
+                window.showAlert('success', `"${schoolName}" approved and added to verified schools!`);
+                loadRequests(_currentReqStatus);
+                loadSchools(); // refresh verified schools list
+            } catch (e) {
+                window.showAlert('error', e.message || 'Failed to approve request');
+            }
+        }
+
+        async function rejectRequest(id) {
+            const note = prompt('Reason for rejecting this request (optional):');
+            if (note === null) return; // cancelled
+            try {
+                const resp = await fetch(`/api/admin/school-requests/${id}/reject`, {
+                    method: 'PUT',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ admin_note: note || null })
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.error || 'Failed');
+                window.showAlert('success', 'Request rejected.');
+                loadRequests(_currentReqStatus);
+            } catch (e) {
+                window.showAlert('error', e.message || 'Failed to reject request');
+            }
+        }
+
         // Initialize
         checkAuth().then(isAuth => {
             if (isAuth) {
                 loadSchools();
+                loadRequests('pending');
             }
         });
     </script>

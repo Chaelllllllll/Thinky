@@ -248,4 +248,22 @@
     // Expose helpers to allow manual unlocking from the console
     window.enableNotificationSound = function() { try { tryUnlockAudio(); } catch (e) {} };
     window.isNotificationSoundUnlocked = function() { return !!_audioUnlocked; };
+
+    // Universal online status heartbeat — keeps the user's last_seen fresh on every page.
+    // dashboard.js and chat.js have their own heartbeats; this covers all other pages.
+    // Guards against double-interval by using a module-level flag.
+    (function startOnlineHeartbeat() {
+        if (window._onlineHeartbeatActive) return;
+        window._onlineHeartbeatActive = true;
+        function ping() {
+            fetch('/api/online-status', { method: 'POST', credentials: 'include' }).catch(() => {});
+        }
+        // Run once after the page settles, then every 30 s
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => { ping(); setInterval(ping, 30000); });
+        } else {
+            ping();
+            setInterval(ping, 30000);
+        }
+    })();
 })();
