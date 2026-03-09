@@ -33,8 +33,8 @@
                     <h1 id="profileName" style="margin:0;font-size:2rem;">Profile</h1>
                     <p id="profileUsername" style="color:var(--dark-gray);margin:6px 0 0 0;"></p>
                     <div style="display:flex;gap:16px;margin-top:8px;font-size:0.9rem;color:var(--dark-gray);">
-                        <div><strong id="followerCount">0</strong> Followers</div>
-                        <div><strong id="followingCount">0</strong> Following</div>
+                        <div style="cursor:pointer;" onclick="openFollowListModal('followers')"><strong id="followerCount">0</strong> Followers</div>
+                        <div style="cursor:pointer;" onclick="openFollowListModal('following')"><strong id="followingCount">0</strong> Following</div>
                     </div>
                     <div class="profile-actions" style="margin-top:12px;display:flex;gap:12px;align-items:center;">
                         <a href="/dashboard" class="btn btn-light">Dashboard</a>
@@ -45,8 +45,19 @@
 
             <hr style="margin:20px 0;">
 
-            <h2 style="margin:0 0 12px 0;">Reviewers</h2>
+            <h2 style="margin:0 0 12px 0;">Subjects</h2>
             <div id="myReviewers" style="margin-top:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+        </div>
+    </div>
+
+    <!-- Followers / Following Modal -->
+    <div id="followListModal" class="modal">
+        <div class="modal-content" style="max-width:440px;border-radius:16px;max-height:90vh;display:flex;flex-direction:column;">
+            <div class="modal-header" style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--medium-gray);flex-shrink:0;">
+                <h3 id="followListTitle" style="margin:0;font-size:1.1rem;font-weight:700;"></h3>
+                <button class="modal-close" onclick="closeFollowListModal()">&times;</button>
+            </div>
+            <div id="followListBody" style="overflow-y:auto;padding:8px 0;flex:1;min-height:80px;"></div>
         </div>
     </div>
 

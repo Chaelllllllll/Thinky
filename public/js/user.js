@@ -5,6 +5,9 @@
         document.body.innerHTML = '<div style="padding:40px;">Missing user id</div>';
         return;
     }
+    // Expose user id for the follow list modal (loggedInId set after me-fetch)
+    window._flFollowListUserId = userId;
+    window._flLoggedInId = null;
 
     const avatarEl = document.getElementById('userAvatar');
     const displayNameEl = document.getElementById('userDisplayName');
@@ -53,6 +56,7 @@
                 if (meResp.ok) {
                     const { user: currentUser } = await meResp.json();
                     _loggedInUserId = currentUser?.id || null;
+                    window._flLoggedInId = _loggedInUserId;
                     
                     // Show follow button only if viewing another user's profile
                     if (_loggedInUserId && String(_loggedInUserId) !== String(userId)) {
@@ -342,6 +346,10 @@
         selectedSubject = null;
         document.getElementById('subjectPills').style.display = 'none';
         
+        // Update heading
+        const heading = document.getElementById('userReviewersHeading');
+        if (heading) heading.textContent = 'Reviewers';
+
         // Update button states
         document.getElementById('filterAllReviewers').classList.remove('btn-outline');
         document.getElementById('filterAllReviewers').classList.add('btn-primary');
@@ -353,6 +361,99 @@
         allReviewersData.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
     }
 
+    // Load all reviewers then display as subject cards (default view)
+    async function loadAllAndShowSubjectsCards() {
+        loadingEl.style.display = 'block';
+        try {
+            const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/reviewers?limit=200&offset=0`);
+            if (!resp.ok) throw new Error('Failed');
+            const data = await resp.json();
+            allReviewersData = data.reviewers || [];
+            offset = allReviewersData.length;
+            finished = allReviewersData.length < 200;
+        } catch (e) {
+            console.error('Failed to load reviewers', e);
+        } finally {
+            loadingEl.style.display = 'none';
+        }
+        showSubjectCards();
+    }
+
+    function showSubjectCards() {
+        viewMode = 'subjects';
+        const heading = document.getElementById('userReviewersHeading');
+        if (heading) heading.textContent = 'Subjects';
+
+        const subjectMap = {};
+        allReviewersData.forEach(rv => {
+            const key = rv.subject_id || '__none__';
+            const name = rv.subjects?.name || 'General';
+            if (!subjectMap[key]) subjectMap[key] = { id: key, name, items: [] };
+            subjectMap[key].items.push(rv);
+        });
+        const subjectList = Object.values(subjectMap).sort((a, b) => a.name.localeCompare(b.name));
+
+        document.getElementById('subjectPills').style.display = 'none';
+        document.getElementById('filterAllReviewers').classList.remove('btn-primary');
+        document.getElementById('filterAllReviewers').classList.add('btn-outline');
+        document.getElementById('filterSubjects').classList.remove('btn-outline');
+        document.getElementById('filterSubjects').classList.add('btn-primary');
+        loadMoreWrap.style.display = 'none';
+
+        const firstRv = allReviewersData[0];
+        const uploaderAvatar = firstRv?.users?.profile_picture_url || '/images/default-avatar.svg';
+        const uploaderName = firstRv?.users?.username || '';
+
+        reviewersContainer.innerHTML = '';
+        if (subjectList.length === 0) {
+            reviewersContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dark-gray);">No reviewers found</div>';
+            return;
+        }
+
+        subjectList.forEach(sub => {
+            const card = document.createElement('div');
+            card.className = 'reviewer-card';
+            card.style.cursor = 'pointer';
+            card.innerHTML = `
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                    <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
+                    </div>
+                    <div>
+                        <div style="font-weight:700;font-size:1.05rem;">${escapeHtml(sub.name)}</div>
+                        <div style="font-size:0.8rem;color:var(--dark-gray);">${sub.items.length} reviewer${sub.items.length !== 1 ? 's' : ''}</div>
+                    </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--medium-gray);">
+                    <img src="${escapeHtml(uploaderAvatar)}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                    <span style="font-size:0.875rem;color:var(--dark-gray);">@${escapeHtml(uploaderName)}</span>
+                </div>`;
+            card.addEventListener('click', () => showSubjectDetailCards(sub));
+            reviewersContainer.appendChild(card);
+        });
+    }
+
+    function showSubjectDetailCards(sub) {
+        const heading = document.getElementById('userReviewersHeading');
+        if (heading) heading.textContent = sub.name;
+
+        reviewersContainer.innerHTML = '';
+        const backRow = document.createElement('div');
+        backRow.style.cssText = 'grid-column:1/-1;margin-bottom:8px;';
+        backRow.innerHTML = `<button class="btn btn-outline btn-sm"><i class="bi bi-arrow-left"></i> Back to Subjects</button>`;
+        backRow.querySelector('button').addEventListener('click', showSubjectCards);
+        reviewersContainer.appendChild(backRow);
+
+        if (sub.items.length === 0) {
+            const empty = document.createElement('div');
+            empty.style.cssText = 'text-align:center;padding:20px;color:var(--dark-gray);';
+            empty.textContent = 'No reviewers in this subject';
+            reviewersContainer.appendChild(empty);
+            return;
+        }
+        sub.items.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
+    }
+
     // Wire interactions
     loadMoreBtn.addEventListener('click', loadMore);
     searchInput.addEventListener('input', debounce(resetAndSearch, 400));
@@ -360,10 +461,10 @@
     
     // Wire filter buttons
     document.getElementById('filterAllReviewers').addEventListener('click', showAllReviewers);
-    document.getElementById('filterSubjects').addEventListener('click', showSubjectFilter);
+    document.getElementById('filterSubjects').addEventListener('click', showSubjectCards);
 
     // initial
-    fetchUser().then(loadMore);
+    fetchUser().then(loadAllAndShowSubjectsCards);
 
     // Wire profile-level message/back interactions
     document.addEventListener('DOMContentLoaded', () => {
@@ -671,4 +772,138 @@
     }
     window.openMessageModal = openMessageModal;
     window.closeMessageModal = closeMessageModal;
+
+    // ── Followers / Following Modal (lazy loading) ───────────────────────────
+    const _flState = { type: null, offset: 0, limit: 20, loading: false, finished: false };
+
+    function openFollowListModal(type) {
+        const targetId = window._flFollowListUserId;
+        if (!targetId) return;
+        const modal = document.getElementById('followListModal');
+        if (!modal) return;
+
+        // Reset paging state
+        _flState.type = type;
+        _flState.offset = 0;
+        _flState.loading = false;
+        _flState.finished = false;
+
+        document.getElementById('followListTitle').textContent = type === 'followers' ? 'Followers' : 'Following';
+        const body = document.getElementById('followListBody');
+        body.innerHTML = '';
+        modal.classList.add('show');
+        document.body.style.overflow = 'hidden';
+
+        // Wire scroll-based lazy loading on the modal body
+        body.onscroll = () => {
+            if (_flState.loading || _flState.finished) return;
+            if (body.scrollTop + body.clientHeight >= body.scrollHeight - 60) {
+                _flLoadFollowPage();
+            }
+        };
+
+        _flLoadFollowPage(true);
+    }
+
+    async function _flLoadFollowPage(first = false) {
+        const targetId = window._flFollowListUserId;
+        if (!targetId || _flState.loading || _flState.finished) return;
+        _flState.loading = true;
+
+        const body = document.getElementById('followListBody');
+        if (!body) { _flState.loading = false; return; }
+
+        let spinner = body.querySelector('._fl-spinner');
+        if (!spinner) {
+            spinner = document.createElement('div');
+            spinner.className = '_fl-spinner';
+            spinner.style.cssText = 'text-align:center;padding:16px;color:var(--dark-gray);font-size:0.9rem;';
+            spinner.textContent = 'Loading...';
+            body.appendChild(spinner);
+        }
+
+        try {
+            const params = new URLSearchParams({ limit: _flState.limit, offset: _flState.offset });
+            const resp = await fetch(`/api/users/${encodeURIComponent(targetId)}/${_flState.type}?${params}`, { credentials: 'include' });
+            const { users = [], hasMore = false } = resp.ok ? await resp.json() : {};
+
+            spinner.remove();
+
+            if (first && users.length === 0) {
+                body.innerHTML = `<div style="text-align:center;padding:24px;color:var(--dark-gray);">No ${_flState.type === 'followers' ? 'followers' : 'following'} yet</div>`;
+                _flState.finished = true;
+                return;
+            }
+
+            users.forEach(u => body.appendChild(_makeFollowListRow(u)));
+            _flState.offset += users.length;
+            _flState.finished = !hasMore;
+        } catch (e) {
+            if (spinner) spinner.remove();
+            if (first) body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--dark-gray);">Failed to load</div>';
+        } finally {
+            _flState.loading = false;
+        }
+    }
+
+    function closeFollowListModal() {
+        const modal = document.getElementById('followListModal');
+        if (modal) modal.classList.remove('show');
+        document.body.style.overflow = '';
+    }
+
+    function _makeFollowListRow(u) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--light-gray);';
+        const isMe = window._flLoggedInId && String(window._flLoggedInId) === String(u.id);
+        const btnHtml = (!isMe && window._flLoggedInId)
+            ? `<button class="btn btn-sm ${u.is_following ? 'btn-outline' : 'btn-primary'}" style="margin-left:auto;flex-shrink:0;min-width:80px;" data-following="${u.is_following ? '1' : '0'}" onclick="toggleFollowInModal(this,'${escapeHtml(String(u.id))}')">${u.is_following ? 'Unfollow' : 'Follow'}</button>`
+            : '';
+        row.innerHTML = `
+            <a href="/user.html?user=${escapeHtml(String(u.id))}" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;flex:1;min-width:0;">
+                <img src="${escapeHtml(u.profile_picture_url || '/images/default-avatar.svg')}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+                <div style="min-width:0;">
+                    <div style="font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(u.display_name || u.username)}</div>
+                    <div style="font-size:0.8rem;color:var(--dark-gray);">@${escapeHtml(u.username)}</div>
+                </div>
+            </a>
+            ${btnHtml}`;
+        return row;
+    }
+
+    async function toggleFollowInModal(btn, targetId) {
+        if (!window._flLoggedInId) { window.location.href = '/login'; return; }
+        const isFollowing = btn.dataset.following === '1';
+        btn.disabled = true;
+        try {
+            const resp = await fetch(`/api/users/${encodeURIComponent(targetId)}/follow`, {
+                method: isFollowing ? 'DELETE' : 'POST',
+                credentials: 'include'
+            });
+            if (!resp.ok) {
+                const d = await resp.json().catch(() => ({}));
+                window.showAlert && window.showAlert('error', d.error || 'Failed');
+                return;
+            }
+            const { following } = await resp.json();
+            btn.dataset.following = following ? '1' : '0';
+            btn.textContent = following ? 'Unfollow' : 'Follow';
+            if (following) { btn.classList.remove('btn-primary'); btn.classList.add('btn-outline'); }
+            else { btn.classList.remove('btn-outline'); btn.classList.add('btn-primary'); }
+        } catch (e) {
+            window.showAlert && window.showAlert('error', 'Failed to update follow status');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    // Close follow list modal on overlay click
+    document.addEventListener('click', (e) => {
+        const modal = document.getElementById('followListModal');
+        if (modal && e.target === modal) closeFollowListModal();
+    });
+
+    window.openFollowListModal = openFollowListModal;
+    window.closeFollowListModal = closeFollowListModal;
+    window.toggleFollowInModal = toggleFollowInModal;
 })();

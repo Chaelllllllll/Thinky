@@ -463,23 +463,34 @@
                 type="text" 
                 id="searchInput" 
                 class="search-input" 
-                placeholder="Search reviewers by title or subject..."
+                placeholder="Search subjects..."
             >
             <i class="bi bi-search search-icon"></i>
         </div>
 
-        <!-- Subject Filter Chips -->
-        <div id="filterBar" class="filter-bar" style="display:none;">
-            <button class="filter-chip active" data-subject-id="" onclick="applySubjectFilter('')">
-                <i class="bi bi-grid-3x3-gap"></i> All
+        <!-- View Toggle Buttons -->
+        <div style="display:flex;gap:10px;margin-bottom:24px;">
+            <button id="btnViewSubjects" class="filter-chip active" onclick="switchView('subjects')">
+                <i class="bi bi-folder2"></i> Subjects
             </button>
-            <!-- subject chips injected here by JS -->
+            <button id="btnViewReviewers" class="filter-chip" onclick="switchView('reviewers')">
+                <i class="bi bi-journal-text"></i> Reviewers
+            </button>
         </div>
 
         <!-- Loading State -->
         <div id="loadingState" class="loading">
             <div class="spinner"></div>
-            <p style="margin-top: 16px; color: var(--dark-gray);">Loading reviewers...</p>
+            <p style="margin-top: 16px; color: var(--dark-gray);">Loading subjects...</p>
+        </div>
+
+        <!-- Subject Cards Grid (default view) -->
+        <div id="subjectsGrid" class="reviewers-grid" style="display:none;"></div>
+
+        <!-- Reviewer view header (back button + subject label) -->
+        <div id="reviewerViewHeader" style="display:none;margin-bottom:16px;align-items:center;gap:12px;">
+            <button class="btn btn-outline btn-sm" onclick="backToSubjects()"><i class="bi bi-arrow-left"></i> All Subjects</button>
+            <span id="currentSubjectLabel" style="font-weight:700;font-size:1.05rem;"></span>
         </div>
 
         <!-- Reviewers Grid -->
@@ -518,6 +529,9 @@
             search: '',
             subjectId: ''
         };
+        // Track current view mode and all subjects for client-side filtering
+        window._currentView = 'subjects'; // 'subjects' | 'subject-detail' | 'reviewers'
+        window._allSubjectsData = [];
 
         // Load reviewers on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -579,25 +593,169 @@
         });
 
         async function loadReviewersInitial() {
-            // Reset paging
+            document.getElementById('loadingState').style.display = 'block';
+            document.getElementById('subjectsGrid').style.display = 'none';
+            document.getElementById('reviewersGrid').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
+            await loadAndShowSubjectCards();
+        }
+
+        async function loadAndShowSubjectCards() {
+            try {
+                const [subjectsResp, reviewersResp] = await Promise.all([
+                    fetch('/api/subjects/public'),
+                    fetch('/api/reviewers/public-guest?limit=50&offset=0')
+                ]);
+                const { subjects = [] } = subjectsResp.ok ? await subjectsResp.json() : {};
+                const { reviewers: previewReviewers = [] } = reviewersResp.ok ? await reviewersResp.json() : {};
+
+                document.getElementById('loadingState').style.display = 'none';
+
+                if (subjects.length === 0) {
+                    document.getElementById('emptyState').style.display = 'block';
+                    return;
+                }
+
+                // Build uploader preview map per subject (up to 3 unique uploaders each)
+                const uploaderMap = {};
+                previewReviewers.forEach(rv => {
+                    if (!rv.subject_id || !rv.users) return;
+                    if (!uploaderMap[rv.subject_id]) uploaderMap[rv.subject_id] = [];
+                    if (!uploaderMap[rv.subject_id].find(u => u.id === rv.user_id) && uploaderMap[rv.subject_id].length < 3) {
+                        uploaderMap[rv.subject_id].push({ id: rv.user_id, username: rv.users.username, avatar: rv.users.profile_picture_url });
+                    }
+                });
+
+                window._allSubjectsData = subjects;
+                const grid = document.getElementById('subjectsGrid');
+                grid.innerHTML = '';
+                subjects.forEach(sub => {
+                    const uploaders = uploaderMap[sub.id] || [];
+                    const avatarsHtml = uploaders.map(u =>
+                        `<img src="${escapeHtml(u.avatar || '/images/default-avatar.svg')}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" title="@${escapeHtml(u.username || '')}" style="width:24px;height:24px;border-radius:50%;object-fit:cover;border:2px solid var(--white);margin-right:-6px;">`
+                    ).join('');
+                    const uploaderHtml = uploaders.length > 0
+                        ? `<div style="display:flex;align-items:center;">${avatarsHtml}</div><span style="margin-left:12px;font-size:0.875rem;color:var(--dark-gray);">@${escapeHtml(uploaders[0].username || '')}${uploaders.length > 1 ? ` +${uploaders.length - 1}` : ''}</span>`
+                        : `<span style="font-size:0.875rem;color:var(--dark-gray);">Multiple contributors</span>`;
+
+                    const card = document.createElement('div');
+                    card.className = 'reviewer-card';
+                    card.style.cursor = 'pointer';
+                    card.dataset.subjectName = (sub.name || '').toLowerCase();
+                    card.dataset.schoolName = (sub.school_name || '').toLowerCase();
+                    card.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                            <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                                <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-weight:700;font-size:1.05rem;">${escapeHtml(sub.name)}</div>
+                                ${sub.school_name ? `<div style="font-size:0.8rem;color:var(--dark-gray);margin-top:2px;"><i class="bi bi-building" style="margin-right:3px;"></i>${escapeHtml(sub.school_name)}</div>` : ''}
+                            </div>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:4px;padding-top:8px;border-top:1px solid var(--medium-gray);">
+                            ${uploaderHtml}
+                        </div>`;
+                    card.addEventListener('click', () => selectSubject(sub.id, sub.name));
+                    grid.appendChild(card);
+                });
+                grid.style.display = 'grid';
+            } catch (e) {
+                console.error('Failed to load subjects', e);
+                document.getElementById('loadingState').style.display = 'none';
+                document.getElementById('emptyState').style.display = 'block';
+            }
+        }
+
+        function switchView(mode) {
+            const subBtn = document.getElementById('btnViewSubjects');
+            const revBtn = document.getElementById('btnViewReviewers');
+            const searchEl = document.getElementById('searchInput');
+            if (mode === 'subjects') {
+                subBtn.classList.add('active');
+                revBtn.classList.remove('active');
+                if (searchEl) { searchEl.value = ''; searchEl.placeholder = 'Search subjects...'; }
+                backToSubjects();
+            } else {
+                revBtn.classList.add('active');
+                subBtn.classList.remove('active');
+                if (searchEl) { searchEl.value = ''; searchEl.placeholder = 'Search reviewers by title or subject...'; }
+                window._currentView = 'reviewers';
+                // Show all reviewers (no subject filter)
+                window._publicReviewersPaging.subjectId = '';
+                window._publicReviewersPaging.search = '';
+                window._publicReviewersPaging.offset = 0;
+                window._publicReviewersPaging.finished = false;
+                window._publicReviewersPaging.count = null;
+                window._publicReviewersPaging.loading = false;
+                document.getElementById('subjectsGrid').style.display = 'none';
+                document.getElementById('reviewerViewHeader').style.display = 'none';
+                const grid = document.getElementById('reviewersGrid');
+                grid.innerHTML = '';
+                grid.style.display = 'none';
+                document.getElementById('loadingState').style.display = 'block';
+                document.getElementById('emptyState').style.display = 'none';
+                loadMorePublicReviewers().then(() => {
+                    window.removeEventListener('scroll', _publicReviewersScrollHandler);
+                    window.addEventListener('scroll', _publicReviewersScrollHandler);
+                });
+            }
+        }
+
+        function selectSubject(subjectId, subjectName) {
+            window._currentView = 'subject-detail';
+            const searchEl = document.getElementById('searchInput');
+            if (searchEl) { searchEl.value = ''; searchEl.placeholder = 'Search reviewers in this subject...'; }
+            document.getElementById('subjectsGrid').style.display = 'none';
+            document.getElementById('reviewerViewHeader').style.display = 'flex';
+            document.getElementById('currentSubjectLabel').textContent = subjectName;
             window._publicReviewersPaging.offset = 0;
             window._publicReviewersPaging.finished = false;
             window._publicReviewersPaging.count = null;
             window._publicReviewersPaging.loading = false;
-
+            window._publicReviewersPaging.subjectId = subjectId;
+            window._publicReviewersPaging.search = '';
             const grid = document.getElementById('reviewersGrid');
             grid.innerHTML = '';
+            grid.style.display = 'none';
             document.getElementById('loadingState').style.display = 'block';
-            document.getElementById('reviewersGrid').style.display = 'none';
             document.getElementById('emptyState').style.display = 'none';
+            loadMorePublicReviewers().then(() => {
+                window.removeEventListener('scroll', _publicReviewersScrollHandler);
+                window.addEventListener('scroll', _publicReviewersScrollHandler);
+            });
+        }
 
-            await loadMorePublicReviewers();
-
-            // Attach infinite scroll on the grid container
-            const container = document.getElementById('reviewersGrid');
-            container.style.maxHeight = 'auto';
+        function backToSubjects() {
+            window._currentView = 'subjects';
+            window._publicReviewersPaging.subjectId = '';
+            window._publicReviewersPaging.search = '';
+            const searchEl = document.getElementById('searchInput');
+            if (searchEl) { searchEl.value = ''; searchEl.placeholder = 'Search subjects...'; }
+            document.getElementById('reviewerViewHeader').style.display = 'none';
+            document.getElementById('reviewersGrid').style.display = 'none';
+            document.getElementById('loadingState').style.display = 'none';
+            document.getElementById('emptyState').style.display = 'none';
             window.removeEventListener('scroll', _publicReviewersScrollHandler);
-            window.addEventListener('scroll', _publicReviewersScrollHandler);
+            // Show all subject cards
+            const grid = document.getElementById('subjectsGrid');
+            Array.from(grid.children).forEach(c => c.style.display = '');
+            grid.style.display = 'grid';
+        }
+
+        function filterSubjectCards(term) {
+            const grid = document.getElementById('subjectsGrid');
+            const lower = term.toLowerCase();
+            let visible = 0;
+            Array.from(grid.children).forEach(card => {
+                const nameMatch = (card.dataset.subjectName || '').includes(lower);
+                const schoolMatch = (card.dataset.schoolName || '').includes(lower);
+                const show = !term || nameMatch || schoolMatch;
+                card.style.display = show ? '' : 'none';
+                if (show) visible++;
+            });
+            grid.style.display = 'grid';
+            document.getElementById('emptyState').style.display = visible === 0 ? 'block' : 'none';
         }
 
         function _publicReviewersScrollHandler() {
@@ -608,7 +766,42 @@
         }
 
         async function applySearch(term) {
+            if (window._currentView === 'subjects') {
+                filterSubjectCards(term);
+                return;
+            }
+            // Reviewer view (all reviewers or subject-detail): search via API
+            if (!term) {
+                if (window._currentView === 'subject-detail') {
+                    // Restore subject reviewer list without search
+                    window._publicReviewersPaging.search = '';
+                    window._publicReviewersPaging.offset = 0;
+                    window._publicReviewersPaging.finished = false;
+                    window._publicReviewersPaging.count = null;
+                    document.getElementById('reviewersGrid').innerHTML = '';
+                    document.getElementById('loadingState').style.display = 'block';
+                    document.getElementById('emptyState').style.display = 'none';
+                    await loadMorePublicReviewers();
+                } else {
+                    // All reviewers, no search — reload
+                    window._publicReviewersPaging.search = '';
+                    window._publicReviewersPaging.offset = 0;
+                    window._publicReviewersPaging.finished = false;
+                    window._publicReviewersPaging.count = null;
+                    document.getElementById('reviewersGrid').innerHTML = '';
+                    document.getElementById('loadingState').style.display = 'block';
+                    document.getElementById('emptyState').style.display = 'none';
+                    await loadMorePublicReviewers();
+                }
+                return;
+            }
             window._publicReviewersPaging.search = term;
+            if (window._currentView !== 'subject-detail') {
+                window._publicReviewersPaging.subjectId = '';
+            }
+            document.getElementById('subjectsGrid').style.display = 'none';
+            document.getElementById('reviewerViewHeader').style.display = 'flex';
+            document.getElementById('currentSubjectLabel').textContent = `Search: "${term}"`;
             // Reset and load first page for search
             window._publicReviewersPaging.offset = 0;
             window._publicReviewersPaging.finished = false;

@@ -646,13 +646,6 @@ function openReviewerModal(subjectId, reviewerId = null) {
         document.getElementById('reviewerForm').reset();
         quill.setContents([]);
         document.getElementById('isPublic').checked = true;
-        // Reset compiler fields for new reviewer
-        try {
-            const incl = document.getElementById('includeCompiler');
-            if (incl) incl.checked = false;
-            const row = document.getElementById('compilerLanguageRow');
-            if (row) row.style.display = 'none';
-        } catch (e) {}
         // Clear flashcard rows and hide the section for a new reviewer
         try {
             const container = document.getElementById('flashcardsList');
@@ -712,15 +705,6 @@ async function loadReviewerData(reviewerId, subjectId) {
             document.getElementById('reviewerTitle').value = reviewer.title;
             quill.root.innerHTML = reviewer.content;
             document.getElementById('isPublic').checked = reviewer.is_public;
-            // Populate compiler fields
-            try {
-                const incl = document.getElementById('includeCompiler');
-                const row = document.getElementById('compilerLanguageRow');
-                const sel = document.getElementById('compilerLanguage');
-                if (incl) incl.checked = !!reviewer.compiler_language;
-                if (row) row.style.display = reviewer.compiler_language ? '' : 'none';
-                if (sel && reviewer.compiler_language) sel.value = reviewer.compiler_language;
-            } catch (e) {}
                     // Populate flashcards from embedded `reviewer.flashcards` if present
                     try {
                         const fcs = Array.isArray(reviewer.flashcards) ? reviewer.flashcards : [];
@@ -764,13 +748,6 @@ function closeReviewerModal() {
         const btn = document.getElementById('toggleFlashcardsBtn');
         if (btn) btn.innerHTML = '<i class="bi bi-card-text"></i> Flashcards';
     } catch (e) {}
-    // Reset compiler fields
-    try {
-        const incl = document.getElementById('includeCompiler');
-        if (incl) incl.checked = false;
-        const row = document.getElementById('compilerLanguageRow');
-        if (row) row.style.display = 'none';
-    } catch (e) {}
 }
 
 async function saveReviewer() {
@@ -778,11 +755,6 @@ async function saveReviewer() {
     const content = quill.root.innerHTML;
     const isPublic = document.getElementById('isPublic').checked;
     const subjectId = document.getElementById('reviewerSubjectId').value;
-    const includeCompiler = document.getElementById('includeCompiler') && document.getElementById('includeCompiler').checked;
-    const compilerLanguage = includeCompiler && document.getElementById('compilerLanguage')
-        ? (document.getElementById('compilerLanguage').value || null)
-        : null;
-
     if (!title || !content) {
         alert('Please enter a title and content');
         return;
@@ -805,8 +777,8 @@ async function saveReviewer() {
         // Include flashcards array from UI (if any)
         const flashcardsFromUI = getFlashcardsFromUI();
         const body = currentReviewerId
-            ? Object.assign({ title, content, is_public: isPublic, compiler_language: compilerLanguage }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {})
-            : Object.assign({ subject_id: subjectId, title, content, is_public: isPublic, compiler_language: compilerLanguage }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {});
+            ? Object.assign({ title, content, is_public: isPublic }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {})
+            : Object.assign({ subject_id: subjectId, title, content, is_public: isPublic }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {});
 
         const response = await fetch(url, {
             method,
@@ -1059,24 +1031,11 @@ async function viewReviewer(reviewerId) {
         // Conditional footer buttons
         const hasFlashcards = Array.isArray(reviewer.flashcards) && reviewer.flashcards.length > 0;
         const hasQuiz = reviewer.quiz && Array.isArray(reviewer.quiz.questions) && reviewer.quiz.questions.length > 0;
-        const hasCompiler = !!reviewer.compiler_language;
         const viewFlashcardsBtn = document.getElementById('viewFlashcardsBtn');
         const viewQuizBtn = document.getElementById('viewQuizBtn');
-        const viewCompilerBtn = document.getElementById('viewCompilerBtn');
         const reportBtn = document.getElementById('viewReportBtn');
         if (viewFlashcardsBtn) viewFlashcardsBtn.style.display = hasFlashcards ? '' : 'none';
         if (viewQuizBtn) viewQuizBtn.style.display = hasQuiz ? '' : 'none';
-        if (viewCompilerBtn) viewCompilerBtn.style.display = hasCompiler ? '' : 'none';
-        // Reset compiler panel state for this reviewer
-        const compilerPanel = document.getElementById('viewCompilerPanel');
-        const compilerLangLabel = document.getElementById('viewCompilerLangLabel');
-        const compilerCode = document.getElementById('viewCompilerCode');
-        const compilerOutput = document.getElementById('viewCompilerOutput');
-        if (compilerPanel) compilerPanel.style.display = 'none';
-        if (compilerLangLabel) compilerLangLabel.textContent = formatCompilerLanguage(reviewer.compiler_language);
-        if (compilerCode) compilerCode.value = '';
-        if (compilerOutput) compilerOutput.textContent = '';
-        viewModal.dataset.compilerLanguage = reviewer.compiler_language || '';
         if (reportBtn) {
             if (!currentUser || String(currentUser.id) === String(reviewer.user_id)) {
                 reportBtn.style.display = 'none';
@@ -1093,81 +1052,10 @@ async function viewReviewer(reviewerId) {
 
 function closeViewReviewerModal() {
     document.getElementById('viewReviewerModal').classList.remove('show');
-    // Reset compiler panel state
-    const compilerPanel = document.getElementById('viewCompilerPanel');
-    if (compilerPanel) compilerPanel.style.display = 'none';
     if (window._reviewersListWasOpen) {
         const reviewersListModal = document.getElementById('reviewersListModal');
         if (reviewersListModal) reviewersListModal.classList.add('show');
         window._reviewersListWasOpen = false;
-    }
-}
-
-function formatCompilerLanguage(lang) {
-    const names = { python: 'Python', javascript: 'JavaScript', cpp: 'C++', c: 'C', java: 'Java', go: 'Go', rust: 'Rust', typescript: 'TypeScript', php: 'PHP', ruby: 'Ruby' };
-    return names[lang] || lang || '';
-}
-
-function toggleCompilerLanguageRow() {
-    const checked = document.getElementById('includeCompiler') && document.getElementById('includeCompiler').checked;
-    const row = document.getElementById('compilerLanguageRow');
-    if (row) row.style.display = checked ? '' : 'none';
-}
-
-function toggleViewCompilerPanel() {
-    const panel = document.getElementById('viewCompilerPanel');
-    if (!panel) return;
-    const isHidden = panel.style.display === 'none' || panel.style.display === '';
-    panel.style.display = isHidden ? 'block' : 'none';
-    const chevron = document.getElementById('viewCompilerChevron');
-    if (chevron) {
-        chevron.className = isHidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
-    }
-    const btn = document.getElementById('viewCompilerBtn');
-    if (btn) btn.innerHTML = isHidden
-        ? '<i class="bi bi-terminal"></i> Close Compiler'
-        : '<i class="bi bi-terminal"></i> Open Compiler';
-}
-
-function clearViewCompilerOutput() {
-    const out = document.getElementById('viewCompilerOutput');
-    if (out) out.textContent = '';
-}
-
-async function runViewCompilerCode() {
-    const viewModal = document.getElementById('viewReviewerModal');
-    const lang = viewModal && viewModal.dataset.compilerLanguage;
-    const code = document.getElementById('viewCompilerCode') && document.getElementById('viewCompilerCode').value;
-    if (!lang || !code) return;
-    const runBtn = document.getElementById('viewRunBtn');
-    const spinner = document.getElementById('viewRunSpinner');
-    const output = document.getElementById('viewCompilerOutput');
-    if (runBtn) runBtn.disabled = true;
-    if (spinner) spinner.style.display = 'inline-block';
-    if (output) output.textContent = 'Running…';
-    try {
-        const pistonLang = lang === 'cpp' ? 'c++' : lang;
-        const resp = await fetch('https://emkc.org/api/v2/piston/execute', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ language: pistonLang, version: '*', files: [{ content: code }] })
-        });
-        const data = await resp.json();
-        if (data && data.run) {
-            const stdout = data.run.stdout || '';
-            const stderr = data.run.stderr || '';
-            output.textContent = stdout + (stderr ? '\n[stderr]\n' + stderr : '') || '(no output)';
-            output.style.color = stderr && !stdout ? '#f48771' : '#4ec9b0';
-        } else {
-            output.textContent = data.message || 'Unknown error from compiler service.';
-            output.style.color = '#f48771';
-        }
-    } catch (err) {
-        output.textContent = 'Failed to reach compiler service. Check your internet connection.';
-        output.style.color = '#f48771';
-    } finally {
-        if (runBtn) runBtn.disabled = false;
-        if (spinner) spinner.style.display = 'none';
     }
 }
 

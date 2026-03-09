@@ -28,9 +28,14 @@ const bcrypt = {
     })
 };
 import multer from 'multer';
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import { spawn } from 'child_process';
+import { writeFile, unlink } from 'fs/promises';
+import { tmpdir } from 'os';
+import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import compression from 'compression';
-import crypto from 'crypto';
 
 // =====================================================
 // INPUT VALIDATION & SANITIZATION UTILITIES
@@ -2257,19 +2262,34 @@ app.get('/api/subjects/public', async (req, res) => {
         const { data, error } = await withTimeout(
             supabase
                 .from('reviewers')
-                .select('subject_id, subjects:subject_id(id, name)')
+                .select('subject_id, subjects:subject_id(id, name, school)')
                 .eq('is_public', true),
             8000
         );
         if (error) return res.status(500).json({ error: 'Failed to fetch subjects' });
 
+        // Collect unique subject IDs and their school UUIDs
         const seen = new Map();
         for (const r of data || []) {
             if (r.subjects && r.subjects.id && !seen.has(r.subjects.id)) {
-                seen.set(r.subjects.id, { id: r.subjects.id, name: r.subjects.name });
+                seen.set(r.subjects.id, { id: r.subjects.id, name: r.subjects.name, school_id: r.subjects.school || null });
             }
         }
-        const subjects = Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+
+        // Fetch school names for subjects that have a school
+        const schoolIds = [...new Set([...seen.values()].map(s => s.school_id).filter(Boolean))];
+        const schoolMap = {};
+        if (schoolIds.length) {
+            const { data: schoolData } = await supabaseAdmin
+                .from('verified_schools')
+                .select('id, name')
+                .in('id', schoolIds);
+            for (const sc of schoolData || []) schoolMap[sc.id] = sc.name;
+        }
+
+        const subjects = Array.from(seen.values())
+            .map(s => ({ ...s, school_name: s.school_id ? (schoolMap[s.school_id] || null) : null }))
+            .sort((a, b) => a.name.localeCompare(b.name));
         res.json({ subjects });
     } catch (e) {
         console.error('Get public subjects error:', e);
@@ -2689,6 +2709,89 @@ app.get('/api/users/:id/reviewers', async (req, res) => {
     }
 });
 
+// GET /api/users/me/social - Get followers and following for current user (for chat sidebar)
+app.get('/api/users/me/social', requireAuth, async (req, res) => {
+    try {
+        const userId = req.session.userId;
+
+        // Fetch people who follow the current user
+        const { data: followersData, error: followersError } = await supabaseAdmin
+            .from('followers')
+            .select('follower_id, users:follower_id (id, username, display_name, profile_picture_url)')
+            .eq('following_id', userId);
+
+        // Fetch people the current user follows
+        const { data: followingData, error: followingError } = await supabaseAdmin
+            .from('followers')
+            .select('following_id, users:following_id (id, username, display_name, profile_picture_url)')
+            .eq('follower_id', userId);
+
+        if (followersError || followingError) {
+            console.error('Social fetch error:', followersError || followingError);
+            return res.status(500).json({ error: 'Failed to fetch social connections' });
+        }
+
+        // Deduplicate into a single user list
+        const seen = new Set();
+        const people = [];
+
+        for (const row of (followersData || [])) {
+            const u = row.users;
+            if (u && !seen.has(u.id)) {
+                seen.add(u.id);
+                people.push({ id: u.id, username: u.username, display_name: u.display_name, profile_picture_url: u.profile_picture_url, relation: 'follower' });
+            }
+        }
+        for (const row of (followingData || [])) {
+            const u = row.users;
+            if (u && !seen.has(u.id)) {
+                seen.add(u.id);
+                people.push({ id: u.id, username: u.username, display_name: u.display_name, profile_picture_url: u.profile_picture_url, relation: 'following' });
+            } else if (u && seen.has(u.id)) {
+                // Mark mutual
+                const existing = people.find(p => p.id === u.id);
+                if (existing) existing.relation = 'mutual';
+            }
+        }
+
+        res.json({ people });
+    } catch (error) {
+        console.error('Get social connections error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/messages/unread-per-user - Get unread message counts per conversation partner
+app.get('/api/messages/unread-per-user', requireAuth, async (req, res) => {
+    try {
+        const lastSeenPrivate = req.query.lastSeenPrivate || '1970-01-01T00:00:00Z';
+
+        // Get all unread private messages for current user since lastSeenPrivate
+        const { data: unreadMsgs, error } = await supabaseAdmin
+            .from('messages')
+            .select('user_id')
+            .eq('chat_type', 'private')
+            .eq('recipient_id', req.session.userId)
+            .gt('created_at', lastSeenPrivate);
+
+        if (error) {
+            console.error('Unread per user error:', error);
+            return res.status(500).json({ error: 'Failed to fetch unread counts' });
+        }
+
+        // Count per sender
+        const counts = {};
+        for (const msg of (unreadMsgs || [])) {
+            counts[msg.user_id] = (counts[msg.user_id] || 0) + 1;
+        }
+
+        res.json({ counts });
+    } catch (error) {
+        console.error('Unread per user error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // POST /api/users/:id/follow - Follow a user
 app.post('/api/users/:id/follow', requireAuth, async (req, res) => {
     try {
@@ -2795,6 +2898,135 @@ app.get('/api/users/:id/follow-status', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('Get follow status error:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/users/:id/followers - List of users who follow user :id
+app.get('/api/users/:id/followers', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const loggedInUserId = req.session?.userId || null;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+        const offset = parseInt(req.query.offset) || 0;
+
+        const { data, error } = await supabaseAdmin
+            .from('followers')
+            .select('follower_id, users:follower_id (id, username, display_name, profile_picture_url)')
+            .eq('following_id', id)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+
+        if (error) {
+            console.error('Get followers list error:', error);
+            return res.status(500).json({ error: 'Server error' });
+        }
+
+        const users = (data || []).map(row => row.users).filter(Boolean);
+
+        let myFollowingSet = new Set();
+        if (loggedInUserId && users.length > 0) {
+            const { data: myData } = await supabaseAdmin
+                .from('followers')
+                .select('following_id')
+                .eq('follower_id', loggedInUserId)
+                .in('following_id', users.map(u => u.id));
+            (myData || []).forEach(row => myFollowingSet.add(row.following_id));
+        }
+
+        res.json({
+            users: users.map(u => ({ ...u, is_following: loggedInUserId ? myFollowingSet.has(u.id) : null })),
+            hasMore: users.length === limit
+        });
+    } catch (error) {
+        console.error('Get followers list error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// GET /api/users/:id/following - List of users that user :id follows
+app.get('/api/users/:id/following', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const loggedInUserId = req.session?.userId || null;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+        const offset = parseInt(req.query.offset) || 0;
+
+        const { data, error } = await supabaseAdmin
+            .from('followers')
+            .select('following_id, users:following_id (id, username, display_name, profile_picture_url)')
+            .eq('follower_id', id)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+
+        if (error) {
+            console.error('Get following list error:', error);
+            return res.status(500).json({ error: 'Server error' });
+        }
+
+        const users = (data || []).map(row => row.users).filter(Boolean);
+
+        let myFollowingSet = new Set();
+        if (loggedInUserId && users.length > 0) {
+            const { data: myData } = await supabaseAdmin
+                .from('followers')
+                .select('following_id')
+                .eq('follower_id', loggedInUserId)
+                .in('following_id', users.map(u => u.id));
+            (myData || []).forEach(row => myFollowingSet.add(row.following_id));
+        }
+
+        res.json({
+            users: users.map(u => ({ ...u, is_following: loggedInUserId ? myFollowingSet.has(u.id) : null })),
+            hasMore: users.length === limit
+        });
+    } catch (error) {
+        console.error('Get following list error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ─── Compiler proxy (Wandbox — free, no API key) ─────────────────────────────
+const _WANDBOX_COMPILERS = {
+    cpp:        { compiler: 'gcc-head' },
+    c:          { compiler: 'gcc-head', 'compiler-option-raw': '-x c' },
+    python:     { compiler: 'cpython-3.12.0' },
+    javascript: { compiler: 'nodejs-head' },
+    java:       { compiler: 'openjdk-head' },
+    go:         { compiler: 'go-head' },
+    rust:       { compiler: 'rust-head' },
+    php:        { compiler: 'php-head' },
+    ruby:       { compiler: 'ruby-head' },
+};
+
+app.post('/api/compiler/run', requireAuth, async (req, res) => {
+    try {
+        const { language, code, stdin } = req.body;
+        if (!language || !code) return res.status(400).json({ error: 'language and code are required' });
+        const langConfig = _WANDBOX_COMPILERS[language];
+        if (!langConfig) return res.status(400).json({ error: `Unsupported language: ${language}` });
+
+        const body = { code, ...langConfig };
+        if (stdin) body.stdin = stdin;
+
+        const wandRes = await fetch('https://wandbox.org/api/compile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        if (!wandRes.ok) {
+            const text = await wandRes.text();
+            return res.status(502).json({ error: 'Compiler service error', detail: text });
+        }
+        const data = await wandRes.json();
+        return res.json({
+            stdout: data.program_output || '',
+            stderr: (data.compiler_error || '') + (data.program_error || ''),
+            compileOutput: data.compiler_output || '',
+            status: data.status,
+        });
+    } catch (err) {
+        console.error('Wandbox proxy error:', err);
+        res.status(500).json({ error: 'Compiler service unavailable' });
     }
 });
 
@@ -6107,6 +6339,15 @@ app.get('/api/reviewers/:id/pdf', requireAuth, async (req, res) => {
 // ERROR HANDLING
 // =====================================================
 
+// One-time terminal auth tokens (expire in 30s)
+const _termTokens = new Map();
+app.post('/api/compiler/terminal-token', requireAuth, (req, res) => {
+    const token = crypto.randomBytes(32).toString('hex');
+    _termTokens.set(token, { expiresAt: Date.now() + 30_000 });
+    setTimeout(() => _termTokens.delete(token), 30_000);
+    res.json({ token });
+});
+
 // 404 handler - distinguish between API and page requests
 app.use((req, res) => {
     if (req.path.startsWith('/api/')) {
@@ -6220,11 +6461,123 @@ async function applyStartupMigrations() {
     }
 }
 
+// ─── Interactive compiler (xterm.js + WebSocket + child_process) ──────────────
+
+const _httpServer = http.createServer(app);
+const _wss = new WebSocketServer({ server: _httpServer, path: '/ws/compiler' });
+
+const _LANG_EXT = { cpp: '.cpp', c: '.c', python: '.py', javascript: '.js', typescript: '.ts', java: '.java', go: '.go', rust: '.rs', php: '.php', ruby: '.rb' };
+// Prepend to C/C++ source to disable stdout/stderr buffering without needing a PTY
+const _CPP_UNBUF = '#include<cstdio>\nstruct __UnbufInit{__UnbufInit(){setvbuf(stdout,0,_IONBF,0);setvbuf(stderr,0,_IONBF,0);}}__unbuf_init;\n';
+const _isWin = process.platform === 'win32';
+
+function _getRunConfig(language, srcFile) {
+    const outFile = srcFile + (_isWin ? '.exe' : '.out');
+    switch (language) {
+        case 'cpp':        return { compile: ['g++',    ['-o', outFile, srcFile]], run: [outFile, []] };
+        case 'c':          return { compile: ['gcc',    ['-o', outFile, srcFile]], run: [outFile, []] };
+        case 'python':     return { run: [_isWin ? 'python' : 'python3', ['-u', srcFile]] };
+        case 'javascript': return { run: ['node', [srcFile]] };
+        case 'typescript': return { run: ['npx', ['ts-node', '--skipProject', srcFile]] };
+        case 'java':       return { compile: ['javac', [srcFile]], run: ['java', ['-cp', path.dirname(srcFile), 'Main']] };
+        case 'go':         return { run: ['go', ['run', srcFile]] };
+        case 'rust':       return { compile: ['rustc', ['-o', outFile, srcFile]], run: [outFile, []] };
+        case 'php':        return { run: ['php',  [srcFile]] };
+        case 'ruby':       return { run: ['ruby', [srcFile]] };
+        default: return null;
+    }
+}
+
+_wss.on('connection', (socket, req) => {
+    // Validate one-time token
+    const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const token = new URLSearchParams(qs).get('token');
+    const tokenData = _termTokens.get(token);
+    if (!tokenData || Date.now() > tokenData.expiresAt) { socket.close(1008, 'Unauthorized'); return; }
+    _termTokens.delete(token);
+
+    let child = null;
+    const tmpFiles = [];
+    // Hard kill after 60s to prevent runaway processes
+    const killTimeout = setTimeout(() => { if (child) { child.kill(); socket.send('\r\n\x1b[33m[Timed out after 60s]\x1b[0m\r\n'); } }, 60_000);
+
+    const write = (s) => { if (socket.readyState === socket.OPEN) socket.send(s); };
+
+    socket.on('message', async (raw) => {
+        let msg; try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+        if (msg.type === 'start') {
+            const { language, code } = msg;
+            if (!language || !code) return;
+            const ext = _LANG_EXT[language] || '.txt';
+            const base = path.join(tmpdir(), `thinky_${crypto.randomBytes(8).toString('hex')}`);
+            // Java class must be named Main
+            const srcFile = language === 'java' ? path.join(tmpdir(), `Main_${Date.now()}.java`) : base + ext;
+            const finalCode = (language === 'cpp' || language === 'c') ? _CPP_UNBUF + code : code;
+            tmpFiles.push(srcFile);
+            try { await writeFile(srcFile, finalCode, 'utf8'); } catch {
+                write('\r\n\x1b[31mFailed to write source file.\x1b[0m\r\n'); return;
+            }
+
+            const config = _getRunConfig(language, srcFile);
+            if (!config) { write(`\r\n\x1b[31mUnsupported language: ${language}\x1b[0m\r\n`); return; }
+            const outFile = srcFile + (_isWin ? '.exe' : '.out');
+
+            const norm = (s) => s.replace(/(?<!\r)\n/g, '\r\n');
+            const startRun = () => {
+                const [cmd, args] = config.run;
+                child = spawn(cmd, args, { stdio: 'pipe', env: { ...process.env } });
+                child.stdout.on('data', d => write(norm(d.toString())));
+                child.stderr.on('data', d => write(norm(d.toString())));
+                child.on('close', code => {
+                    write(`\r\n\x1b[90m[Process exited with code ${code ?? '?'}]\x1b[0m\r\n`);
+                    child = null;
+                    tmpFiles.forEach(f => unlink(f).catch(() => {}));
+                    unlink(outFile).catch(() => {});
+                });
+                child.on('error', e => write(`\r\n\x1b[31m${e.message}\x1b[0m\r\n`));
+            };
+
+            if (config.compile) {
+                const [cc, ca] = config.compile;
+                write(`\x1b[90mCompiling…\x1b[0m\r\n`);
+                const compiler = spawn(cc, ca, { stdio: 'pipe' });
+                let compileOut = '';
+                compiler.stdout.on('data', d => { compileOut += d; });
+                compiler.stderr.on('data', d => { compileOut += d; });
+                compiler.on('close', c => {
+                    if (c !== 0) {
+                        write(norm(compileOut || 'Compilation failed.') + `\r\n\x1b[90m[exited with code 1]\x1b[0m\r\n`);
+                        tmpFiles.forEach(f => unlink(f).catch(() => {}));
+                    } else {
+                        tmpFiles.push(outFile);
+                        startRun();
+                    }
+                });
+                compiler.on('error', () => write(`\r\n\x1b[31mCompiler not found: ${cc}\r\nMake sure it is installed and on your PATH.\x1b[0m\r\n`));
+            } else {
+                startRun();
+            }
+
+        } else if (msg.type === 'input') {
+            if (child?.stdin && !child.stdin.destroyed) child.stdin.write(msg.data);
+        } else if (msg.type === 'kill') {
+            if (child) child.kill();
+        }
+    });
+
+    socket.on('close', () => {
+        clearTimeout(killTimeout);
+        if (child) child.kill();
+        tmpFiles.forEach(f => unlink(f).catch(() => {}));
+    });
+});
+
 applyStartupMigrations();
 
 // If this file is run directly, start a standalone server (for local dev).
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    app.listen(PORT, () => {
+    _httpServer.listen(PORT, () => {
         console.log(`🚀 Reviewer App running on http://localhost:${PORT}`);
         console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
     });

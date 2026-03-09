@@ -1,3 +1,7 @@
+// Track user ids for follow list modal (set inside DOMContentLoaded)
+window._flFollowListUserId = null;
+window._flLoggedInId = null;
+
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         const resp = await fetch('/api/auth/me', { credentials: 'include' });
@@ -6,6 +10,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         document.getElementById('profileName').textContent = user.display_name || user.username;
         document.getElementById('profileUsername').textContent = `@${user.username}`;
+        
+        // Store user id for follow list modal (profile page: logged-in user IS the profile user)
+        window._flFollowListUserId = user.id;
+        window._flLoggedInId = user.id;
         
         // Display follower counts
         const followerCountEl = document.getElementById('followerCount');
@@ -36,31 +44,71 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        container.innerHTML = reviewers.map(rv => {
-            const u = rv._displayUser;
-            const avatar = (u && u.profile_picture_url) ? u.profile_picture_url : '/images/default-avatar.svg';
-            const userHtml = u ? `<img src="${avatar}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" alt="avatar" style="width:40px;height:40px;border-radius:999px;object-fit:cover">` : '<i class="bi bi-person-circle" style="font-size:1.5rem;color:var(--primary-pink)"></i>';
-            return `
-            <div class="reviewer-card" data-rid="${rv.id}">
-                <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-                    ${userHtml}
-                    <div>
-                        <div style="font-weight:600;">${escapeHtml(rv.title)}</div>
-                        <div style="font-size:0.85rem;color:var(--dark-gray);">${escapeHtml(rv.subjects?.name || '')}</div>
-                    </div>
-                </div>
-                <div style="color:var(--dark-gray);font-size:0.9rem;">${escapeHtml(stripHtml(rv.content).substring(0,160))}...</div>
-            </div>`;
-        }).join('');
-
-        // Wire click handlers to navigate to reviewer page
-        container.querySelectorAll('.reviewer-card').forEach(el => {
-            el.addEventListener('click', () => {
-                const rid = el.getAttribute('data-rid');
-                if (!rid) return;
-                window.location.href = `/reviewer.html?id=${rid}`;
-            });
+        // Group reviewers by subject
+        const subjectMap = {};
+        reviewers.forEach(rv => {
+            const key = rv.subject_id || '__none__';
+            const name = rv.subjects?.name || 'General';
+            if (!subjectMap[key]) subjectMap[key] = { id: key, name, reviewers: [] };
+            subjectMap[key].reviewers.push(rv);
         });
+        const subjectList = Object.values(subjectMap).sort((a, b) => a.name.localeCompare(b.name));
+        const profileAvatarSrc = escapeHtml(user.profile_picture_url || '/images/default-avatar.svg');
+        const profileUname = escapeHtml(user.username || '');
+        const profileH2 = container.closest('.profile-card').querySelector('h2');
+
+        function renderSubjectCards() {
+            if (profileH2) profileH2.textContent = 'Subjects';
+            container.innerHTML = subjectList.map(sub => `
+                <div class="reviewer-card" data-subkey="${escapeHtml(sub.id)}" style="cursor:pointer;">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                            <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
+                        </div>
+                        <div>
+                            <div style="font-weight:700;font-size:1.05rem;">${escapeHtml(sub.name)}</div>
+                            <div style="font-size:0.8rem;color:var(--dark-gray);">${sub.reviewers.length} reviewer${sub.reviewers.length !== 1 ? 's' : ''}</div>
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--medium-gray);">
+                        <img src="${profileAvatarSrc}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                        <span style="font-size:0.875rem;color:var(--dark-gray);">@${profileUname}</span>
+                    </div>
+                </div>`).join('');
+            container.querySelectorAll('[data-subkey]').forEach(el => {
+                el.addEventListener('click', () => {
+                    const sub = subjectList.find(s => s.id === el.dataset.subkey);
+                    if (sub) renderSubjectReviewers(sub);
+                });
+            });
+        }
+
+        function renderSubjectReviewers(sub) {
+            if (profileH2) profileH2.textContent = sub.name;
+            container.innerHTML = `<div style="grid-column:1/-1;margin-bottom:8px;">
+                <button id="profileBackBtn" class="btn btn-outline btn-sm"><i class="bi bi-arrow-left"></i> Back to Subjects</button>
+            </div>` + sub.reviewers.map(rv => {
+                const u = rv._displayUser;
+                const av = escapeHtml((u && u.profile_picture_url) ? u.profile_picture_url : '/images/default-avatar.svg');
+                const un = escapeHtml(u && u.username ? u.username : '');
+                return `<div class="reviewer-card" data-rid="${rv.id}" style="cursor:pointer;">
+                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                        <img src="${av}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
+                        <div>
+                            <div style="font-weight:600;">${escapeHtml(rv.title)}</div>
+                            <div style="font-size:0.85rem;color:var(--dark-gray);">@${un}</div>
+                        </div>
+                    </div>
+                    <div style="color:var(--dark-gray);font-size:0.9rem;">${escapeHtml(stripHtml(rv.content).substring(0,160))}...</div>
+                </div>`;
+            }).join('');
+            document.getElementById('profileBackBtn')?.addEventListener('click', renderSubjectCards);
+            container.querySelectorAll('[data-rid]').forEach(el => {
+                el.addEventListener('click', () => window.location.href = `/reviewer.html?id=${el.dataset.rid}`);
+            });
+        }
+
+        renderSubjectCards();
 
     } catch (e) {
         console.error('Failed to load profile or reviewers', e);
@@ -79,6 +127,137 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ── Followers / Following Modal (with lazy loading) ───────────────────────────
+const _flState = { type: null, offset: 0, limit: 20, loading: false, finished: false };
+
+function openFollowListModal(type) {
+    const targetId = window._flFollowListUserId;
+    if (!targetId) return;
+    const modal = document.getElementById('followListModal');
+    if (!modal) return;
+
+    // Reset paging state
+    _flState.type = type;
+    _flState.offset = 0;
+    _flState.loading = false;
+    _flState.finished = false;
+
+    document.getElementById('followListTitle').textContent = type === 'followers' ? 'Followers' : 'Following';
+    const body = document.getElementById('followListBody');
+    body.innerHTML = '';
+    modal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+
+    // Wire scroll-based lazy loading on the modal body
+    body.onscroll = () => {
+        if (_flState.loading || _flState.finished) return;
+        if (body.scrollTop + body.clientHeight >= body.scrollHeight - 60) {
+            _flLoadFollowPage();
+        }
+    };
+
+    _flLoadFollowPage(true);
+}
+
+async function _flLoadFollowPage(first = false) {
+    const targetId = window._flFollowListUserId;
+    if (!targetId || _flState.loading || _flState.finished) return;
+    _flState.loading = true;
+
+    const body = document.getElementById('followListBody');
+    if (!body) { _flState.loading = false; return; }
+
+    // Show spinner at bottom (or replace initial loading text)
+    let spinner = body.querySelector('._fl-spinner');
+    if (!spinner) {
+        spinner = document.createElement('div');
+        spinner.className = '_fl-spinner';
+        spinner.style.cssText = 'text-align:center;padding:16px;color:var(--dark-gray);font-size:0.9rem;';
+        spinner.textContent = 'Loading...';
+        body.appendChild(spinner);
+    }
+
+    try {
+        const params = new URLSearchParams({ limit: _flState.limit, offset: _flState.offset });
+        const resp = await fetch(`/api/users/${encodeURIComponent(targetId)}/${_flState.type}?${params}`, { credentials: 'include' });
+        const { users = [], hasMore = false } = resp.ok ? await resp.json() : {};
+
+        spinner.remove();
+
+        if (first && users.length === 0) {
+            body.innerHTML = `<div style="text-align:center;padding:24px;color:var(--dark-gray);">No ${_flState.type === 'followers' ? 'followers' : 'following'} yet</div>`;
+            _flState.finished = true;
+            return;
+        }
+
+        users.forEach(u => body.appendChild(_makeFollowListRow(u)));
+        _flState.offset += users.length;
+        _flState.finished = !hasMore;
+    } catch (e) {
+        if (spinner) spinner.remove();
+        if (first) body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--dark-gray);">Failed to load</div>';
+    } finally {
+        _flState.loading = false;
+    }
+}
+
+function closeFollowListModal() {
+    const modal = document.getElementById('followListModal');
+    if (modal) modal.classList.remove('show');
+    document.body.style.overflow = '';
+}
+
+function _makeFollowListRow(u) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--light-gray);';
+    const isMe = window._flLoggedInId && String(window._flLoggedInId) === String(u.id);
+    const btnHtml = (!isMe && window._flLoggedInId)
+        ? `<button class="btn btn-sm ${u.is_following ? 'btn-outline' : 'btn-primary'}" style="margin-left:auto;flex-shrink:0;min-width:80px;" data-following="${u.is_following ? '1' : '0'}" onclick="toggleFollowInModal(this,'${escapeHtml(String(u.id))}')">${u.is_following ? 'Unfollow' : 'Follow'}</button>`
+        : '';
+    row.innerHTML = `
+        <a href="/user.html?user=${escapeHtml(String(u.id))}" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;flex:1;min-width:0;">
+            <img src="${escapeHtml(u.profile_picture_url || '/images/default-avatar.svg')}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;">
+            <div style="min-width:0;">
+                <div style="font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(u.display_name || u.username)}</div>
+                <div style="font-size:0.8rem;color:var(--dark-gray);">@${escapeHtml(u.username)}</div>
+            </div>
+        </a>
+        ${btnHtml}`;
+    return row;
+}
+
+async function toggleFollowInModal(btn, targetId) {
+    if (!window._flLoggedInId) { window.location.href = '/login'; return; }
+    const isFollowing = btn.dataset.following === '1';
+    btn.disabled = true;
+    try {
+        const resp = await fetch(`/api/users/${encodeURIComponent(targetId)}/follow`, {
+            method: isFollowing ? 'DELETE' : 'POST',
+            credentials: 'include'
+        });
+        if (!resp.ok) {
+            const d = await resp.json().catch(() => ({}));
+            window.showAlert && window.showAlert('error', d.error || 'Failed');
+            return;
+        }
+        const { following } = await resp.json();
+        btn.dataset.following = following ? '1' : '0';
+        btn.textContent = following ? 'Unfollow' : 'Follow';
+        if (following) { btn.classList.remove('btn-primary'); btn.classList.add('btn-outline'); }
+        else { btn.classList.remove('btn-outline'); btn.classList.add('btn-primary'); }
+    } catch (e) {
+        window.showAlert && window.showAlert('error', 'Failed to update follow status');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// Close follow list modal on overlay click
+document.addEventListener('click', (e) => {
+    const modal = document.getElementById('followListModal');
+    if (modal && e.target === modal) closeFollowListModal();
+});
 
 // Create and show reviewer modal (simple version used on profile page)
 function openReviewerModal(rv) {

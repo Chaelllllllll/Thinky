@@ -433,41 +433,11 @@
                 <a id="takeQuizBtn" href="#" class="btn btn-accent" style="display:none;align-items:center;gap:8px;">
                     <i class="bi bi-patch-question-fill"></i> Take Quiz
                 </a>
-                <button id="compilerBtn" class="btn btn-outline" onclick="toggleCompilerPanel()" style="display:none;align-items:center;gap:8px;">
-                    <i class="bi bi-terminal"></i> Open Compiler
-                </button>
                 <button class="btn btn-danger" id="reportBtn" style="display:inline-flex;align-items:center;gap:8px;">
                     <i class="bi bi-exclamation-triangle-fill"></i>
                 </button>
             </div>
         </div>
-
-    <!-- Compiler Section -->
-    <div id="compilerSection" style="display:none;margin:0 0 28px;">
-        <div style="border:2px solid var(--primary-pink);border-radius:14px;overflow:hidden;">
-            <div style="background:var(--primary-pink);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;">
-                <span style="font-weight:700;color:#fff;font-size:0.95rem;display:flex;align-items:center;gap:8px;">
-                    <i class="bi bi-terminal"></i> Compiler &mdash; <span id="compilerLangLabel"></span>
-                </span>
-                <button class="btn btn-sm" style="background:rgba(255,255,255,0.15);color:#fff;border:none;padding:4px 10px;" onclick="toggleCompilerPanel()">
-                    <i class="bi bi-chevron-up" id="compilerChevron"></i>
-                </button>
-            </div>
-            <div id="compilerPanelBody" style="padding:16px;">
-                <textarea id="compilerCode" spellcheck="false" style="width:100%;min-height:200px;padding:14px;font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:0.9rem;background:#1e1e1e;color:#d4d4d4;border:none;border-radius:10px;resize:vertical;outline:none;tab-size:4;" placeholder="Write your code here…"></textarea>
-                <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
-                    <button class="btn btn-primary" onclick="runCompilerCode()" id="compilerRunBtn">
-                        <i class="bi bi-play-fill"></i> Run
-                    </button>
-                    <button class="btn btn-outline btn-sm" onclick="clearCompilerOutput()">
-                        <i class="bi bi-trash"></i> Clear
-                    </button>
-                    <span id="compilerSpinner" class="spinner spinner-sm" style="display:none;"></span>
-                </div>
-                <pre id="compilerOutput" style="margin-top:12px;min-height:60px;background:#111;color:#4ec9b0;border-radius:10px;padding:14px;font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:0.88rem;white-space:pre-wrap;word-break:break-all;border:none;"></pre>
-            </div>
-        </div>
-    </div>
 
     <!-- Comment section -->
     <div class="comments-section" id="commentsSection">
@@ -540,16 +510,6 @@
         document.addEventListener('darkModeChanged', syncHljsTheme);
         document.addEventListener('DOMContentLoaded', syncHljsTheme);
 
-        // Tab key support in compiler textareas — insert 4 spaces instead of focus-change
-        document.addEventListener('keydown', function(e) {
-            if (e.key === 'Tab' && (e.target.id === 'compilerCode')) {
-                e.preventDefault();
-                const ta = e.target;
-                const s = ta.selectionStart, end = ta.selectionEnd;
-                ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
-                ta.selectionStart = ta.selectionEnd = s + 4;
-            }
-        });
     </script>
     <script>
         let currentReviewer = null;
@@ -954,8 +914,6 @@
         function setupQuizButtons(reviewer) {
             const hasQuiz = reviewer.quiz && Array.isArray(reviewer.quiz.questions) && reviewer.quiz.questions.length > 0;
             const hasFlashcards = Array.isArray(reviewer.flashcards) && reviewer.flashcards.length > 0;
-            const hasCompiler = !!reviewer.compiler_language;
-
             const flashBtn = document.getElementById('flashcardsBtn');
             if (flashBtn) flashBtn.style.display = hasFlashcards ? 'inline-flex' : 'none';
 
@@ -967,68 +925,6 @@
                 } else {
                     takeBtn.style.display = 'none';
                 }
-            }
-
-            const compilerBtn = document.getElementById('compilerBtn');
-            if (compilerBtn) compilerBtn.style.display = hasCompiler ? 'inline-flex' : 'none';
-            if (hasCompiler) {
-                const label = document.getElementById('compilerLangLabel');
-                const langNames = { python: 'Python', javascript: 'JavaScript', cpp: 'C++', c: 'C', java: 'Java', go: 'Go', rust: 'Rust', typescript: 'TypeScript', php: 'PHP', ruby: 'Ruby' };
-                if (label) label.textContent = langNames[reviewer.compiler_language] || reviewer.compiler_language;
-            }
-        }
-
-        function toggleCompilerPanel() {
-            const section = document.getElementById('compilerSection');
-            if (!section) return;
-            const isHidden = section.style.display === 'none' || section.style.display === '';
-            section.style.display = isHidden ? 'block' : 'none';
-            const chevron = document.getElementById('compilerChevron');
-            if (chevron) chevron.className = isHidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
-            const btn = document.getElementById('compilerBtn');
-            if (btn) btn.innerHTML = isHidden
-                ? '<i class="bi bi-terminal"></i> Close Compiler'
-                : '<i class="bi bi-terminal"></i> Open Compiler';
-        }
-
-        function clearCompilerOutput() {
-            const out = document.getElementById('compilerOutput');
-            if (out) out.textContent = '';
-        }
-
-        async function runCompilerCode() {
-            if (!currentReviewer || !currentReviewer.compiler_language) return;
-            const code = document.getElementById('compilerCode') && document.getElementById('compilerCode').value;
-            if (!code) return;
-            const runBtn = document.getElementById('compilerRunBtn');
-            const spinner = document.getElementById('compilerSpinner');
-            const output = document.getElementById('compilerOutput');
-            if (runBtn) runBtn.disabled = true;
-            if (spinner) spinner.style.display = 'inline-block';
-            if (output) output.textContent = 'Running\u2026';
-            try {
-                const pistonLang = currentReviewer.compiler_language === 'cpp' ? 'c++' : currentReviewer.compiler_language;
-                const resp = await fetch('https://emkc.org/api/v2/piston/execute', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ language: pistonLang, version: '*', files: [{ content: code }] })
-                });
-                const data = await resp.json();
-                if (data && data.run) {
-                    const stdout = data.run.stdout || '';
-                    const stderr = data.run.stderr || '';
-                    output.textContent = stdout + (stderr ? '\n[stderr]\n' + stderr : '') || '(no output)';
-                    output.style.color = stderr && !stdout ? '#f48771' : '#4ec9b0';
-                } else {
-                    output.textContent = data.message || 'Unknown error from compiler service.';
-                    output.style.color = '#f48771';
-                }
-            } catch (err) {
-                output.textContent = 'Failed to reach compiler service. Check your internet connection.';
-                output.style.color = '#f48771';
-            } finally {
-                if (runBtn) runBtn.disabled = false;
-                if (spinner) spinner.style.display = 'none';
             }
         }
 
