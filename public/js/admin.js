@@ -1239,6 +1239,7 @@ async function openEditUserModal(userId) {
     document.getElementById('editEmail').value = user.email || '';
     document.getElementById('editRole').value = user.role || 'student';
     document.getElementById('editVerified').checked = !!user.is_verified;
+    document.getElementById('editAiLimitExempt').checked = !!user.ai_limit_exempt;
     const modal = document.getElementById('editUserModal');
     if (!modal) {
         console.error('Edit user modal element not found');
@@ -1270,7 +1271,8 @@ async function openEditUserModal(userId) {
                 username: document.getElementById('editUsername').value.trim(),
                 email: document.getElementById('editEmail').value.trim(),
                 role: document.getElementById('editRole').value,
-                is_verified: document.getElementById('editVerified').checked
+                is_verified: document.getElementById('editVerified').checked,
+                ai_limit_exempt: document.getElementById('editAiLimitExempt').checked
             };
             const id = document.getElementById('editUserId').value;
             const resp = await fetch(`/api/admin/users/${encodeURIComponent(id)}`, {

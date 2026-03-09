@@ -36,6 +36,7 @@ import { tmpdir } from 'os';
 import crypto from 'crypto';
 import nodemailer from 'nodemailer';
 import compression from 'compression';
+import webPush from 'web-push';
 
 // =====================================================
 // INPUT VALIDATION & SANITIZATION UTILITIES
@@ -114,6 +115,58 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+// ── Web Push (VAPID) setup ────────────────────────────────────────────────────
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+    webPush.setVapidDetails(
+        process.env.VAPID_MAILTO || 'mailto:admin@thinky.com',
+        process.env.VAPID_PUBLIC_KEY,
+        process.env.VAPID_PRIVATE_KEY
+    );
+}
+
+/**
+ * Send a push notification to all subscriptions for a given user.
+ * Silently removes expired/invalid subscriptions.
+ */
+async function sendPushToUser(userId, payload) {
+    if (!process.env.VAPID_PUBLIC_KEY) return; // push not configured
+    try {
+        const { data: subs } = await supabaseAdmin
+            .from('push_subscriptions')
+            .select('id, endpoint, p256dh, auth')
+            .eq('user_id', userId);
+
+        if (!subs || subs.length === 0) return;
+
+        const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+        const staleIds = [];
+
+        await Promise.allSettled(
+            subs.map(async (sub) => {
+                try {
+                    await webPush.sendNotification(
+                        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+                        payloadStr
+                    );
+                } catch (err) {
+                    // 410 Gone or 404 = subscription expired → remove
+                    if (err.statusCode === 410 || err.statusCode === 404) {
+                        staleIds.push(sub.id);
+                    } else {
+                        console.warn('[push] send error for sub', sub.id, err.statusCode || err.message);
+                    }
+                }
+            })
+        );
+
+        if (staleIds.length > 0) {
+            await supabaseAdmin.from('push_subscriptions').delete().in('id', staleIds);
+        }
+    } catch (err) {
+        console.warn('[push] sendPushToUser error:', err.message);
+    }
+}
 
 // Helper to add an upstream timeout to any promise (e.g., Supabase requests)
 async function withTimeout(promise, ms = 8000) {
@@ -2480,7 +2533,7 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             console.warn('Failed to check user ban/restriction status', e);
         }
 
-        const { subject_id, title, content, is_public, flashcards, compiler_language } = req.body;
+        const { subject_id, title, content, is_public, flashcards } = req.body;
 
         if (!subject_id || !title || !content) {
             return res.status(400).json({ error: 'Subject, title, and content are required' });
@@ -2516,8 +2569,7 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             subject_id,
             title,
             content,
-            is_public: is_public !== false,
-            compiler_language: compiler_language || null
+            is_public: is_public !== false
         }, flashcardsToSave ? { flashcards: flashcardsToSave } : {});
 
         const { data: reviewer, error } = await supabaseAdmin
@@ -2531,7 +2583,7 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to create reviewer' });
         }
 
-        // Notify followers about new reviewer (async, don't block response)
+        // Notify followers about new reviewer (in-app + push + email, async, non-blocking)
         (async () => {
             try {
                 const { data: followers } = await supabaseAdmin
@@ -2547,9 +2599,21 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
                         .single();
 
                     const authorName = author?.username || 'A user you follow';
-                    
-                    // Send emails to followers
+                    const reviewerUrl = `/reviewer.html?id=${reviewer.id}`;
+
                     for (const follower of followers) {
+                        // In-app notification + push
+                        await createNotification({
+                            userId: follower.follower_id,
+                            type: 'new_reviewer',
+                            title: `New reviewer from ${authorName}`,
+                            message: `${authorName} just published "${title}" — check it out!`,
+                            link: reviewerUrl,
+                            relatedUserId: req.session.userId,
+                            relatedItemId: reviewer.id,
+                        });
+
+                        // Email
                         if (follower.users && follower.users.email) {
                             try {
                                 await mailTransporter.sendMail({
@@ -2562,7 +2626,7 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
                                             <p>Hello ${follower.users.username},</p>
                                             <p><strong>${authorName}</strong> just posted a new reviewer: <strong>${title}</strong></p>
                                             <p>Check it out on Thinky!</p>
-                                            <a href="${process.env.PRODUCTION_URL || 'http://localhost:3000'}/reviewer.html?id=${reviewer.id}" 
+                                            <a href="${process.env.PRODUCTION_URL || 'http://localhost:3000'}${reviewerUrl}" 
                                                style="display: inline-block; padding: 12px 24px; background: #ff69b4; color: white; text-decoration: none; border-radius: 999px; margin: 16px 0;">
                                                 View Reviewer
                                             </a>
@@ -3034,9 +3098,9 @@ app.post('/api/compiler/run', requireAuth, async (req, res) => {
 app.put('/api/reviewers/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, content, is_public, flashcards, compiler_language } = req.body;
+        const { title, content, is_public, flashcards } = req.body;
 
-        const updateObj = { title, content, is_public: is_public !== false, compiler_language: compiler_language || null };
+        const updateObj = { title, content, is_public: is_public !== false };
 
         // parse simple textarea format if provided
         const parseFlashcardsText = (txt) => {
@@ -4236,18 +4300,18 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
         // Create notification for private messages
         if (chat_type === 'private' && recipient_id && recipient_id !== req.session.userId) {
             try {
+                const preview = cleanMessage.length > 80 ? cleanMessage.slice(0, 80) + '…' : cleanMessage;
                 await createNotification({
                     userId: recipient_id,
-                    type: 'message',
-                    title: 'New Message',
-                    message: `${req.session.username} sent you a message`,
+                    type: 'private_message',
+                    title: `💬 ${req.session.username} sent you a message`,
+                    message: preview,
                     link: `/chat.html?with=${req.session.userId}`,
                     relatedUserId: req.session.userId,
                     relatedItemId: newMessage.id
                 });
             } catch (notifErr) {
                 console.error('Failed to create message notification:', notifErr);
-                // Don't fail the request if notification creation fails
             }
         }
 
@@ -5010,7 +5074,7 @@ app.get('/api/admin/users', requireAdmin, async (req, res) => {
     try {
         const { data: users, error } = await supabase
             .from('users')
-            .select('id, email, username, role, is_verified, created_at')
+            .select('id, email, username, role, is_verified, created_at, ai_limit_exempt')
             .order('created_at', { ascending: false });
 
         if (error) {
@@ -5071,12 +5135,15 @@ app.put('/api/admin/users/:id', requireAdmin, async (req, res) => {
             }
             update.role = role;
         }
+        if (typeof req.body.ai_limit_exempt !== 'undefined') {
+            update.ai_limit_exempt = !!req.body.ai_limit_exempt;
+        }
 
         const { data: user, error } = await supabaseAdmin
             .from('users')
             .update(update)
             .eq('id', id)
-            .select('id, email, username, role, display_name, is_verified')
+            .select('id, email, username, role, display_name, is_verified, ai_limit_exempt')
             .single();
 
         if (error) {
@@ -5462,7 +5529,7 @@ app.get('/settings.html', (req, res) => {
 // NOTIFICATIONS API
 // =====================================================
 
-// Helper function to create a notification
+// Helper function to create a notification AND fire a push notification
 async function createNotification({ userId, type, title, message, link, relatedUserId, relatedItemId }) {
     try {
         const { error } = await supabaseAdmin
@@ -5483,7 +5550,69 @@ async function createNotification({ userId, type, title, message, link, relatedU
     } catch (err) {
         console.error('Create notification error:', err);
     }
+
+    // Fire push notification (non-blocking)
+    sendPushToUser(userId, {
+        title,
+        body: message,
+        url: link || '/dashboard.html',
+        type,
+        tag: `${type}-${relatedItemId || relatedUserId || userId}`,
+    }).catch(() => {});
 }
+
+// ── Push subscription endpoints ───────────────────────────────────────────────
+
+// GET /api/push/vapid-public-key — returns VAPID public key for client subscription
+app.get('/api/push/vapid-public-key', (req, res) => {
+    if (!process.env.VAPID_PUBLIC_KEY) {
+        return res.status(503).json({ error: 'Push notifications not configured' });
+    }
+    res.json({ publicKey: process.env.VAPID_PUBLIC_KEY });
+});
+
+// POST /api/push/subscribe — save or refresh a push subscription for the current user
+app.post('/api/push/subscribe', requireAuth, async (req, res) => {
+    try {
+        const { endpoint, keys } = req.body;
+        if (!endpoint || !keys?.p256dh || !keys?.auth) {
+            return res.status(400).json({ error: 'Invalid subscription object' });
+        }
+        const userId = req.session.userId;
+
+        // Upsert — if same user+endpoint already exists, update keys
+        const { error } = await supabaseAdmin
+            .from('push_subscriptions')
+            .upsert(
+                [{ user_id: userId, endpoint, p256dh: keys.p256dh, auth: keys.auth }],
+                { onConflict: 'user_id,endpoint' }
+            );
+
+        if (error) {
+            console.error('Push subscribe error:', error);
+            return res.status(500).json({ error: 'Failed to save subscription' });
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Push subscribe error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/push/unsubscribe — remove push subscription
+app.delete('/api/push/unsubscribe', requireAuth, async (req, res) => {
+    try {
+        const { endpoint } = req.body;
+        const userId = req.session.userId;
+        const query = supabaseAdmin.from('push_subscriptions').delete().eq('user_id', userId);
+        if (endpoint) query.eq('endpoint', endpoint);
+        await query;
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Push unsubscribe error:', err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
 
 // GET /api/notifications - Get user's notifications
 app.get('/api/notifications', requireAuth, async (req, res) => {
@@ -5575,6 +5704,65 @@ app.put('/api/notifications/read-all', requireAuth, async (req, res) => {
 // =====================================================
 // AI ROUTES (Google Gemini 1.5 Flash — Free Tier)
 // =====================================================
+
+// ── AI Daily-limit helpers ────────────────────────────────────────────────
+const AI_DAILY_LIMIT = 5; // max uses per type per UTC day
+
+/**
+ * Check whether userId has exceeded their daily AI limit for the given type.
+ * Returns { allowed: true, used, limit } or { allowed: false, used, limit }.
+ * Exempt users always get { allowed: true }.
+ */
+async function checkAiLimit(userId, usageType) {
+    // 1) Is user exempt?
+    const { data: userRow } = await supabaseAdmin
+        .from('users')
+        .select('ai_limit_exempt')
+        .eq('id', userId)
+        .single();
+    if (userRow?.ai_limit_exempt) return { allowed: true, used: 0, limit: null, exempt: true };
+
+    // 2) How many uses today?
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+    const { data: row } = await supabaseAdmin
+        .from('ai_usage_log')
+        .select('count')
+        .eq('user_id', userId)
+        .eq('usage_type', usageType)
+        .eq('used_date', today)
+        .maybeSingle();
+
+    const used = row?.count ?? 0;
+    return { allowed: used < AI_DAILY_LIMIT, used, limit: AI_DAILY_LIMIT, exempt: false };
+}
+
+/**
+ * Increment the usage counter for userId/usageType today.
+ * Uses an upsert so the first call creates the row.
+ */
+async function incrementAiUsage(userId, usageType) {
+    const today = new Date().toISOString().slice(0, 10);
+    // Try update first (most common path)
+    const { data: existing } = await supabaseAdmin
+        .from('ai_usage_log')
+        .select('id, count')
+        .eq('user_id', userId)
+        .eq('usage_type', usageType)
+        .eq('used_date', today)
+        .maybeSingle();
+
+    if (existing) {
+        await supabaseAdmin
+            .from('ai_usage_log')
+            .update({ count: existing.count + 1 })
+            .eq('id', existing.id);
+    } else {
+        await supabaseAdmin
+            .from('ai_usage_log')
+            .insert({ user_id: userId, usage_type: usageType, used_date: today, count: 1 });
+    }
+}
+// ─────────────────────────────────────────────────────────────────────────
 
 const aiUpload = multer({
     storage: multer.memoryStorage(),
@@ -5767,6 +5955,16 @@ app.post('/api/ai/generate-reviewer', requireAuth, aiUpload.single('file'), asyn
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
         if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
 
+        // ── Daily limit check ──
+        const limitCheck = await checkAiLimit(req.session.userId, 'reviewer');
+        if (!limitCheck.allowed) {
+            return res.status(429).json({
+                error: `Daily auto-generate limit reached (${limitCheck.limit}/day). Limit resets at midnight UTC.`,
+                used: limitCheck.used,
+                limit: limitCheck.limit
+            });
+        }
+
         const { mimetype, buffer } = req.file;
         let pdfBase64 = null;
         let textContent = null;
@@ -5820,6 +6018,9 @@ Return nothing outside the JSON object.`;
             return res.status(500).json({ error: 'Generation returned incomplete data. Please try again.' });
         }
 
+        // ── Increment usage counter (fire-and-forget; don't block response) ──
+        incrementAiUsage(req.session.userId, 'reviewer').catch(e => console.warn('[AI] usage increment error', e));
+
         res.json({
             title: String(result.title).trim().slice(0, 200),
             content: String(result.content).trim(),
@@ -5846,6 +6047,19 @@ app.post('/api/ai/generate-quiz', requireAuth, async (req, res) => {
         const { reviewerId, questionCount } = req.body;
         if (!reviewerId || !UUID_REGEX.test(reviewerId)) {
             return res.status(400).json({ error: 'Invalid reviewer ID' });
+        }
+
+        // ── Daily limit check (only for AI-auto generation; manual count is always allowed) ──
+        const isAutoGenerate = questionCount === undefined;
+        if (isAutoGenerate) {
+            const limitCheck = await checkAiLimit(req.session.userId, 'quiz');
+            if (!limitCheck.allowed) {
+                return res.status(429).json({
+                    error: `Daily auto-generate limit reached (${limitCheck.limit}/day). Limit resets at midnight UTC.`,
+                    used: limitCheck.used,
+                    limit: limitCheck.limit
+                });
+            }
         }
 
         // If a specific count is requested (manual quiz builder), honour it (3–100).
@@ -5901,7 +6115,7 @@ Rules:
 - Do NOT use any Markdown formatting (no **, no *, except for the correct-answer marker before the option letter).
 - Do NOT include any explanation, commentary, or text outside the question blocks.
 - Output nothing except the numbered question blocks.`
-            : `You are an expert quiz maker. Based on the reviewer below, generate as many multiple-choice questions as needed to comprehensively test EVERY topic, concept, definition, process, person, date, and fact covered — do not stop early and do not skip anything. There is no minimum or maximum you have to hit; generate however many questions are required to fully cover all the material (up to 100).
+            : `You are an expert quiz maker. Based on the reviewer below, generate exactly as many multiple-choice questions as needed to comprehensively cover EVERY topic, concept, definition, process, and fact in the reviewer — no more, no less. Let the depth and breadth of the content determine the number: a short reviewer should produce fewer questions, a long detailed one should produce more. Every distinct idea or testable fact in the reviewer must have at least one question.
 
 Reviewer: ${reviewer.title}
 Content:
@@ -5924,6 +6138,7 @@ Rules:
 - Wrong options must be plausible and related to the topic, but clearly incorrect.
 - Questions must test understanding and application, not just recognition of words.
 - Do NOT repeat the same concept twice.
+- Cover every section and subtopic — do not skip or skim any part of the reviewer.
 - Do NOT use any Markdown formatting (no **, no *, except for the correct-answer marker before the option letter).
 - Do NOT include any explanation, commentary, or text outside the question blocks.
 - Output nothing except the numbered question blocks.`;
@@ -5975,10 +6190,45 @@ Rules:
             return res.status(500).json({ error: 'No questions could be generated. Please try again.' });
         }
 
+        // ── Increment usage counter for auto-generates only ──
+        if (isAutoGenerate) {
+            incrementAiUsage(req.session.userId, 'quiz').catch(e => console.warn('[AI] usage increment error', e));
+        }
+
         res.json({ questions: questions.slice(0, 100) });
     } catch (error) {
         console.error('Auto generate-quiz error:', error);
         res.status(500).json({ error: 'Failed to generate questions. Please try again.' });
+    }
+});
+
+// GET /api/ai/usage — return today's AI usage counts for the current user
+app.get('/api/ai/usage', requireAuth, async (req, res) => {
+    try {
+        const { data: userRow } = await supabaseAdmin
+            .from('users')
+            .select('ai_limit_exempt')
+            .eq('id', req.session.userId)
+            .single();
+
+        if (userRow?.ai_limit_exempt) {
+            return res.json({ exempt: true, limit: null, reviewer: 0, quiz: 0 });
+        }
+
+        const today = new Date().toISOString().slice(0, 10);
+        const { data: rows } = await supabaseAdmin
+            .from('ai_usage_log')
+            .select('usage_type, count')
+            .eq('user_id', req.session.userId)
+            .eq('used_date', today);
+
+        const usage = { reviewer: 0, quiz: 0 };
+        (rows || []).forEach(r => { if (r.usage_type in usage) usage[r.usage_type] = r.count; });
+
+        res.json({ exempt: false, limit: AI_DAILY_LIMIT, reviewer: usage.reviewer, quiz: usage.quiz });
+    } catch (err) {
+        console.error('AI usage fetch error:', err);
+        res.status(500).json({ error: 'Failed to fetch usage' });
     }
 });
 

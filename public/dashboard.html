@@ -21,6 +21,11 @@
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     
     <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#e91e8c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Thinky">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/style.css">
     <style>
@@ -215,10 +220,11 @@
 
         /* Modal: reviewers list */
         .reviewers-list-modal .reviewer-row {
-            display:flex;align-items:center;justify-content:space-between;padding:12px;border-bottom:1px solid rgba(0,0,0,0.04);
+            display:flex;flex-direction:column;gap:6px;padding:12px;border-bottom:1px solid rgba(0,0,0,0.04);
         }
-
-        .reviewers-list-modal .reviewer-title { font-weight:600; }
+        .reviewer-row-title { font-weight:600; }
+        .reviewer-row-bottom { display:flex;align-items:center;justify-content:space-between;gap:8px; }
+        .reviewer-row-actions { display:flex;gap:8px;align-items:center;margin-left:auto; }
 
         .empty-state i {
             font-size: 4rem;
@@ -262,6 +268,23 @@
         /* View reviewer modal — footer pinned by modal-helper-box */
         #viewReviewerModal .modal-footer {
             flex-shrink: 0;
+        }
+
+        /* ── Desktop: give modals a comfortable minimum height ──
+           Without this, flex-column modal-helper-box collapses to content height */
+        @media (min-width: 601px) {
+            #reviewerModal .modal-content {
+                min-height: min(780px, 88vh);
+                height: min(88vh, 900px);
+                max-width: 1100px !important;
+                width: 92% !important;
+            }
+            #viewReviewerModal .modal-content {
+                min-height: min(480px, 80vh);
+            }
+            #reviewersListModal .modal-content {
+                min-height: min(480px, 80vh);
+            }
         }
 
         /* ── Mobile responsiveness for all dashboard modals ── */
@@ -356,17 +379,6 @@
             #settingsModal .modal-content {
                 height: 92dvh !important;
                 max-height: 92dvh !important;
-            }
-
-            /* Reviewer row action buttons — keep them from overflowing */
-            .reviewer-row {
-                flex-wrap: wrap !important;
-                gap: 6px !important;
-            }
-
-            .reviewer-row > div:last-child {
-                flex-wrap: wrap !important;
-                gap: 6px !important;
             }
 
             /* Flashcard rows — stack vertically on mobile */
@@ -598,7 +610,7 @@
 
     <!-- Reviewer Modal -->
     <div id="reviewerModal" class="modal">
-        <div class="modal-content modal-helper-box" style="max-width: 900px;">
+        <div class="modal-content modal-helper-box" style="max-width: 1100px;">
             <div class="modal-header">
                 <h3 class="modal-title" id="reviewerModalTitle">Add Reviewer</h3>
                 <button class="modal-close" onclick="closeReviewerModal()">&times;</button>
@@ -638,9 +650,14 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">
-                            <input type="checkbox" id="isPublic" checked style="margin-right: 8px;">
-                            Make this reviewer public (visible to all students)
+                        <label id="isPublicLabel" onclick="aiToggleOptionCard('isPublic');return false;" style="display:flex;align-items:center;gap:12px;cursor:pointer;padding:12px 14px;border-radius:12px;border:2px solid var(--primary-pink);background:rgba(233,30,140,0.05);transition:background 0.15s;">
+                            <input type="checkbox" id="isPublic" checked style="display:none;">
+                            <i class="bi bi-globe2" id="isPublicIcon" style="font-size:1.2rem;color:var(--primary-pink);flex-shrink:0;"></i>
+                            <div>
+                                <div style="font-weight:600;font-size:0.88rem;">Public reviewer</div>
+                                <div style="font-size:0.76rem;color:var(--dark-gray);">Visible to all students</div>
+                            </div>
+                            <i id="isPublicCheck" class="bi bi-check-circle-fill" style="margin-left:auto;color:var(--primary-pink);font-size:1.1rem;"></i>
                         </label>
                     </div>
                 </form>
@@ -663,12 +680,15 @@
 
     <!-- Auto Generate Reviewer Modal -->
     <div id="aiGenerateModal" class="modal" style="z-index:1100;">
-        <div class="modal-content" style="max-width:520px;">
+        <div class="modal-content modal-helper-box" style="max-width:520px;">
             <div class="modal-header">
                 <h3 class="modal-title"><i class="bi bi-magic" style="color:var(--primary-pink);margin-right:8px;"></i>Auto Generate Reviewer</h3>
                 <button class="modal-close" onclick="aiCloseGeneratePanel()">&times;</button>
             </div>
+            <!-- Daily usage indicator — outside modal-body so it doesn't scroll -->
+            <div id="aiReviewerUsageBanner" style="display:none;padding:10px 14px;font-size:0.85rem;border-bottom:1px solid var(--medium-gray);"></div>
             <div class="modal-body">
+                <!-- Daily usage indicator removed from here -->
                 <p style="color:var(--dark-gray);font-size:0.9rem;margin:0 0 16px;">Upload a PDF, Word (.docx), or text file and we&rsquo;ll automatically generate the reviewer for you.</p>
                 <div class="ai-drop-zone" id="aiDropZone" onclick="document.getElementById('aiFileInput').click()">
                     <i class="bi bi-cloud-arrow-up" style="font-size:2.2rem;color:var(--primary-pink);"></i>
@@ -681,16 +701,28 @@
                     <span id="aiSelectedFileName"></span>
                 </div>
                 <!-- Also generate options -->
-                <div style="margin-top:18px;border-top:1px solid var(--medium-gray);padding-top:14px;">
-                    <p style="font-size:0.82rem;font-weight:600;color:var(--dark-gray);margin:0 0 10px;">Also generate:</p>
-                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:10px;font-size:0.9rem;">
-                        <input type="checkbox" id="aiGenFlashcards" checked>
-                        <span><i class="bi bi-card-text" style="color:var(--primary-pink);margin-right:4px;"></i>Flashcards</span>
-                    </label>
-                    <label style="display:flex;align-items:center;gap:10px;cursor:pointer;font-size:0.9rem;">
-                        <input type="checkbox" id="aiGenQuiz">
-                        <span><i class="bi bi-patch-question" style="color:var(--primary-pink);margin-right:4px;"></i>Quiz questions <span style="font-size:0.78rem;color:var(--dark-gray);"></span></span>
-                    </label>
+                <div style="margin-top:18px;">
+                    <p style="font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--dark-gray);margin:0 0 10px;">Also generate</p>
+                    <div style="display:flex;gap:10px;">
+                        <label id="aiGenFlashcardsLabel" onclick="aiToggleOptionCard('aiGenFlashcards');return false;" style="flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 14px;border-radius:12px;border:2px solid var(--primary-pink);background:rgba(233,30,140,0.05);transition:background 0.15s;">
+                            <input type="checkbox" id="aiGenFlashcards" checked style="display:none;">
+                            <i class="bi bi-card-text" style="font-size:1.2rem;color:var(--primary-pink);flex-shrink:0;"></i>
+                            <div>
+                                <div style="font-weight:600;font-size:0.88rem;">Flashcards</div>
+                                <div style="font-size:0.76rem;color:var(--dark-gray);">Study cards from content</div>
+                            </div>
+                            <i id="aiGenFlashcardsCheck" class="bi bi-check-circle-fill" style="margin-left:auto;color:var(--primary-pink);font-size:1.1rem;"></i>
+                        </label>
+                        <label id="aiGenQuizLabel" onclick="aiToggleOptionCard('aiGenQuiz');return false;" style="flex:1;display:flex;align-items:center;gap:10px;cursor:pointer;padding:12px 14px;border-radius:12px;border:2px solid var(--medium-gray);background:transparent;transition:background 0.15s;">
+                            <input type="checkbox" id="aiGenQuiz" style="display:none;">
+                            <i class="bi bi-patch-question" style="font-size:1.2rem;color:var(--dark-gray);flex-shrink:0;" id="aiGenQuizIcon"></i>
+                            <div>
+                                <div style="font-weight:600;font-size:0.88rem;">Quiz</div>
+                                <div style="font-size:0.76rem;color:var(--dark-gray);">Auto-generate questions</div>
+                            </div>
+                            <i id="aiGenQuizCheck" class="bi bi-circle" style="margin-left:auto;color:var(--medium-gray);font-size:1.1rem;"></i>
+                        </label>
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -728,14 +760,15 @@
                 <h3 class="modal-title" id="reviewersListTitle">Reviewers</h3>
                 <button class="modal-close" onclick="closeReviewersListModal()">&times;</button>
             </div>
-                    <div class="modal-body">
-                        <div style="margin-bottom:12px;">
-                            <input id="reviewersListSearch" class="form-control" placeholder="Search reviewers..." style="width:100%;padding:10px;border:1px solid var(--medium-gray);border-radius:8px;">
-                        </div>
-                        <div id="reviewersListContainer" class="reviewers-list-scroll" style="padding:4px 0;">
-                            <!-- Rendered dynamically -->
-                        </div>
-                    </div>
+            <!-- Search pinned outside modal-body so it doesn't scroll -->
+            <div style="padding:12px 20px;border-bottom:1px solid var(--medium-gray);">
+                <input id="reviewersListSearch" class="form-control" placeholder="Search reviewers..." style="width:100%;padding:10px;border:1px solid var(--medium-gray);border-radius:8px;">
+            </div>
+            <div class="modal-body">
+                <div id="reviewersListContainer" style="padding:4px 0;">
+                    <!-- Rendered dynamically -->
+                </div>
+            </div>
             <div class="modal-footer">
                 <button class="btn btn-light" onclick="closeReviewersListModal()">Close</button>
             </div>
@@ -1178,5 +1211,49 @@ Answer: B</pre>
     <script src="/js/logoutHelper.js"></script>
     <script src="/js/unreadNotifications.js"></script>
     <script src="/js/moderation.js"></script>
+
+    <!-- PWA Notification Permission Modal -->
+    <div id="pwaNotifModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+          <div style="width:52px;height:52px;border-radius:14px;background:#fce4f1;display:flex;align-items:center;justify-content:center;font-size:1.6rem;">🔔</div>
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;">Stay in the loop</div>
+            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Enable notifications to never miss a thing</div>
+          </div>
+        </div>
+        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
+          <li>📚 New reviewers from people you follow</li>
+          <li>💬 Private messages &amp; replies</li>
+          <li>❤️ Reactions and comments on your content</li>
+          <li>👤 New followers</li>
+        </ul>
+        <button onclick="pwaEnableNotif()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-bell-fill"></i> Enable Notifications</button>
+        <button onclick="pwaNotifDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Maybe later</button>
+      </div>
+    </div>
+
+    <!-- PWA Install Prompt Modal -->
+    <div id="pwaInstallModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+          <img src="/images/icon-192.png" width="52" height="52" style="border-radius:14px;" alt="Thinky">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;">Add Thinky to Home Screen</div>
+            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Study anywhere, get instant notifications</div>
+          </div>
+        </div>
+        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
+          <li>📚 New reviewers from people you follow</li>
+          <li>💬 Private messages &amp; replies</li>
+          <li>❤️ Reactions and comments on your content</li>
+          <li>👤 New followers</li>
+        </ul>
+        <button onclick="pwaInstall()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-phone"></i> Add to Home Screen</button>
+        <button onclick="pwaInstallDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Not now</button>
+      </div>
+    </div>
+    <style>.pwa-modal-backdrop.show{display:flex!important;}</style>
+    <script src="/js/pwa.js"></script>
 </body>
 </html>

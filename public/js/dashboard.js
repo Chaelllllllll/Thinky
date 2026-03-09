@@ -368,22 +368,21 @@ async function openReviewersList(subjectId) {
     // Load initial batch and setup infinite scroll
     await loadMoreReviewers(subjectId);
 
-    // Attach scroll handler to modal body to load more when near bottom
+    // Attach scroll handler to modal-body (single scroll source — container fills it)
+    const modalBody = modal.querySelector('.modal-body');
     const onScroll = async () => {
-        const el = container;
         const paging = window._reviewersPaging[subjectId];
-        if (!el || paging.loading || paging.finished) return;
-        const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        if (!modalBody || paging.loading || paging.finished) return;
+        const nearBottom = modalBody.scrollHeight - modalBody.scrollTop - modalBody.clientHeight < 120;
         if (nearBottom) await loadMoreReviewers(subjectId);
     };
 
-    // ensure container is scrollable
-    container.style.maxHeight = '60vh';
-    container.style.overflow = 'auto';
     // store handler to remove on close
-    container._reviewersOnScroll = onScroll;
-    container.removeEventListener('scroll', onScroll);
-    container.addEventListener('scroll', onScroll);
+    if (modalBody) {
+        modalBody._reviewersOnScroll = onScroll;
+        modalBody.removeEventListener('scroll', onScroll);
+        modalBody.addEventListener('scroll', onScroll);
+    }
 
     modal.classList.add('show');
 }
@@ -431,15 +430,15 @@ async function loadMoreReviewers(subjectId) {
             const row = document.createElement('div');
             row.className = 'reviewer-row';
             row.innerHTML = `
-                <div>
-                    <div class="reviewer-title">${escapeHtml(r.title)}</div>
-                    <div style="font-size:0.85rem;color:var(--dark-gray);margin-top:6px;">${r.is_public ? '<span class="badge badge-success">Public</span>' : '<span class="badge badge-primary">Private</span>'}</div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;">
-                    <button class="btn btn-light btn-sm" onclick="viewReviewer('${r.id}')"><i class="bi bi-eye"></i></button>
-                    <button class="btn btn-light btn-sm" title="Manage Quiz" onclick="openQuizBuilder('${r.id}','${escapeAttr(r.title)}')"><i class="bi bi-patch-question"></i></button>
-                    <button class="btn btn-light btn-sm" onclick="editReviewer('${r.id}','${subjectId}')"><i class="bi bi-pencil"></i></button>
-                    <button class="btn btn-danger btn-sm" onclick="deleteReviewer('${r.id}','${subjectId}')"><i class="bi bi-trash"></i></button>
+                <div class="reviewer-row-title">${escapeHtml(r.title)}</div>
+                <div class="reviewer-row-bottom">
+                    ${r.is_public ? '<span class="badge badge-success">Public</span>' : '<span class="badge badge-primary">Private</span>'}
+                    <div class="reviewer-row-actions">
+                        <button class="btn btn-light btn-sm" onclick="viewReviewer('${r.id}')"><i class="bi bi-eye"></i></button>
+                        <button class="btn btn-light btn-sm" title="Manage Quiz" onclick="openQuizBuilder('${r.id}','${escapeAttr(r.title)}')"><i class="bi bi-patch-question"></i></button>
+                        <button class="btn btn-light btn-sm" onclick="editReviewer('${r.id}','${subjectId}')"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteReviewer('${r.id}','${subjectId}')"><i class="bi bi-trash"></i></button>
+                    </div>
                 </div>
             `;
             container.appendChild(row);
@@ -477,9 +476,10 @@ function closeReviewersListModal() {
         delete searchEl._reviewersInputHandler;
     }
     const container = document.getElementById('reviewersListContainer');
-    if (container && container._reviewersOnScroll) {
-        container.removeEventListener('scroll', container._reviewersOnScroll);
-        delete container._reviewersOnScroll;
+    const modalBody = modal.querySelector('.modal-body');
+    if (modalBody && modalBody._reviewersOnScroll) {
+        modalBody.removeEventListener('scroll', modalBody._reviewersOnScroll);
+        delete modalBody._reviewersOnScroll;
     }
 
     modal.classList.remove('show');
@@ -645,6 +645,7 @@ function openReviewerModal(subjectId, reviewerId = null) {
         document.getElementById('reviewerForm').reset();
         quill.setContents([]);
         document.getElementById('isPublic').checked = true;
+        syncOptionCard('isPublic');
         // Clear flashcard rows and hide the section for a new reviewer
         try {
             const container = document.getElementById('flashcardsList');
@@ -704,6 +705,7 @@ async function loadReviewerData(reviewerId, subjectId) {
             document.getElementById('reviewerTitle').value = reviewer.title;
             quill.root.innerHTML = reviewer.content;
             document.getElementById('isPublic').checked = reviewer.is_public;
+            syncOptionCard('isPublic');
                     // Populate flashcards from embedded `reviewer.flashcards` if present
                     try {
                         const fcs = Array.isArray(reviewer.flashcards) ? reviewer.flashcards : [];
@@ -1216,11 +1218,8 @@ document.getElementById('subjectModal')?.addEventListener('click', (e) => {
     }
 });
 
-document.getElementById('reviewerModal')?.addEventListener('click', (e) => {
-    if (e.target.id === 'reviewerModal') {
-        closeReviewerModal();
-    }
-});
+// reviewerModal intentionally has NO backdrop-click-to-close
+// to prevent accidental data loss while editing the content field.
 
 document.getElementById('viewReviewerModal')?.addEventListener('click', (e) => {
     if (e.target.id === 'viewReviewerModal') {
@@ -1448,8 +1447,88 @@ function qbParsePaste() {
 
 let _aiSelectedFile = null;
 
+function limitReachedMsg(data) {
+    const now = new Date();
+    const nextUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+    const resetTimeStr = nextUtcMidnight.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
+    const isSameDay = nextUtcMidnight.toLocaleDateString() === now.toLocaleDateString();
+    const resetLabel = isSameDay ? `tonight at ${resetTimeStr}` : `${nextUtcMidnight.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at ${resetTimeStr}`;
+    return (data.error || 'Daily limit reached.').replace(/\. ?Limit resets at midnight UTC\.?$/, '') + `. Resets ${resetLabel}.`;
+}
+
 function aiOpenGeneratePanel() {
     document.getElementById('aiGenerateModal').classList.add('show');
+    // Fetch and display today's usage
+    fetch('/api/ai/usage', { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+            const banner = document.getElementById('aiReviewerUsageBanner');
+            if (!banner) return;
+            if (data.exempt) {
+                banner.style.display = 'none';
+                return;
+            }
+            const used = data.reviewer ?? 0;
+            const limit = data.limit ?? 5;
+            const remaining = Math.max(limit - used, 0);
+            banner.style.display = 'block';
+            banner.style.borderRadius = '0';
+            // Compute local reset time: next UTC midnight expressed in user's local timezone
+            const now = new Date();
+            const nextUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
+            const resetTimeStr = nextUtcMidnight.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: true });
+            const resetDateStr = nextUtcMidnight.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+            const isSameDay = nextUtcMidnight.toLocaleDateString() === now.toLocaleDateString();
+            const resetLabel = isSameDay ? `tonight at ${resetTimeStr}` : `${resetDateStr} at ${resetTimeStr}`;
+
+            if (remaining === 0) {
+                banner.style.background = 'rgba(220,53,69,0.1)';
+                banner.style.color = 'var(--danger)';
+                banner.innerHTML = `<i class="bi bi-slash-circle"></i> Daily limit reached (<strong>${limit}/${limit}</strong>). Resets ${resetLabel}.`;
+                const genBtn = document.getElementById('aiGenerateBtn');
+                if (genBtn) genBtn.disabled = true;
+            } else {
+                banner.style.background = 'rgba(255,158,180,0.12)';
+                banner.style.color = 'var(--text-dark)';
+                banner.innerHTML = `<i class="bi bi-lightning"></i> <strong>${remaining}</strong> of ${limit} auto-generates remaining today. Resets ${resetLabel}.`;
+            }
+        })
+        .catch(() => { /* non-critical */ });
+}
+
+function syncOptionCard(id) {
+    const cb = document.getElementById(id);
+    if (!cb) return;
+    const label = document.getElementById(id + 'Label');
+    const checkIcon = document.getElementById(id + 'Check');
+    const icon = document.getElementById(id + 'Icon');
+    if (cb.checked) {
+        if (label) { label.style.border = '2px solid var(--primary-pink)'; label.style.background = 'rgba(233,30,140,0.05)'; }
+        if (checkIcon) { checkIcon.className = 'bi bi-check-circle-fill'; checkIcon.style.color = 'var(--primary-pink)'; }
+        if (icon) icon.style.color = 'var(--primary-pink)';
+    } else {
+        if (label) { label.style.border = '2px solid var(--medium-gray)'; label.style.background = 'transparent'; }
+        if (checkIcon) { checkIcon.className = 'bi bi-circle'; checkIcon.style.color = 'var(--medium-gray)'; }
+        if (icon) icon.style.color = 'var(--dark-gray)';
+    }
+}
+
+function aiToggleOptionCard(id) {
+    const cb = document.getElementById(id);
+    if (!cb) return;
+    cb.checked = !cb.checked;
+    const label = document.getElementById(id + 'Label');
+    const checkIcon = document.getElementById(id + 'Check');
+    const icon = document.getElementById(id + 'Icon');
+    if (cb.checked) {
+        if (label) { label.style.border = '2px solid var(--primary-pink)'; label.style.background = 'rgba(233,30,140,0.05)'; }
+        if (checkIcon) { checkIcon.className = 'bi bi-check-circle-fill'; checkIcon.style.color = 'var(--primary-pink)'; }
+        if (icon) icon.style.color = 'var(--primary-pink)';
+    } else {
+        if (label) { label.style.border = '2px solid var(--medium-gray)'; label.style.background = 'transparent'; }
+        if (checkIcon) { checkIcon.className = 'bi bi-circle'; checkIcon.style.color = 'var(--medium-gray)'; }
+        if (icon) icon.style.color = 'var(--dark-gray)';
+    }
 }
 
 function aiCloseGeneratePanel() {
@@ -1493,7 +1572,10 @@ async function aiDoGenerate() {
         });
         const data = await resp.json();
         if (!resp.ok) {
-            window.showAlert('error', data.error || 'Auto generation failed. Please try again.');
+            const msg = resp.status === 429
+                ? limitReachedMsg(data)
+                : (data.error || 'Auto generation failed. Please try again.');
+            window.showAlert('error', msg);
             return;
         }
         // Populate the reviewer form fields
@@ -1590,7 +1672,10 @@ async function aiDoGenerateQuiz() {
         });
         const data = await resp.json();
         if (!resp.ok) {
-            window.showAlert('error', data.error || 'Failed to generate questions. Please try again.');
+            const msg = resp.status === 429
+                ? limitReachedMsg(data)
+                : (data.error || 'Failed to generate questions. Please try again.');
+            window.showAlert('error', msg);
             return;
         }
         data.questions.forEach(q => qbAddQuestion(q));

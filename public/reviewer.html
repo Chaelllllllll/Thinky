@@ -5,6 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Reviewer - Thinky</title>
     <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#e91e8c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Thinky">
     <link rel="stylesheet" href="/css/style.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Syntax highlighting -->
@@ -49,6 +54,11 @@
             box-shadow: var(--shadow-sm);
             line-height: 1.8;
         }
+        /* Trim default browser margins on first/last content elements */
+        .reviewer-content > div > *:first-child,
+        #reviewerContent > *:first-child { margin-top: 0 !important; }
+        .reviewer-content > div > *:last-child,
+        #reviewerContent > *:last-child  { margin-bottom: 0 !important; }
         .reviewer-actions {
             background: var(--white);
             border-radius: 16px;
@@ -720,8 +730,11 @@
                 });
             }
 
-            // Content
-            document.getElementById('reviewerContent').innerHTML = reviewer.content || '';
+            // Content — strip leading/trailing empty Quill paragraphs before rendering
+            let rawContent = reviewer.content || '';
+            rawContent = rawContent.replace(/^(\s*<p[^>]*>(\s|&nbsp;|<br\s*\/?>)*<\/p>\s*)+/gi, '');
+            rawContent = rawContent.replace(/((\s*<p[^>]*>(\s|&nbsp;|<br\s*\/?>)*<\/p>)\s*)+$/gi, '');
+            document.getElementById('reviewerContent').innerHTML = rawContent;
             highlightAllCode(document.getElementById('reviewerContent'));
 
             // Flashcards preview intentionally hidden on reviewer page
@@ -1467,5 +1480,28 @@
             </div>
         </div>
     </div>
+
+    <!-- PWA Install Prompt Modal -->
+    <div id="pwaInstallModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+          <img src="/images/icon-192.png" width="52" height="52" style="border-radius:14px;" alt="Thinky">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;">Add Thinky to Home Screen</div>
+            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Study anywhere, get instant notifications</div>
+          </div>
+        </div>
+        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
+          <li>📚 New reviewers from people you follow</li>
+          <li>💬 Private messages &amp; replies</li>
+          <li>❤️ Reactions and comments on your content</li>
+          <li>👤 New followers</li>
+        </ul>
+        <button onclick="pwaInstall()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-phone"></i> Add to Home Screen</button>
+        <button onclick="pwaInstallDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Not now</button>
+      </div>
+    </div>
+    <style>.pwa-modal-backdrop.show{display:flex!important;}</style>
+    <script src="/js/pwa.js"></script>
 </body>
 </html>

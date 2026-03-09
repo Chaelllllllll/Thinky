@@ -6,6 +6,11 @@
     <title>User Profile - Thinky</title>
     <link rel="stylesheet" href="/css/style.css">
     <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#e91e8c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Thinky">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     <!-- Syntax highlighting -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css" id="hljs-theme-dark" media="not all">
@@ -269,5 +274,49 @@
     <script src="/js/user.js"></script>
     <script src="/js/modalAlerts.js"></script>
     <script src="/js/moderation.js"></script>
+
+    <!-- PWA Notification Permission Modal -->
+    <div id="pwaNotifModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+          <div style="width:52px;height:52px;border-radius:14px;background:#fce4f1;display:flex;align-items:center;justify-content:center;font-size:1.6rem;">🔔</div>
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;">Stay in the loop</div>
+            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Enable notifications to never miss a thing</div>
+          </div>
+        </div>
+        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
+          <li>📚 New reviewers from people you follow</li>
+          <li>💬 Private messages &amp; replies</li>
+          <li>❤️ Reactions and comments on your content</li>
+          <li>👤 New followers</li>
+        </ul>
+        <button onclick="pwaEnableNotif()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-bell-fill"></i> Enable Notifications</button>
+        <button onclick="pwaNotifDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Maybe later</button>
+      </div>
+    </div>
+
+    <!-- PWA Install Prompt Modal -->
+    <div id="pwaInstallModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
+          <img src="/images/icon-192.png" width="52" height="52" style="border-radius:14px;" alt="Thinky">
+          <div>
+            <div style="font-weight:700;font-size:1.1rem;">Add Thinky to Home Screen</div>
+            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Study anywhere, get instant notifications</div>
+          </div>
+        </div>
+        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
+          <li>📚 New reviewers from people you follow</li>
+          <li>💬 Private messages &amp; replies</li>
+          <li>❤️ Reactions and comments on your content</li>
+          <li>👤 New followers</li>
+        </ul>
+        <button onclick="pwaInstall()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-phone"></i> Add to Home Screen</button>
+        <button onclick="pwaInstallDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Not now</button>
+      </div>
+    </div>
+    <style>.pwa-modal-backdrop.show{display:flex!important;}</style>
+    <script src="/js/pwa.js"></script>
 </body>
 </html>
