@@ -1,12 +1,10 @@
--- Fix notifications type CHECK constraint to include 'follow'
--- The original constraint was created before 'follow' was a valid type,
--- so this migration drops and re-adds it with all current valid types.
+-- Add 'new_reviewer' to the notifications type CHECK constraint.
+-- Drops the existing constraint (whatever its name) and re-adds it with the full list.
 
 DO $$
 DECLARE
     v_constraint_name TEXT;
 BEGIN
-    -- Find and drop the existing type CHECK constraint on notifications
     SELECT conname INTO v_constraint_name
     FROM pg_constraint
     WHERE conrelid = 'notifications'::regclass
@@ -18,7 +16,6 @@ BEGIN
     END IF;
 END $$;
 
--- Add the updated constraint that includes all valid notification types
 ALTER TABLE notifications
     ADD CONSTRAINT notifications_type_check
     CHECK (type IN ('reaction', 'comment', 'message', 'reply', 'follow', 'new_reviewer'));

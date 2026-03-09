@@ -1570,11 +1570,20 @@ async function aiDoGenerate() {
             credentials: 'include',
             body: formData
         });
-        const data = await resp.json();
+        let data;
+        try {
+            data = await resp.json();
+        } catch (_) {
+            data = { error: `Server returned non-JSON response (HTTP ${resp.status})` };
+        }
         if (!resp.ok) {
             const msg = resp.status === 429
                 ? limitReachedMsg(data)
-                : (data.error || 'Auto generation failed. Please try again.');
+                : resp.status === 401
+                ? 'Session expired or not recognized. Please try refreshing the page and logging in again.'
+                : resp.status === 504
+                ? 'The server took too long to respond. Please try with a smaller file.'
+                : (data.error || `Auto generation failed (HTTP ${resp.status}). Please try again.`);
             window.showAlert('error', msg);
             return;
         }

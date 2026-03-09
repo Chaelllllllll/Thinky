@@ -38,6 +38,103 @@ import nodemailer from 'nodemailer';
 import compression from 'compression';
 import webPush from 'web-push';
 
+// ─── Discord error reporter (rate-limited) ────────────────────────────────────
+// notifyDiscord() is declared later as a hoisted function declaration — it is
+// safe to reference here because function declarations are hoisted in JS.
+// Rate-limit: same label can only fire once every 2 minutes to prevent spam.
+const _discordRateMap = new Map();
+const _DISCORD_RATE_MS = 2 * 60 * 1000;
+function _discord(title, fields) {
+    const url = process.env.DISCORD_ERROR_WEBHOOK;
+    if (!url) return;
+    const now = Date.now();
+    const last = _discordRateMap.get(title) || 0;
+    if (now - last < _DISCORD_RATE_MS) return;
+    _discordRateMap.set(title, now);
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            embeds: [{
+                title,
+                color: 0xe74c3c,
+                timestamp: new Date().toISOString(),
+                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 1024), inline: false }))
+            }]
+        })
+    }).catch(() => {});
+}
+
+// Wrap console.error so every existing catch block auto-reports to Discord.
+// Ignores noise: Supabase PGRST116 (row not found), Socket hang-ups, etc.
+const _origConsoleError = console.error.bind(console);
+console.error = function (...args) {
+    _origConsoleError(...args);
+    try {
+        const msgStr = args.map(a => {
+            if (a instanceof Error) return a.stack || a.message;
+            if (a && typeof a === 'object') { try { return JSON.stringify(a); } catch { return String(a); } }
+            return String(a);
+        }).join(' ');
+        // Skip noisy / expected non-errors
+        if (
+            msgStr.includes('PGRST116') ||
+            msgStr.includes('socket hang up') ||
+            msgStr.includes('ECONNRESET') ||
+            msgStr.includes('EPIPE') ||
+            msgStr.includes('write EPIPE') ||
+            msgStr.includes('aborted') ||
+            msgStr.includes('ERR_HTTP2_STREAM_CANCEL') ||
+            msgStr.includes('Startup migration warning')
+        ) return;
+        const label = (typeof args[0] === 'string' ? args[0] : 'Server Error').slice(0, 60);
+        const errObj = args.find(a => a instanceof Error);
+        const fields = [['Message', msgStr.slice(0, 1000)]];
+        if (errObj?.stack) fields.push(['Stack', errObj.stack.slice(0, 1000)]);
+        fields.push(['Time (UTC)', new Date().toISOString()]);
+        _discord(`🔴 ${label}`, fields);
+    } catch (_) { /* never let Discord reporting crash anything */ }
+};
+
+// ─── Activity logger (DISCORD_ACTIVITY_WEBHOOK) ─────────────────────────────
+// Separate webhook for user activity events (green embeds).
+// Rate-limited per key so the same user doesn't spam on every click.
+const _activityRateMap = new Map();
+const _ACTIVITY_RATE_MS = 60 * 60 * 1000; // 1 hour per key
+function _activityDiscord(title, fields) {
+    const url = process.env.DISCORD_ACTIVITY_WEBHOOK;
+    if (!url) return;
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            embeds: [{
+                title,
+                color: 0x2ecc71,
+                timestamp: new Date().toISOString(),
+                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 1024), inline: false }))
+            }]
+        })
+    }).catch(() => {});
+}
+function _activityLog(key, title, fields) {
+    const now = Date.now();
+    const last = _activityRateMap.get(key) || 0;
+    if (now - last < _ACTIVITY_RATE_MS) return;
+    _activityRateMap.set(key, now);
+    _activityDiscord(title, fields);
+}
+
+// Generates a clickable Discord markdown link to a user's profile page.
+// Works in embed field values: [username](https://site.com/user?id=...)
+function _userLink(req) {
+    const username = req.session?.username || 'unknown';
+    const userId = req.session?.userId;
+    if (!userId) return 'n/a';
+    const base = (process.env.BASE_URL || process.env.PRODUCTION_URL || '').replace(/\/$/, '');
+    return base ? `[${username}](${base}/user?id=${userId})` : username;
+}
+
 // =====================================================
 // INPUT VALIDATION & SANITIZATION UTILITIES
 // =====================================================
@@ -1520,6 +1617,13 @@ app.get('/api/auth/verify', async (req, res) => {
         // Delete verification rows for token
         await supabaseAdmin.from('email_verifications').delete().eq('token', String(token));
 
+        // Log new registration to Discord activity webhook
+        _activityDiscord('🆕 New User Registered', [
+            ['Username', user.username],
+            ['Email', user.email],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
+
         // Create a session and redirect to dashboard with verified flag
         req.session.userId = user.id;
         req.session.username = user.username;
@@ -1962,6 +2066,16 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 last_seen: new Date().toISOString()
             });
 
+        // Log login event to Discord activity webhook
+        _activityDiscord('✅ User Logged In', [
+            ['Username', user.username],
+            ['Email', user.email],
+            ['Role', user.role],
+            ['IP', req.ip || 'n/a'],
+            ['User-Agent', req.headers['user-agent'] || 'n/a'],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
+
         res.json({
             message: 'Login successful',
             user: {
@@ -2105,6 +2219,15 @@ app.post('/api/subjects', requireAuth, async (req, res) => {
             console.error('Create subject error:', error);
             return res.status(500).json({ error: 'Failed to create subject' });
         }
+
+        // Log subject creation to Discord activity webhook
+        const _subBase = (process.env.BASE_URL || process.env.PRODUCTION_URL || '').replace(/\/$/, '');
+        _activityDiscord('📚 Subject Created', [
+            ['Creator', _subBase ? `[${req.session.username || 'user'}](${_subBase}/user?id=${req.session.userId})` : (req.session.username || 'n/a')],
+            ['Subject', name],
+            ['School', school],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
 
         res.json({ subject });
     } catch (error) {
@@ -2582,6 +2705,16 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             console.error('Create reviewer error:', error);
             return res.status(500).json({ error: 'Failed to create reviewer' });
         }
+
+        // Log reviewer creation to Discord activity webhook
+        const _revBase = (process.env.BASE_URL || process.env.PRODUCTION_URL || '').replace(/\/$/, '');
+        _activityDiscord('📝 Reviewer Created', [
+            ['Author', _revBase ? `[${req.session.username || 'user'}](${_revBase}/user?id=${req.session.userId})` : (req.session.username || 'n/a')],
+            ['Title', title],
+            ['Visibility', is_public !== false ? 'Public' : 'Private'],
+            ['Flashcards', flashcardsToSave ? String(flashcardsToSave.length) : '0'],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
 
         // Notify followers about new reviewer (in-app + push + email, async, non-blocking)
         (async () => {
@@ -5454,6 +5587,20 @@ app.delete('/api/admin/policies/:id', requireAdmin, async (req, res) => {
 // SERVE HTML PAGES
 // =====================================================
 
+// Page-visit logger — fires to Discord once per hour per logged-in user
+app.use((req, res, next) => {
+    if (req.session?.userId && !req.path.startsWith('/api/') && !req.path.includes('.')) {
+        _activityLog(`browse:${req.session.userId}`, '👀 User Browsing', [
+            ['Username', req.session.username || String(req.session.userId)],
+            ['Page', req.method + ' ' + req.path],
+            ['IP', req.ip || 'n/a'],
+            ['User-Agent', req.headers['user-agent'] || 'n/a'],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
+    }
+    next();
+});
+
 // Public pages
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -5985,7 +6132,19 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
 }
 
 // POST /api/ai/generate-reviewer — upload a PDF/DOCX/TXT and generate a reviewer
-app.post('/api/ai/generate-reviewer', requireAuth, (req, res, next) => {
+app.post('/api/ai/generate-reviewer', (req, res, next) => {
+    // Log auth failures with browser details so we can diagnose mobile cookie issues
+    if (!req.session || !req.session.userId) {
+        notifyDiscord('🟡 AI Generate — Auth Failed (No Session)', [
+            ['User-Agent', req.headers['user-agent'] || 'n/a'],
+            ['Cookie header present', req.headers.cookie ? 'yes' : 'no'],
+            ['Origin', req.headers.origin || 'n/a'],
+            ['Referer', req.headers.referer || 'n/a'],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
+    }
+    next();
+}, requireAuth, (req, res, next) => {
     // Run multer manually so errors (file-type rejection, size, parse failures)
     // are caught here instead of bypassing the route's try/catch and Discord notifier.
     aiUpload.single('file')(req, res, (multerErr) => {
@@ -5994,7 +6153,7 @@ app.post('/api/ai/generate-reviewer', requireAuth, (req, res, next) => {
             notifyDiscord('🔴 AI Generate — Multer/Upload Error', [
                 ['Multer Error', multerErr.message || String(multerErr)],
                 ['Content-Type header', rawMime],
-                ['User ID', req.session?.userId || 'n/a'],
+                ['User', _userLink(req)],
                 ['Time (UTC)', new Date().toISOString()]
             ]);
             return res.status(400).json({ error: multerErr.message || 'File upload failed.' });
@@ -6007,7 +6166,7 @@ app.post('/api/ai/generate-reviewer', requireAuth, (req, res, next) => {
             notifyDiscord('🔴 AI Generate — No File Received', [
                 ['Content-Type header', req.headers['content-type'] || 'unknown'],
                 ['Body keys', Object.keys(req.body || {}).join(', ') || 'none'],
-                ['User ID', req.session?.userId || 'n/a'],
+                ['User', _userLink(req)],
                 ['Time (UTC)', new Date().toISOString()]
             ]);
             return res.status(400).json({ error: 'No file uploaded' });
@@ -6103,7 +6262,7 @@ Return nothing outside the JSON object.`;
             ['Stack', error?.stack || 'n/a'],
             ['File', `${req.file?.originalname || 'n/a'} (${req.file?.mimetype || 'n/a'}, ${req.file?.size || 0} bytes)`],
             ['Effective MIME', resolveFileMime(req.file?.originalname, req.file?.mimetype)],
-            ['User ID', req.session?.userId || 'n/a'],
+            ['User', _userLink(req)],
             ['Time (UTC)', new Date().toISOString()]
         ]);
         res.status(500).json({ error: 'Failed to generate reviewer. Please try again.' });
@@ -6273,7 +6432,7 @@ Rules:
             ['Error', error?.message || String(error)],
             ['Stack', error?.stack || 'n/a'],
             ['Reviewer ID', req.body?.reviewerId || 'n/a'],
-            ['User ID', req.session?.userId || 'n/a'],
+            ['User', _userLink(req)],
             ['Time (UTC)', new Date().toISOString()]
         ]);
         res.status(500).json({ error: 'Failed to generate questions. Please try again.' });
@@ -6693,27 +6852,20 @@ app.use((req, res) => {
     res.status(404).sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Error handler with better logging
+// Global Express error handler — catches any error passed via next(err)
 app.use((err, req, res, next) => {
-    // Log error details (but not in production to avoid leaking info)
     const isProd = process.env.NODE_ENV === 'production';
-    if (!isProd) {
-        console.error('Server error:', {
-            message: err.message,
-            stack: err.stack,
-            path: req.path,
-            method: req.method
-        });
-    } else {
-        console.error('Server error:', err.message || err);
-    }
-    
-    // If headers have already been sent, delegate to default handler
-    if (res.headersSent) {
-        return next(err);
-    }
-    
-    // Don't expose error details in production
+    console.error('Unhandled route error:', err.message || err, err.stack || '');
+    // Discord — include request context
+    _discord('🔴 Unhandled Route Error', [
+        ['Error', err?.message || String(err)],
+        ['Stack', (err?.stack || 'n/a').slice(0, 1000)],
+        ['Route', `${req.method} ${req.path}`],
+        ['User-Agent', req.headers?.['user-agent'] || 'n/a'],
+        ['User', _userLink(req)],
+        ['Time (UTC)', new Date().toISOString()]
+    ]);
+    if (res.headersSent) return next(err);
     const statusCode = err.status || err.statusCode || 500;
     const message = isProd ? 'Internal server error' : (err.message || 'Internal server error');
     res.status(statusCode).json({ error: message });
@@ -6784,7 +6936,7 @@ async function applyStartupMigrations() {
                     EXECUTE format('ALTER TABLE notifications DROP CONSTRAINT %I', v_name);
                     EXECUTE 'ALTER TABLE notifications
                         ADD CONSTRAINT notifications_type_check
-                        CHECK (type IN (''reaction'', ''comment'', ''message'', ''reply'', ''follow''))';
+                        CHECK (type IN (''reaction'', ''comment'', ''message'', ''reply'', ''follow'', ''new_reviewer''))';
                 END IF;
             END $$;
         `);
@@ -6910,6 +7062,27 @@ _wss.on('connection', (socket, req) => {
 });
 
 applyStartupMigrations();
+
+// ─── Process-level error handlers ────────────────────────────────────────────
+process.on('uncaughtException', (err) => {
+    console.error('UNCAUGHT EXCEPTION:', err);
+    _discord('🚨 Uncaught Exception', [
+        ['Error', err?.message || String(err)],
+        ['Stack', (err?.stack || 'n/a').slice(0, 1000)],
+        ['Time (UTC)', new Date().toISOString()]
+    ]);
+});
+
+process.on('unhandledRejection', (reason) => {
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? (reason.stack || 'n/a') : 'n/a';
+    console.error('UNHANDLED REJECTION:', reason);
+    _discord('🚨 Unhandled Promise Rejection', [
+        ['Reason', msg.slice(0, 1000)],
+        ['Stack', stack.slice(0, 1000)],
+        ['Time (UTC)', new Date().toISOString()]
+    ]);
+});
 
 // If this file is run directly, start a standalone server (for local dev).
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
