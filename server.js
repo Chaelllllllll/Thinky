@@ -291,7 +291,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            connectSrc: ["'self'", "https://cdn.jsdelivr.net", process.env.SUPABASE_URL].filter(Boolean),
+            connectSrc: ["'self'", "data:", "https://cdn.jsdelivr.net", process.env.SUPABASE_URL].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
             scriptSrcAttr: ["'unsafe-inline'"],

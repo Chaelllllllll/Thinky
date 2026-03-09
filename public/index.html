@@ -1171,44 +1171,58 @@
     <script src="/js/moderation.js"></script>
 
     <!-- PWA Notification Permission Modal -->
-    <div id="pwaNotifModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
-      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
-          <div style="width:52px;height:52px;border-radius:14px;background:#fce4f1;display:flex;align-items:center;justify-content:center;font-size:1.6rem;">🔔</div>
-          <div>
-            <div style="font-weight:700;font-size:1.1rem;">Stay in the loop</div>
-            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Enable notifications to never miss a thing</div>
+    <div id="pwaNotifModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.35);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:24px 24px 0 0;max-width:480px;width:100%;box-shadow:0 -8px 40px rgba(233,30,140,0.18);overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#ff9eb4 0%,#ffd4e0 100%);padding:28px 24px 22px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <div style="width:52px;height:52px;border-radius:16px;background:rgba(255,255,255,0.35);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <i class="bi bi-bell-fill" style="font-size:1.4rem;color:#fff;"></i>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:1.1rem;color:#fff;">Stay in the loop</div>
+              <div style="font-size:0.83rem;color:rgba(255,255,255,0.88);margin-top:3px;">Get notified about what matters to you</div>
+            </div>
           </div>
         </div>
-        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
-          <li>📚 New reviewers from people you follow</li>
-          <li>💬 Private messages &amp; replies</li>
-          <li>❤️ Reactions and comments on your content</li>
-          <li>👤 New followers</li>
-        </ul>
-        <button onclick="pwaEnableNotif()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-bell-fill"></i> Enable Notifications</button>
-        <button onclick="pwaNotifDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Maybe later</button>
+        <div style="padding:20px 24px 28px;">
+          <div style="background:#fdf0f7;border-radius:14px;padding:14px 16px;margin-bottom:18px;">
+            <div style="font-size:0.82rem;color:#555;line-height:1.85;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><i class="bi bi-book" style="color:#e91e8c;font-size:0.9rem;"></i> New reviewers from people you follow</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><i class="bi bi-chat" style="color:#e91e8c;font-size:0.9rem;"></i> Private messages and replies</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><i class="bi bi-heart" style="color:#e91e8c;font-size:0.9rem;"></i> Reactions and comments on your content</div>
+              <div style="display:flex;align-items:center;gap:8px;"><i class="bi bi-person-plus" style="color:#e91e8c;font-size:0.9rem;"></i> New followers</div>
+            </div>
+          </div>
+          <button onclick="pwaEnableNotif()" style="width:100%;padding:14px;background:linear-gradient(135deg,#ff9eb4 0%,#e91e8c 100%);color:#fff;border:none;border-radius:14px;font-weight:700;font-size:0.97rem;cursor:pointer;margin-bottom:10px;letter-spacing:0.01em;">Enable Notifications</button>
+          <button onclick="pwaNotifDismiss()" style="width:100%;padding:12px;background:#fce4f1;color:#c4186e;border:none;border-radius:14px;font-size:0.88rem;font-weight:600;cursor:pointer;">Maybe later</button>
+        </div>
       </div>
     </div>
 
     <!-- PWA Install Prompt Modal -->
-    <div id="pwaInstallModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;">
-      <div style="background:#fff;border-radius:20px 20px 0 0;padding:28px 24px 32px;max-width:480px;width:100%;box-shadow:0 -4px 32px rgba(0,0,0,0.12);">
-        <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px;">
-          <img src="/images/icon-192.png" width="52" height="52" style="border-radius:14px;" alt="Thinky">
-          <div>
-            <div style="font-weight:700;font-size:1.1rem;">Add Thinky to Home Screen</div>
-            <div style="font-size:0.83rem;color:#666;margin-top:2px;">Study anywhere, get instant notifications</div>
+    <div id="pwaInstallModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.35);align-items:flex-end;justify-content:center;">
+      <div style="background:#fff;border-radius:24px 24px 0 0;max-width:480px;width:100%;box-shadow:0 -8px 40px rgba(233,30,140,0.18);overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#ff9eb4 0%,#ffd4e0 100%);padding:28px 24px 22px;">
+          <div style="display:flex;align-items:center;gap:14px;">
+            <img src="/images/icon-192.png" width="52" height="52" style="border-radius:16px;flex-shrink:0;box-shadow:0 2px 8px rgba(0,0,0,0.12);" alt="Thinky">
+            <div>
+              <div style="font-weight:700;font-size:1.1rem;color:#fff;">Add Thinky to your device</div>
+              <div style="font-size:0.83rem;color:rgba(255,255,255,0.88);margin-top:3px;">Study anywhere, get instant notifications</div>
+            </div>
           </div>
         </div>
-        <ul style="font-size:0.85rem;color:#444;padding-left:18px;margin:0 0 20px;line-height:1.9;">
-          <li>📚 New reviewers from people you follow</li>
-          <li>💬 Private messages &amp; replies</li>
-          <li>❤️ Reactions and comments on your content</li>
-          <li>👤 New followers</li>
-        </ul>
-        <button onclick="pwaInstall()" style="width:100%;padding:13px;background:#e91e8c;color:#fff;border:none;border-radius:12px;font-weight:700;font-size:1rem;cursor:pointer;margin-bottom:10px;"><i class="bi bi-phone"></i> Add to Home Screen</button>
-        <button onclick="pwaInstallDismiss()" style="width:100%;padding:11px;background:transparent;color:#888;border:1px solid #ddd;border-radius:12px;font-size:0.9rem;cursor:pointer;">Not now</button>
+        <div style="padding:20px 24px 28px;">
+          <div style="background:#fdf0f7;border-radius:14px;padding:14px 16px;margin-bottom:18px;">
+            <div style="font-size:0.82rem;color:#555;line-height:1.85;">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><i class="bi bi-book" style="color:#e91e8c;font-size:0.9rem;"></i> New reviewers from people you follow</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><i class="bi bi-chat" style="color:#e91e8c;font-size:0.9rem;"></i> Private messages and replies</div>
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;"><i class="bi bi-heart" style="color:#e91e8c;font-size:0.9rem;"></i> Reactions and comments on your content</div>
+              <div style="display:flex;align-items:center;gap:8px;"><i class="bi bi-person-plus" style="color:#e91e8c;font-size:0.9rem;"></i> New followers</div>
+            </div>
+          </div>
+          <button onclick="pwaInstall()" style="width:100%;padding:14px;background:linear-gradient(135deg,#ff9eb4 0%,#e91e8c 100%);color:#fff;border:none;border-radius:14px;font-weight:700;font-size:0.97rem;cursor:pointer;margin-bottom:10px;letter-spacing:0.01em;">Add to Home Screen</button>
+          <button onclick="pwaInstallDismiss()" style="width:100%;padding:12px;background:#fce4f1;color:#c4186e;border:none;border-radius:14px;font-size:0.88rem;font-weight:600;cursor:pointer;">Not now</button>
+        </div>
       </div>
     </div>
     <style>.pwa-modal-backdrop.show{display:flex!important;}</style>
