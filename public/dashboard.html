@@ -12,6 +12,10 @@
     
     <!-- Bootstrap Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css" id="hljs-theme-dark" media="not all">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-light.min.css" id="hljs-theme-light" media="all">
+    <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
     
     <!-- Quill Rich Text Editor -->
     <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
@@ -611,6 +615,28 @@
                             Make this reviewer public (visible to all students)
                         </label>
                     </div>
+                    <div class="form-group">
+                        <label class="form-label" style="margin-bottom:6px;">
+                            <input type="checkbox" id="includeCompiler" style="margin-right: 8px;" onchange="toggleCompilerLanguageRow()">
+                            <i class="bi bi-terminal" style="color:var(--primary-pink);margin-right:4px;"></i>
+                            Include a code compiler for this reviewer
+                        </label>
+                        <div id="compilerLanguageRow" style="display:none;margin-top:8px;padding:10px 12px;background:var(--light-gray);border-radius:10px;">
+                            <label class="form-label" style="margin-bottom:6px;font-size:0.85rem;">Select language:</label>
+                            <select id="compilerLanguage" class="form-control" style="max-width:240px;">
+                                <option value="python">Python</option>
+                                <option value="javascript">JavaScript</option>
+                                <option value="cpp">C++</option>
+                                <option value="c">C</option>
+                                <option value="java">Java</option>
+                                <option value="go">Go</option>
+                                <option value="rust">Rust</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="php">PHP</option>
+                                <option value="ruby">Ruby</option>
+                            </select>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -679,8 +705,32 @@
             </div>
             <div class="modal-body">
                 <div id="viewReviewerContent"></div>
+                <!-- Inline compiler panel (shown when reviewer has compiler_language) -->
+                <div id="viewCompilerPanel" style="display:none;margin-top:20px;border-top:2px solid var(--primary-pink);padding-top:16px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                        <span style="font-weight:600;font-size:0.95rem;display:flex;align-items:center;gap:8px;">
+                            <i class="bi bi-terminal" style="color:var(--primary-pink);"></i>
+                            Compiler &mdash; <span id="viewCompilerLangLabel" style="color:var(--primary-pink);"></span>
+                        </span>
+                        <button class="btn btn-outline btn-sm" onclick="toggleViewCompilerPanel()"><i class="bi bi-chevron-up" id="viewCompilerChevron"></i></button>
+                    </div>
+                    <textarea id="viewCompilerCode" spellcheck="false" style="width:100%;min-height:180px;padding:12px;font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:0.88rem;background:#1e1e1e;color:#d4d4d4;border:none;border-radius:10px;resize:vertical;outline:none;tab-size:4;" placeholder="Write your code here…"></textarea>
+                    <div style="display:flex;align-items:center;gap:10px;margin-top:8px;">
+                        <button class="btn btn-primary btn-sm" onclick="runViewCompilerCode()" id="viewRunBtn">
+                            <i class="bi bi-play-fill"></i> Run
+                        </button>
+                        <button class="btn btn-outline btn-sm" onclick="clearViewCompilerOutput()">
+                            <i class="bi bi-trash"></i> Clear
+                        </button>
+                        <span id="viewRunSpinner" class="spinner spinner-sm" style="display:none;"></span>
+                    </div>
+                    <pre id="viewCompilerOutput" style="margin-top:10px;min-height:60px;background:#111;color:#4ec9b0;border-radius:10px;padding:12px;font-family:'JetBrains Mono','Fira Code','Courier New',monospace;font-size:0.85rem;white-space:pre-wrap;word-break:break-all;border:none;"></pre>
+                </div>
             </div>
             <div class="modal-footer">
+                <button id="viewCompilerBtn" class="btn btn-outline btn-sm" onclick="toggleViewCompilerPanel()" style="display:none;margin-right:auto;">
+                    <i class="bi bi-terminal"></i> Open Compiler
+                </button>
                 <button id="viewFlashcardsBtn" class="btn btn-light" onclick="openFlashcardsForModal()" style="display:none;"><i class="bi bi-card-text"></i> Open Flashcards</button>
                 <button id="viewQuizBtn" class="btn btn-light" onclick="openQuizFromViewer()" style="display:none;"><i class="bi bi-patch-question"></i> View Quiz</button>
                 <button id="viewReportBtn" class="btn btn-danger" style="display:none;align-items:center;gap:8px;" onclick="openReportModal(document.getElementById('viewReviewerModal').dataset.currentReviewerId)"><i class="bi bi-exclamation-triangle-fill"></i> Report</button>
@@ -1111,6 +1161,45 @@ Answer: B</pre>
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/flashcards.js"></script>
+    <script>
+        // Apply highlight.js to all code blocks inside a container.
+        // Handles: <pre><code>, bare <pre>, and Quill's <pre class="ql-syntax">.
+        function highlightAllCode(container) {
+            if (typeof hljs === 'undefined' || !container) return;
+            container.querySelectorAll('pre').forEach(pre => {
+                if (!pre.querySelector('code')) {
+                    const code = document.createElement('code');
+                    code.innerHTML = pre.innerHTML;
+                    pre.innerHTML = '';
+                    pre.appendChild(code);
+                }
+            });
+            container.querySelectorAll('pre code').forEach(block => {
+                if (block.dataset.highlighted) return;
+                hljs.highlightElement(block);
+            });
+        }
+        function syncHljsTheme() {
+            const dark = document.body.classList.contains('dark');
+            const darkLink = document.getElementById('hljs-theme-dark');
+            const lightLink = document.getElementById('hljs-theme-light');
+            if (darkLink) darkLink.media = dark ? 'all' : 'not all';
+            if (lightLink) lightLink.media = dark ? 'not all' : 'all';
+        }
+        document.addEventListener('darkModeChanged', syncHljsTheme);
+        document.addEventListener('DOMContentLoaded', syncHljsTheme);
+
+        // Tab key support in compiler textarea
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab' && e.target.id === 'viewCompilerCode') {
+                e.preventDefault();
+                const ta = e.target;
+                const s = ta.selectionStart, end = ta.selectionEnd;
+                ta.value = ta.value.substring(0, s) + '    ' + ta.value.substring(end);
+                ta.selectionStart = ta.selectionEnd = s + 4;
+            }
+        });
+    </script>
     <script src="/js/dashboard.js"></script>
     <script src="/js/settings.js"></script>
     <script src="/js/modalAlerts.js"></script>

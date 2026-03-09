@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="/css/style.css">
     <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <!-- Syntax highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css" id="hljs-theme-dark" media="not all">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-light.min.css" id="hljs-theme-light" media="all">
+    <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
     <style>
         /* Mobile improvements for user profile */
         .avatar-lg { width:96px; height:96px; border-radius:999px; object-fit:cover; border:6px solid rgba(255,210,220,0.7); background:linear-gradient(90deg,#ffdfe7,var(--off-white)); }
@@ -223,6 +227,34 @@
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/utils.js"></script>
     <script src="/js/flashcards.js"></script>
+    <script>
+        // Apply highlight.js to all code blocks inside a container.
+        // Handles: <pre><code>, bare <pre>, and Quill's <pre class="ql-syntax">.
+        function highlightAllCode(container) {
+            if (typeof hljs === 'undefined' || !container) return;
+            container.querySelectorAll('pre').forEach(pre => {
+                if (!pre.querySelector('code')) {
+                    const code = document.createElement('code');
+                    code.innerHTML = pre.innerHTML;
+                    pre.innerHTML = '';
+                    pre.appendChild(code);
+                }
+            });
+            container.querySelectorAll('pre code').forEach(block => {
+                if (block.dataset.highlighted) return;
+                hljs.highlightElement(block);
+            });
+        }
+        function syncHljsTheme() {
+            const dark = document.body.classList.contains('dark');
+            const darkLink = document.getElementById('hljs-theme-dark');
+            const lightLink = document.getElementById('hljs-theme-light');
+            if (darkLink) darkLink.media = dark ? 'all' : 'not all';
+            if (lightLink) lightLink.media = dark ? 'not all' : 'all';
+        }
+        document.addEventListener('darkModeChanged', syncHljsTheme);
+        document.addEventListener('DOMContentLoaded', syncHljsTheme);
+    </script>
     <script src="/js/user.js"></script>
     <script src="/js/modalAlerts.js"></script>
     <script src="/js/moderation.js"></script>

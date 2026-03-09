@@ -1184,11 +1184,66 @@ textarea.form-control {
 }
 
 /* Preformatted code blocks inside content */
-.ql-editor pre, #viewReviewerContent pre, .reviewer-content pre, .rendered-reviewer pre {
-    background: #f7f5f7;
-    padding: 12px;
+.ql-editor pre,
+#viewReviewerContent pre,
+.reviewer-content pre,
+.rendered-reviewer pre,
+#modalContent pre,
+.reviewer-preview pre {
+    background: #f3f0f5;
+    border: 1px solid #e0d8e8;
+    border-left: 4px solid var(--primary-pink, #e91e8c);
+    padding: 14px 16px;
     border-radius: 8px;
-    overflow: auto;
+    overflow-x: auto;
+    font-family: 'Consolas', 'Fira Mono', 'Courier New', monospace;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    margin: 12px 0;
+    white-space: pre;
+}
+
+/* Inline code */
+.ql-editor code,
+#viewReviewerContent code,
+.reviewer-content code,
+.rendered-reviewer code,
+#modalContent code,
+.reviewer-preview code {
+    background: #f3f0f5;
+    border: 1px solid #e0d8e8;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: 'Consolas', 'Fira Mono', 'Courier New', monospace;
+    font-size: 0.88em;
+    color: #c0156e;
+}
+
+/* Don't double-style inline code inside a pre block (only for non-highlighted blocks) */
+.ql-editor pre code:not([data-highlighted]),
+#viewReviewerContent pre code:not([data-highlighted]),
+.reviewer-content pre code:not([data-highlighted]),
+.rendered-reviewer pre code:not([data-highlighted]),
+#modalContent pre code:not([data-highlighted]),
+.reviewer-preview pre code:not([data-highlighted]) {
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+}
+
+/* Always strip the box styling from pre code — let hljs handle colors */
+.ql-editor pre code,
+#viewReviewerContent pre code,
+.reviewer-content pre code,
+.rendered-reviewer pre code,
+#modalContent pre code,
+.reviewer-preview pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
 }
 
 .nav-link.active {
@@ -2338,9 +2393,39 @@ body.dark .badge { background: var(--secondary-pink); color: var(--primary-pink-
 body.dark ::-webkit-scrollbar-track { background: var(--light-gray); }
 body.dark ::-webkit-scrollbar-thumb { background: var(--primary-pink-dark); }
 
-/* ── Code blocks inside Quill ── */
-body.dark .ql-editor pre { background: #1a1620; color: #f0e6ee; }
-body.dark .ql-editor code { background: #2e2831; color: #f0e6ee; }
+/* ── Code blocks inside Quill & reviewer content (dark mode) ── */
+body.dark .ql-editor pre,
+body.dark #viewReviewerContent pre,
+body.dark .reviewer-content pre,
+body.dark .rendered-reviewer pre,
+body.dark #modalContent pre,
+body.dark .reviewer-preview pre {
+    background: #1a1620;
+    border-color: #3a2f40;
+    color: #f0e6ee;
+}
+
+body.dark .ql-editor code,
+body.dark #viewReviewerContent code,
+body.dark .reviewer-content code,
+body.dark .rendered-reviewer code,
+body.dark #modalContent code,
+body.dark .reviewer-preview code {
+    background: #2e2831;
+    border-color: #3a2f40;
+    color: #f5a8d8;
+}
+
+body.dark .ql-editor pre code:not([data-highlighted]),
+body.dark #viewReviewerContent pre code:not([data-highlighted]),
+body.dark .reviewer-content pre code:not([data-highlighted]),
+body.dark .rendered-reviewer pre code:not([data-highlighted]),
+body.dark #modalContent pre code:not([data-highlighted]),
+body.dark .reviewer-preview pre code:not([data-highlighted]) {
+    background: none;
+    border: none;
+    color: inherit;
+}
 
 /* ── Inline hardcoded white overrides ── */
 body.dark [style*="background: white"],

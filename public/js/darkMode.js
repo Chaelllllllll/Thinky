@@ -14,6 +14,7 @@
             });
         });
         updateButtons(isDark);
+        document.dispatchEvent(new CustomEvent('darkModeChanged', { detail: { dark: isDark } }));
     }
 
     function updateButtons(isDark) {

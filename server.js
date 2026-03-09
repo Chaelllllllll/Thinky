@@ -2460,7 +2460,7 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             console.warn('Failed to check user ban/restriction status', e);
         }
 
-        const { subject_id, title, content, is_public, flashcards } = req.body;
+        const { subject_id, title, content, is_public, flashcards, compiler_language } = req.body;
 
         if (!subject_id || !title || !content) {
             return res.status(400).json({ error: 'Subject, title, and content are required' });
@@ -2496,7 +2496,8 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             subject_id,
             title,
             content,
-            is_public: is_public !== false
+            is_public: is_public !== false,
+            compiler_language: compiler_language || null
         }, flashcardsToSave ? { flashcards: flashcardsToSave } : {});
 
         const { data: reviewer, error } = await supabaseAdmin
@@ -2801,9 +2802,9 @@ app.get('/api/users/:id/follow-status', requireAuth, async (req, res) => {
 app.put('/api/reviewers/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, content, is_public, flashcards } = req.body;
+        const { title, content, is_public, flashcards, compiler_language } = req.body;
 
-        const updateObj = { title, content, is_public: is_public !== false };
+        const updateObj = { title, content, is_public: is_public !== false, compiler_language: compiler_language || null };
 
         // parse simple textarea format if provided
         const parseFlashcardsText = (txt) => {
@@ -5386,9 +5387,17 @@ function isGeminiRetryableError(status, errMsg) {
            msg.includes('no longer available');
 }
 
+// Parse comma-separated GEMINI_API_KEYS (falls back to legacy GEMINI_API_KEY)
+function getGeminiApiKeys() {
+    const multi = process.env.GEMINI_API_KEYS;
+    if (multi) return multi.split(',').map(k => k.trim()).filter(Boolean);
+    const single = process.env.GEMINI_API_KEY;
+    return single ? [single] : [];
+}
+
 async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error('GEMINI_API_KEY is not configured');
+    const apiKeys = getGeminiApiKeys();
+    if (apiKeys.length === 0) throw new Error('No Gemini API keys configured');
 
     const parts = [];
     if (pdfBase64) {
@@ -5397,6 +5406,7 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
     parts.push({ text: prompt });
 
     let lastError;
+    for (const apiKey of apiKeys) {
     for (const model of GEMINI_MODELS) {
         let resp;
         try {
@@ -5425,12 +5435,18 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
         if (!resp.ok) {
             const errBody = await resp.json().catch(() => ({}));
             const errMsg = errBody.error?.message || `Gemini API error: ${resp.status}`;
+            if (resp.status === 401 || resp.status === 403) {
+                // Invalid/revoked key — skip remaining models for this key
+                lastError = new Error(errMsg);
+                console.warn(`[AI] API key rejected (${resp.status}), trying next key...`);
+                break;
+            }
             if (isGeminiRetryableError(resp.status, errMsg)) {
                 lastError = new Error(errMsg);
                 console.warn(`[AI] Model "${model}" unavailable (${resp.status}: ${errMsg}), trying next model...`);
                 continue;
             }
-            // Non-retryable error (e.g. 400 bad request, 401 auth) — fail immediately
+            // Non-retryable error (e.g. 400 bad request) — fail immediately
             throw new Error(errMsg);
         }
 
@@ -5438,8 +5454,8 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
         const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
         // Empty/blocked response — try next model instead of hard-failing
+        const finishReason = data.candidates?.[0]?.finishReason;
         if (!text) {
-            const finishReason = data.candidates?.[0]?.finishReason;
             const blockReason = data.promptFeedback?.blockReason;
             if (blockReason) {
                 // Content blocked — not a capacity issue, fail immediately
@@ -5450,25 +5466,57 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
             continue;
         }
 
+        // Truncated response — output was cut off at the token limit, JSON will be malformed
+        if (finishReason === 'MAX_TOKENS') {
+            lastError = new Error(`Response from model "${model}" was truncated (MAX_TOKENS) — JSON likely incomplete`);
+            console.warn(`[AI] Model "${model}" hit MAX_TOKENS, trying next model...`);
+            continue;
+        }
+
         if (returnJson) {
             let jsonText = text.trim();
             // Strip markdown code fences that Gemini sometimes adds despite response_mime_type
             if (jsonText.startsWith('```')) {
                 jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
             }
-            try {
-                return JSON.parse(jsonText);
-            } catch (firstErr) {
-                // Try finding the outermost JSON object in case there's extra text around it
-                const match = jsonText.match(/\{[\s\S]*\}/);
-                if (match) {
-                    try { return JSON.parse(match[0]); } catch (_) {}
-                }
-                throw firstErr;
+            let parsed = null;
+            // Attempt 1: direct parse
+            try { parsed = JSON.parse(jsonText); } catch (_) {}
+            // Attempt 2: extract outermost {...} or [...] in case there's surrounding prose
+            if (!parsed) {
+                const objMatch = jsonText.match(/\{[\s\S]*\}/);
+                if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
             }
+            if (!parsed) {
+                const arrMatch = jsonText.match(/\[[\s\S]*\]/);
+                if (arrMatch) try { parsed = JSON.parse(arrMatch[0]); } catch (_) {}
+            }
+            // Attempt 3: trim trailing incomplete property/comma and close open braces (handles real truncation)
+            if (!parsed) {
+                try {
+                    // Remove everything from the last complete comma-terminated value onward,
+                    // then close all open braces/brackets to form valid JSON.
+                    let s = jsonText.replace(/,\s*$/, '').replace(/[^}\]]+$/, '');
+                    // Count unclosed braces
+                    let open = 0;
+                    const stack = [];
+                    for (const ch of s) {
+                        if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+                        else if (ch === '}' || ch === ']') stack.pop();
+                    }
+                    s = s + stack.reverse().join('');
+                    parsed = JSON.parse(s);
+                } catch (_) {}
+            }
+            if (parsed) return parsed;
+            // All parse attempts failed — treat as retryable so the next model gets a shot
+            lastError = new Error(`Model "${model}" returned malformed JSON (SyntaxError)`);
+            console.warn(`[AI] Model "${model}" returned unparseable JSON, trying next model...`);
+            continue;
         }
         return text;
     }
+    } // end key loop
 
     throw lastError || new Error('All Gemini models are currently unavailable. Please try again later.');
 }
@@ -5477,7 +5525,7 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
 app.post('/api/ai/generate-reviewer', requireAuth, aiUpload.single('file'), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-        if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
+        if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
 
         const { mimetype, buffer } = req.file;
         let pdfBase64 = null;
@@ -5512,10 +5560,11 @@ Return ONLY a valid JSON object with this exact structure:
 - Structure: use <h2> for major sections, <h3> for sub-sections.
 - Format: use <ul><li> bullet lists as the PRIMARY format for all details. Minimize prose paragraphs.
 - Emphasis: wrap key terms, names, formulas, and dates in <strong> tags ONLY. Do NOT use **asterisks** for bold — that is Markdown and will break the output.
-- Do NOT use any Markdown formatting anywhere (no **, no *, no #, no -, no backticks).
+- Do NOT use any Markdown formatting anywhere (no **, no *, no #, no -, no backticks outside code blocks).
 - Bullets must be short, clear, and informative — not full sentences unless necessary.
 - Do NOT include: introductions like "This reviewer covers...", filler sentences, meta-commentary, or redundant restatements.
 - Only include factual content directly from the source: definitions, concepts, processes, relationships, examples, key facts.
+- CODE BLOCKS: If the source contains any source code, commands, scripts, syntax examples, pseudocode, or technical expressions that should be displayed as code, wrap them in <pre><code>…</code></pre>. For short inline code references (variable names, function names, keywords, command snippets) inside text, wrap them in <code>…</code>. Never put code inside regular text or bullet points without these tags.
 
 === FLASHCARD RULES ===
 - Create one flashcard for EVERY important term, concept, process, person, formula, and fact in the source.
@@ -5552,7 +5601,7 @@ Return nothing outside the JSON object.`;
 // POST /api/ai/generate-quiz — generate quiz questions from a reviewer
 app.post('/api/ai/generate-quiz', requireAuth, async (req, res) => {
     try {
-        if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
+        if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
 
         const { reviewerId, questionCount } = req.body;
         if (!reviewerId || !UUID_REGEX.test(reviewerId)) {
@@ -5696,7 +5745,7 @@ Rules:
 // POST /api/ai/motivational-quote — generate a short study motivational quote
 app.post('/api/ai/motivational-quote', requireAuth, async (req, res) => {
     try {
-        if (!process.env.GEMINI_API_KEY) return res.status(503).json({ error: 'AI unavailable' });
+        if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'AI unavailable' });
         const prompt = `Generate one short, uplifting and cute motivational quote (1-2 sentences) about studying, learning, or academic growth. 
 Make it warm, encouraging and positive. Do not use quotation marks. Return ONLY the quote text, nothing else.`;
         const quote = await callGemini(prompt, null, false);

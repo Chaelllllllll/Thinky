@@ -250,10 +250,12 @@ async function updateReviewersStats() {
             const resp = await fetch(`/api/subjects/${subject.id}/reviewers?limit=50&offset=0`, { credentials: 'include' });
             if (resp.ok) {
                 const data = await resp.json();
-                subject.reviewers = subject.reviewers || [];
                 const count = data.count || 0;
-                // Store server-authoritative count on the subject for displaySubjects()
+                // Store server-authoritative count and reviewer list on the subject
                 subject._reviewerCount = count;
+                if (Array.isArray(data.reviewers)) {
+                    subject.reviewers = data.reviewers;
+                }
                 totalReviewers += count;
                 publicReviewers += (data.reviewers || []).filter(r => r.is_public).length;
             }
@@ -644,6 +646,13 @@ function openReviewerModal(subjectId, reviewerId = null) {
         document.getElementById('reviewerForm').reset();
         quill.setContents([]);
         document.getElementById('isPublic').checked = true;
+        // Reset compiler fields for new reviewer
+        try {
+            const incl = document.getElementById('includeCompiler');
+            if (incl) incl.checked = false;
+            const row = document.getElementById('compilerLanguageRow');
+            if (row) row.style.display = 'none';
+        } catch (e) {}
         // Clear flashcard rows and hide the section for a new reviewer
         try {
             const container = document.getElementById('flashcardsList');
@@ -703,6 +712,15 @@ async function loadReviewerData(reviewerId, subjectId) {
             document.getElementById('reviewerTitle').value = reviewer.title;
             quill.root.innerHTML = reviewer.content;
             document.getElementById('isPublic').checked = reviewer.is_public;
+            // Populate compiler fields
+            try {
+                const incl = document.getElementById('includeCompiler');
+                const row = document.getElementById('compilerLanguageRow');
+                const sel = document.getElementById('compilerLanguage');
+                if (incl) incl.checked = !!reviewer.compiler_language;
+                if (row) row.style.display = reviewer.compiler_language ? '' : 'none';
+                if (sel && reviewer.compiler_language) sel.value = reviewer.compiler_language;
+            } catch (e) {}
                     // Populate flashcards from embedded `reviewer.flashcards` if present
                     try {
                         const fcs = Array.isArray(reviewer.flashcards) ? reviewer.flashcards : [];
@@ -746,6 +764,13 @@ function closeReviewerModal() {
         const btn = document.getElementById('toggleFlashcardsBtn');
         if (btn) btn.innerHTML = '<i class="bi bi-card-text"></i> Flashcards';
     } catch (e) {}
+    // Reset compiler fields
+    try {
+        const incl = document.getElementById('includeCompiler');
+        if (incl) incl.checked = false;
+        const row = document.getElementById('compilerLanguageRow');
+        if (row) row.style.display = 'none';
+    } catch (e) {}
 }
 
 async function saveReviewer() {
@@ -753,6 +778,10 @@ async function saveReviewer() {
     const content = quill.root.innerHTML;
     const isPublic = document.getElementById('isPublic').checked;
     const subjectId = document.getElementById('reviewerSubjectId').value;
+    const includeCompiler = document.getElementById('includeCompiler') && document.getElementById('includeCompiler').checked;
+    const compilerLanguage = includeCompiler && document.getElementById('compilerLanguage')
+        ? (document.getElementById('compilerLanguage').value || null)
+        : null;
 
     if (!title || !content) {
         alert('Please enter a title and content');
@@ -776,8 +805,8 @@ async function saveReviewer() {
         // Include flashcards array from UI (if any)
         const flashcardsFromUI = getFlashcardsFromUI();
         const body = currentReviewerId
-            ? Object.assign({ title, content, is_public: isPublic }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {})
-            : Object.assign({ subject_id: subjectId, title, content, is_public: isPublic }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {});
+            ? Object.assign({ title, content, is_public: isPublic, compiler_language: compilerLanguage }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {})
+            : Object.assign({ subject_id: subjectId, title, content, is_public: isPublic, compiler_language: compilerLanguage }, flashcardsFromUI.length ? { flashcards: flashcardsFromUI } : {});
 
         const response = await fetch(url, {
             method,
@@ -838,6 +867,13 @@ async function saveReviewer() {
         // append it to the local subjects cache and refresh the UI. Otherwise, fallback to reloading subjects.
         if (!currentReviewerId && respData && (respData.reviewer || respData.id || respData.data)) {
             const added = respData.reviewer || respData.data || respData;
+            // Update currentReviewerId so any subsequent "Save Reviewer" click does a PUT (update)
+            // instead of a POST (create), preventing duplicates while the modal stays open.
+            if (added.id) {
+                currentReviewerId = added.id;
+                const modalTitle = document.getElementById('reviewerModalTitle');
+                if (modalTitle) modalTitle.textContent = 'Edit Reviewer';
+            }
             // Ensure we have the numeric/string id to match
             const sid = subjectId || (added.subject_id || added.subjectId || added.subject);
             const subj = subjects.find(s => String(s.id) === String(sid));
@@ -873,6 +909,7 @@ async function saveReviewer() {
 
         // If user opted to auto-generate a quiz, do it NOW — keep button disabled until done,
         // then update the local cache so the quiz builder reflects it immediately on open.
+        let generationAlertShown = false;
         if (window._aiPendingQuiz && pendingQuizReviewerId) {
             window._aiPendingQuiz = false;
             saveTextEl.textContent = 'Generating quiz\u2026';
@@ -884,19 +921,23 @@ async function saveReviewer() {
                     const rv = subj.reviewers.find(r => String(r.id) === String(pendingQuizReviewerId));
                     if (rv) { rv.quiz = savedQuiz; break; }
                 }
-                window.showAlert('success', `Reviewer & quiz saved! (${savedQuiz.questions.length} question${savedQuiz.questions.length !== 1 ? 's' : ''})`, 6000);
+                window.showAlert('success', `Reviewer & quiz saved! (${savedQuiz.questions.length} question${savedQuiz.questions.length !== 1 ? 's' : ''}) — You can close this window when you're ready.`, 8000);
+                generationAlertShown = true;
             } catch (quizErr) {
                 console.error('Inline quiz generation error:', quizErr);
                 window.showAlert('error', 'Reviewer saved, but quiz could not be auto-generated. You can create one manually from the quiz builder.');
+                generationAlertShown = true;
             }
         } else {
             if (window._aiPendingQuiz) window._aiPendingQuiz = false;
         }
 
         // Flashcards are saved as part of the reviewer payload (if any)
-        // Clear the generation lock before closing so closeReviewerModal doesn't block
+        // Clear the generation lock — do NOT auto-close; let the user review and close manually
         window._aiGenerating = false;
-        closeReviewerModal();
+        if (!generationAlertShown) {
+            window.showAlert('success', 'Reviewer saved! You can close this window when you\'re ready.', 5000);
+        }
     } catch (error) {
         console.error('Error saving reviewer:', error);
         alert('Failed to save reviewer. Please try again.');
@@ -1009,6 +1050,7 @@ async function viewReviewer(reviewerId) {
 
         document.getElementById('viewReviewerTitle').textContent = reviewer.title;
         document.getElementById('viewReviewerContent').innerHTML = reviewer.content;
+        if (typeof highlightAllCode === 'function') highlightAllCode(document.getElementById('viewReviewerContent'));
         const viewModal = document.getElementById('viewReviewerModal');
         // set current reviewer id and owner for footer actions
         viewModal.dataset.currentReviewerId = reviewer.id || '';
@@ -1017,11 +1059,24 @@ async function viewReviewer(reviewerId) {
         // Conditional footer buttons
         const hasFlashcards = Array.isArray(reviewer.flashcards) && reviewer.flashcards.length > 0;
         const hasQuiz = reviewer.quiz && Array.isArray(reviewer.quiz.questions) && reviewer.quiz.questions.length > 0;
+        const hasCompiler = !!reviewer.compiler_language;
         const viewFlashcardsBtn = document.getElementById('viewFlashcardsBtn');
         const viewQuizBtn = document.getElementById('viewQuizBtn');
+        const viewCompilerBtn = document.getElementById('viewCompilerBtn');
         const reportBtn = document.getElementById('viewReportBtn');
         if (viewFlashcardsBtn) viewFlashcardsBtn.style.display = hasFlashcards ? '' : 'none';
         if (viewQuizBtn) viewQuizBtn.style.display = hasQuiz ? '' : 'none';
+        if (viewCompilerBtn) viewCompilerBtn.style.display = hasCompiler ? '' : 'none';
+        // Reset compiler panel state for this reviewer
+        const compilerPanel = document.getElementById('viewCompilerPanel');
+        const compilerLangLabel = document.getElementById('viewCompilerLangLabel');
+        const compilerCode = document.getElementById('viewCompilerCode');
+        const compilerOutput = document.getElementById('viewCompilerOutput');
+        if (compilerPanel) compilerPanel.style.display = 'none';
+        if (compilerLangLabel) compilerLangLabel.textContent = formatCompilerLanguage(reviewer.compiler_language);
+        if (compilerCode) compilerCode.value = '';
+        if (compilerOutput) compilerOutput.textContent = '';
+        viewModal.dataset.compilerLanguage = reviewer.compiler_language || '';
         if (reportBtn) {
             if (!currentUser || String(currentUser.id) === String(reviewer.user_id)) {
                 reportBtn.style.display = 'none';
@@ -1038,10 +1093,81 @@ async function viewReviewer(reviewerId) {
 
 function closeViewReviewerModal() {
     document.getElementById('viewReviewerModal').classList.remove('show');
+    // Reset compiler panel state
+    const compilerPanel = document.getElementById('viewCompilerPanel');
+    if (compilerPanel) compilerPanel.style.display = 'none';
     if (window._reviewersListWasOpen) {
         const reviewersListModal = document.getElementById('reviewersListModal');
         if (reviewersListModal) reviewersListModal.classList.add('show');
         window._reviewersListWasOpen = false;
+    }
+}
+
+function formatCompilerLanguage(lang) {
+    const names = { python: 'Python', javascript: 'JavaScript', cpp: 'C++', c: 'C', java: 'Java', go: 'Go', rust: 'Rust', typescript: 'TypeScript', php: 'PHP', ruby: 'Ruby' };
+    return names[lang] || lang || '';
+}
+
+function toggleCompilerLanguageRow() {
+    const checked = document.getElementById('includeCompiler') && document.getElementById('includeCompiler').checked;
+    const row = document.getElementById('compilerLanguageRow');
+    if (row) row.style.display = checked ? '' : 'none';
+}
+
+function toggleViewCompilerPanel() {
+    const panel = document.getElementById('viewCompilerPanel');
+    if (!panel) return;
+    const isHidden = panel.style.display === 'none' || panel.style.display === '';
+    panel.style.display = isHidden ? 'block' : 'none';
+    const chevron = document.getElementById('viewCompilerChevron');
+    if (chevron) {
+        chevron.className = isHidden ? 'bi bi-chevron-up' : 'bi bi-chevron-down';
+    }
+    const btn = document.getElementById('viewCompilerBtn');
+    if (btn) btn.innerHTML = isHidden
+        ? '<i class="bi bi-terminal"></i> Close Compiler'
+        : '<i class="bi bi-terminal"></i> Open Compiler';
+}
+
+function clearViewCompilerOutput() {
+    const out = document.getElementById('viewCompilerOutput');
+    if (out) out.textContent = '';
+}
+
+async function runViewCompilerCode() {
+    const viewModal = document.getElementById('viewReviewerModal');
+    const lang = viewModal && viewModal.dataset.compilerLanguage;
+    const code = document.getElementById('viewCompilerCode') && document.getElementById('viewCompilerCode').value;
+    if (!lang || !code) return;
+    const runBtn = document.getElementById('viewRunBtn');
+    const spinner = document.getElementById('viewRunSpinner');
+    const output = document.getElementById('viewCompilerOutput');
+    if (runBtn) runBtn.disabled = true;
+    if (spinner) spinner.style.display = 'inline-block';
+    if (output) output.textContent = 'Running…';
+    try {
+        const pistonLang = lang === 'cpp' ? 'c++' : lang;
+        const resp = await fetch('https://emkc.org/api/v2/piston/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ language: pistonLang, version: '*', files: [{ content: code }] })
+        });
+        const data = await resp.json();
+        if (data && data.run) {
+            const stdout = data.run.stdout || '';
+            const stderr = data.run.stderr || '';
+            output.textContent = stdout + (stderr ? '\n[stderr]\n' + stderr : '') || '(no output)';
+            output.style.color = stderr && !stdout ? '#f48771' : '#4ec9b0';
+        } else {
+            output.textContent = data.message || 'Unknown error from compiler service.';
+            output.style.color = '#f48771';
+        }
+    } catch (err) {
+        output.textContent = 'Failed to reach compiler service. Check your internet connection.';
+        output.style.color = '#f48771';
+    } finally {
+        if (runBtn) runBtn.disabled = false;
+        if (spinner) spinner.style.display = 'none';
     }
 }
 
