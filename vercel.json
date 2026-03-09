@@ -1,6 +1,8 @@
 {
   "version": 2,
-  
+  "functions": {
+    "api/[...slug].js": { "maxDuration": 60 }
+  },
   "routes": [
     { "src": "^/api/(.*)$", "dest": "/api/[...slug].js" },
     { "src": "^/(js|css|images|auth|fonts)/(.*)$", "dest": "/public/$1/$2" },

@@ -5764,20 +5764,27 @@ async function incrementAiUsage(userId, usageType) {
 }
 // ─────────────────────────────────────────────────────────────────────────
 
+// Resolve effective MIME from file extension — mobile browsers (iOS, Android) frequently
+// send wrong MIME types (application/octet-stream, application/zip for .docx, etc.).
+// Extension is the reliable ground truth.
+const EXT_TO_MIME = {
+    pdf:  'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    txt:  'text/plain'
+};
+function resolveFileMime(originalname, fallbackMime) {
+    const ext = (originalname || '').toLowerCase().split('.').pop();
+    return EXT_TO_MIME[ext] || fallbackMime;
+}
+
 const aiUpload = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
     fileFilter: (_req, file, cb) => {
-        const allowed = [
-            'application/pdf',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'text/plain'
-        ];
-        // iOS / Android WebView often sends application/octet-stream regardless of file type
-        // Fall back to extension check in that case
-        const ext = (file.originalname || '').toLowerCase().split('.').pop();
-        const allowedExts = ['pdf', 'docx', 'txt'];
-        if (allowed.includes(file.mimetype) || (file.mimetype === 'application/octet-stream' && allowedExts.includes(ext))) {
+        // Always resolve by extension — mobile browsers send unreliable MIME types
+        const effectiveMime = resolveFileMime(file.originalname, file.mimetype);
+        const allowedMimes = Object.values(EXT_TO_MIME);
+        if (allowedMimes.includes(effectiveMime)) {
             cb(null, true);
         } else {
             cb(new Error('Only PDF, DOCX, and TXT files are allowed'));
@@ -5969,14 +5976,18 @@ app.post('/api/ai/generate-reviewer', requireAuth, aiUpload.single('file'), asyn
             });
         }
 
-        const { mimetype, buffer } = req.file;
+        const { mimetype, buffer, originalname } = req.file;
+        // Always resolve by extension — mobile browsers (iOS octet-stream, Android application/zip
+        // for .docx, etc.) send unreliable MIME types.
+        const effectiveMime = resolveFileMime(originalname, mimetype);
+
         let pdfBase64 = null;
         let textContent = null;
 
-        if (mimetype === 'application/pdf') {
+        if (effectiveMime === 'application/pdf') {
             // Gemini natively reads PDFs — send as base64 inline data
             pdfBase64 = buffer.toString('base64');
-        } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        } else if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
             const mammoth = (await import('mammoth')).default;
             const result = await mammoth.extractRawText({ buffer });
             textContent = result.value;
