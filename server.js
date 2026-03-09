@@ -5705,6 +5705,30 @@ app.put('/api/notifications/read-all', requireAuth, async (req, res) => {
 // AI ROUTES (Google Gemini 1.5 Flash — Free Tier)
 // =====================================================
 
+// ── Discord error notifier ───────────────────────────────────────────────
+async function notifyDiscord(title, fields) {
+    const url = process.env.DISCORD_ERROR_WEBHOOK;
+    if (!url) return;
+    try {
+        await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                embeds: [{
+                    title,
+                    color: 0xe74c3c,
+                    timestamp: new Date().toISOString(),
+                    fields: fields.map(([name, value]) => ({
+                        name,
+                        value: String(value).slice(0, 1024),
+                        inline: false
+                    }))
+                }]
+            })
+        });
+    } catch (_) { /* never let Discord reporting break anything */ }
+}
+
 // ── AI Daily-limit helpers ────────────────────────────────────────────────
 const AI_DAILY_LIMIT = 5; // max uses per type per UTC day
 
@@ -6050,6 +6074,14 @@ Return nothing outside the JSON object.`;
         });
     } catch (error) {
         console.error('Auto generate-reviewer error:', error);
+        notifyDiscord('🔴 Auto Generate Reviewer Failed', [
+            ['Error', error?.message || String(error)],
+            ['Stack', error?.stack || 'n/a'],
+            ['File', `${req.file?.originalname || 'n/a'} (${req.file?.mimetype || 'n/a'}, ${req.file?.size || 0} bytes)`],
+            ['Effective MIME', resolveFileMime(req.file?.originalname, req.file?.mimetype)],
+            ['User ID', req.session?.userId || 'n/a'],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
         res.status(500).json({ error: 'Failed to generate reviewer. Please try again.' });
     }
 });
@@ -6213,6 +6245,13 @@ Rules:
         res.json({ questions: questions.slice(0, 100) });
     } catch (error) {
         console.error('Auto generate-quiz error:', error);
+        notifyDiscord('🔴 Auto Generate Quiz Failed', [
+            ['Error', error?.message || String(error)],
+            ['Stack', error?.stack || 'n/a'],
+            ['Reviewer ID', req.body?.reviewerId || 'n/a'],
+            ['User ID', req.session?.userId || 'n/a'],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
         res.status(500).json({ error: 'Failed to generate questions. Please try again.' });
     }
 });
