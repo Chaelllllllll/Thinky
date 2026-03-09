@@ -5985,9 +5985,33 @@ async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
 }
 
 // POST /api/ai/generate-reviewer — upload a PDF/DOCX/TXT and generate a reviewer
-app.post('/api/ai/generate-reviewer', requireAuth, aiUpload.single('file'), async (req, res) => {
+app.post('/api/ai/generate-reviewer', requireAuth, (req, res, next) => {
+    // Run multer manually so errors (file-type rejection, size, parse failures)
+    // are caught here instead of bypassing the route's try/catch and Discord notifier.
+    aiUpload.single('file')(req, res, (multerErr) => {
+        if (multerErr) {
+            const rawMime = req.headers['content-type'] || 'unknown';
+            notifyDiscord('🔴 AI Generate — Multer/Upload Error', [
+                ['Multer Error', multerErr.message || String(multerErr)],
+                ['Content-Type header', rawMime],
+                ['User ID', req.session?.userId || 'n/a'],
+                ['Time (UTC)', new Date().toISOString()]
+            ]);
+            return res.status(400).json({ error: multerErr.message || 'File upload failed.' });
+        }
+        next();
+    });
+}, async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.file) {
+            notifyDiscord('🔴 AI Generate — No File Received', [
+                ['Content-Type header', req.headers['content-type'] || 'unknown'],
+                ['Body keys', Object.keys(req.body || {}).join(', ') || 'none'],
+                ['User ID', req.session?.userId || 'n/a'],
+                ['Time (UTC)', new Date().toISOString()]
+            ]);
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
         if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
 
         // ── Daily limit check ──
