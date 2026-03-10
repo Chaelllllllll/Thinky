@@ -175,7 +175,9 @@ async function saveCurrentTabSettings() {
         }
     } catch (e) {
         console.error('Failed to save settings:', e);
-        await window.showModal('Failed to save settings. Please try again.', 'Error', { small: true });
+        // Show specific error message if available (e.g., "Username already taken")
+        const errorMessage = e.message || 'Failed to save settings. Please try again.';
+        await window.showModal(errorMessage, 'Error', { small: true });
     } finally {
         if (saveBtn) saveBtn.disabled = false;
     }

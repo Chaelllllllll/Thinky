@@ -646,10 +646,15 @@
                     const card = document.createElement('div');
                     card.className = 'reviewer-card';
                     card.style.cursor = 'pointer';
+                    card.style.display = 'flex';
+                    card.style.flexDirection = 'column';
+                    card.style.justifyContent = 'space-between';
+                    card.style.minHeight = '220px';
+                    card.dataset.subjectId = sub.id;
                     card.dataset.subjectName = (sub.name || '').toLowerCase();
                     card.dataset.schoolName = (sub.school_name || '').toLowerCase();
                     card.innerHTML = `
-                        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                        <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;">
                             <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                                 <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
                             </div>
@@ -658,13 +663,50 @@
                                 ${sub.school_name ? `<div style="font-size:0.8rem;color:var(--dark-gray);margin-top:2px;"><i class="bi bi-building" style="margin-right:3px;"></i>${escapeHtml(sub.school_name)}</div>` : ''}
                             </div>
                         </div>
-                        <div style="display:flex;align-items:center;gap:4px;padding-top:8px;border-top:1px solid var(--medium-gray);">
-                            ${uploaderHtml}
+                        <div style="display:flex;align-items:center;gap:4px;padding-top:12px;border-top:1px solid var(--medium-gray);justify-content:space-between;">
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                ${uploaderHtml}
+                            </div>
+                            <button class="share-subject-btn" data-subject-id="${sub.id}" data-subject-name="${escapeHtml(sub.name)}" style="background:transparent;border:none;color:var(--primary-pink);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;display:flex;align-items:center;gap:4px;font-size:0.875rem;font-weight:500;" title="Share subject"><i class="bi bi-share"></i> Share</button>
                         </div>`;
-                    card.addEventListener('click', () => selectSubject(sub.id, sub.name));
+                    card.addEventListener('click', (e) => {
+                        if (e.target.closest('.share-subject-btn')) {
+                            e.stopPropagation();
+                            return;
+                        }
+                        selectSubject(sub.id, sub.name);
+                    });
+                    
+                    // Wire share button
+                    const shareBtn = card.querySelector('.share-subject-btn');
+                    if (shareBtn) {
+                        shareBtn.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            shareSubject(sub.id, sub.name);
+                        });
+                        shareBtn.addEventListener('mouseenter', () => {
+                            shareBtn.style.background = 'rgba(233, 30, 140, 0.08)';
+                        });
+                        shareBtn.addEventListener('mouseleave', () => {
+                            shareBtn.style.background = 'transparent';
+                        });
+                    }
+                    
                     grid.appendChild(card);
                 });
                 grid.style.display = 'grid';
+
+                // Check URL for subject parameter and auto-select it AFTER subjects are loaded
+                (function() {
+                    const params = new URLSearchParams(window.location.search);
+                    const subjectId = params.get('subject');
+                    if (subjectId && subjects.length > 0) {
+                        const subject = subjects.find(s => s.id === subjectId);
+                        if (subject) {
+                            selectSubject(subject.id, subject.name);
+                        }
+                    }
+                })();
             } catch (e) {
                 console.error('Failed to load subjects', e);
                 document.getElementById('loadingState').style.display = 'none';
@@ -993,6 +1035,35 @@
         }
 
         detectSession();
+
+        // Share subject function
+        function shareSubject(subjectId, subjectName) {
+            const shareUrl = `${window.location.origin}/index.html?subject=${encodeURIComponent(subjectId)}`;
+            
+            // Try Web Share API first
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Thinky - ' + subjectName,
+                    text: `Check out this subject: ${subjectName}`,
+                    url: shareUrl
+                }).catch(err => console.log('Error sharing:', err));
+            } else {
+                // Fallback: copy to clipboard and show alert
+                const textarea = document.createElement('textarea');
+                textarea.value = shareUrl;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    window.showAlert && window.showAlert('success', 'Link copied to clipboard!', 3000);
+                } catch (err) {
+                    window.showAlert && window.showAlert('error', 'Failed to copy link', 3000);
+                }
+                document.body.removeChild(textarea);
+            }
+        }
+
+        // Subject parameter checking is now done in loadAndShowSubjectCards() after data is loaded
 
         /* Stats removed; updateStats no longer required */
 

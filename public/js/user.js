@@ -1,10 +1,13 @@
 (function(){
     const params = new URLSearchParams(window.location.search);
-    const userId = params.get('user');
+    let userId = params.get('user');
+    
+    // Support @username format in URL (e.g., ?user=@username)
     if (!userId) {
         document.body.innerHTML = '<div style="padding:40px;">Missing user id</div>';
         return;
     }
+    
     // Expose user id for the follow list modal (loggedInId set after me-fetch)
     window._flFollowListUserId = userId;
     window._flLoggedInId = null;
@@ -30,6 +33,7 @@
     let viewMode = 'all'; // 'all' or 'subjects'
     let selectedSubject = null;
     let allReviewersData = [];
+    let _profileUsername = ''; // Store the profile owner's username for sharing
 
     async function fetchUser() {
         try {
@@ -37,6 +41,10 @@
             if (!resp.ok) throw new Error('Not found');
             const { user } = await resp.json();
             avatarEl.src = user.profile_picture_url || '/images/default-avatar.svg';
+            
+            // Store username for sharing
+            _profileUsername = user.username || '';
+            
             // Render display name and Developer badge if applicable
             const displayName = user.display_name || user.username || '';
             if (user.is_dev) {
@@ -414,8 +422,12 @@
             const card = document.createElement('div');
             card.className = 'reviewer-card';
             card.style.cursor = 'pointer';
+            card.style.display = 'flex';
+            card.style.flexDirection = 'column';
+            card.style.justifyContent = 'space-between';
+            card.style.minHeight = '220px';
             card.innerHTML = `
-                <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;">
                     <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                         <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
                     </div>
@@ -424,11 +436,36 @@
                         <div style="font-size:0.8rem;color:var(--dark-gray);">${sub.items.length} reviewer${sub.items.length !== 1 ? 's' : ''}</div>
                     </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--medium-gray);">
-                    <img src="${escapeHtml(uploaderAvatar)}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
-                    <span style="font-size:0.875rem;color:var(--dark-gray);">@${escapeHtml(uploaderName)}</span>
+                <div style="display:flex;align-items:center;gap:4px;padding-top:12px;border-top:1px solid var(--medium-gray);justify-content:space-between;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <img src="${escapeHtml(uploaderAvatar)}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                        <span style="font-size:0.875rem;color:var(--dark-gray);">@${escapeHtml(uploaderName)}</span>
+                    </div>
+                    <button class="share-subject-btn" style="background:transparent;border:none;color:var(--primary-pink);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;display:flex;align-items:center;gap:4px;font-size:0.875rem;font-weight:500;" title="Share subject"><i class="bi bi-share"></i> Share</button>
                 </div>`;
-            card.addEventListener('click', () => showSubjectDetailCards(sub));
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.share-subject-btn')) {
+                    e.stopPropagation();
+                    return;
+                }
+                showSubjectDetailCards(sub);
+            });
+            
+            // Wire share button
+            const shareBtn = card.querySelector('.share-subject-btn');
+            if (shareBtn) {
+                shareBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    shareUserSubject(userId, sub.id, sub.name);
+                });
+                shareBtn.addEventListener('mouseenter', () => {
+                    shareBtn.style.background = 'rgba(233, 30, 140, 0.08)';
+                });
+                shareBtn.addEventListener('mouseleave', () => {
+                    shareBtn.style.background = 'transparent';
+                });
+            }
+            
             reviewersContainer.appendChild(card);
         });
     }
@@ -465,6 +502,64 @@
 
     // initial
     fetchUser().then(loadAllAndShowSubjectsCards);
+
+    // Share user subject function
+    function shareUserSubject(userId, subjectId, subjectName) {
+        const shareUrl = `${window.location.origin}/user.html?user=@${encodeURIComponent(_profileUsername)}&subject=${encodeURIComponent(subjectId)}`;
+        
+        // Try Web Share API first
+        if (navigator.share) {
+            navigator.share({
+                title: 'Thinky - ' + subjectName,
+                text: `Check out @${_profileUsername}'s ${subjectName} reviewers`,
+                url: shareUrl
+            }).catch(err => console.log('Error sharing:', err));
+        } else {
+            // Fallback: copy to clipboard and show alert
+            const textarea = document.createElement('textarea');
+            textarea.value = shareUrl;
+            document.body.appendChild(textarea);
+            textarea.select();
+            try {
+                document.execCommand('copy');
+                window.showAlert && window.showAlert('success', 'Link copied to clipboard!', 3000);
+            } catch (err) {
+                window.showAlert && window.showAlert('error', 'Failed to copy link', 3000);
+            }
+            document.body.removeChild(textarea);
+        }
+    }
+    
+    // Check URL for subject parameter and auto-select it
+    (function() {
+        const params = new URLSearchParams(window.location.search);
+        const subjectId = params.get('subject');
+        if (subjectId) {
+            // Wait for user data to load, then find and display the subject
+            (async () => {
+                let attempts = 0;
+                const maxAttempts = 20;
+                while (allReviewersData.length === 0 && attempts < maxAttempts) {
+                    await new Promise(r => setTimeout(r, 150));
+                    attempts++;
+                }
+                if (allReviewersData.length > 0) {
+                    const subjectMap = {};
+                    allReviewersData.forEach(rv => {
+                        const key = rv.subject_id || '__none__';
+                        const name = rv.subjects?.name || 'General';
+                        if (!subjectMap[key]) subjectMap[key] = { id: key, name, items: [] };
+                        subjectMap[key].items.push(rv);
+                    });
+                    const subjectList = Object.values(subjectMap).sort((a, b) => a.name.localeCompare(b.name));
+                    const subject = subjectList.find(s => s.id === subjectId);
+                    if (subject) {
+                        showSubjectDetailCards(subject);
+                    }
+                }
+            })();
+        }
+    })();
 
     // Wire profile-level message/back interactions
     document.addEventListener('DOMContentLoaded', () => {

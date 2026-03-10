@@ -3110,12 +3110,25 @@ app.post('/api/reviewers/:id/report', requireAuth, async (req, res) => {
 // Public: get basic user info by id
 app.get('/api/users/:id', async (req, res) => {
     try {
-        const { id } = req.params;
-        const { data: user, error } = await supabase
+        let { id } = req.params;
+        
+        // Support username lookups: if id starts with '@', treat it as username
+        const isUsername = id.startsWith('@');
+        if (isUsername) {
+            id = id.substring(1); // Remove the '@' prefix
+        }
+        
+        let query = supabase
             .from('users')
-            .select('id, username, display_name, profile_picture_url, created_at, is_dev, follower_count, following_count')
-            .eq('id', id)
-            .maybeSingle();
+            .select('id, username, display_name, profile_picture_url, created_at, is_dev, follower_count, following_count');
+        
+        if (isUsername) {
+            query = query.eq('username', id);
+        } else {
+            query = query.eq('id', id);
+        }
+        
+        const { data: user, error } = await query.maybeSingle();
 
         if (error) {
             console.error('Get user by id error:', error);
@@ -3136,12 +3149,27 @@ app.get('/api/users/:id', async (req, res) => {
 // Public: get public reviewers by a specific user with pagination and search (guest-friendly)
 app.get('/api/users/:id/reviewers', async (req, res) => {
     try {
-        const { id } = req.params;
+        let { id } = req.params;
         const limit = Math.min(parseInt(req.query.limit) || 10, 200);
         const offset = Math.max(parseInt(req.query.offset) || 0, 0);
         const start = offset;
         const end = offset + limit - 1;
         const search = (req.query.search || '').trim();
+
+        // Support username lookups: if id starts with '@', treat it as username and resolve to user ID
+        if (id.startsWith('@')) {
+            const username = id.substring(1);
+            const { data: userData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('username', username)
+                .maybeSingle();
+            
+            if (!userData) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            id = userData.id;
+        }
 
         let query = supabase
             .from('reviewers')
@@ -3259,8 +3287,23 @@ app.get('/api/messages/unread-per-user', requireAuth, async (req, res) => {
 // POST /api/users/:id/follow - Follow a user
 app.post('/api/users/:id/follow', requireAuth, async (req, res) => {
     try {
-        const { id } = req.params;
+        let { id } = req.params;
         const followerId = req.session.userId;
+
+        // Support username lookups
+        if (id.startsWith('@')) {
+            const username = id.substring(1);
+            const { data: userData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('username', username)
+                .maybeSingle();
+            
+            if (!userData) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            id = userData.id;
+        }
 
         if (id === followerId) {
             return res.status(400).json({ error: 'Cannot follow yourself' });
@@ -3324,8 +3367,23 @@ app.post('/api/users/:id/follow', requireAuth, async (req, res) => {
 // DELETE /api/users/:id/follow - Unfollow a user
 app.delete('/api/users/:id/follow', requireAuth, async (req, res) => {
     try {
-        const { id } = req.params;
+        let { id } = req.params;
         const followerId = req.session.userId;
+
+        // Support username lookups
+        if (id.startsWith('@')) {
+            const username = id.substring(1);
+            const { data: userData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('username', username)
+                .maybeSingle();
+            
+            if (!userData) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            id = userData.id;
+        }
 
         const { error } = await supabaseAdmin
             .from('followers')
@@ -3348,8 +3406,23 @@ app.delete('/api/users/:id/follow', requireAuth, async (req, res) => {
 // GET /api/users/:id/follow-status - Check if current user follows this user
 app.get('/api/users/:id/follow-status', requireAuth, async (req, res) => {
     try {
-        const { id } = req.params;
+        let { id } = req.params;
         const followerId = req.session.userId;
+
+        // Support username lookups
+        if (id.startsWith('@')) {
+            const username = id.substring(1);
+            const { data: userData } = await supabase
+                .from('users')
+                .select('id')
+                .eq('username', username)
+                .maybeSingle();
+            
+            if (!userData) {
+                return res.status(404).json({ error: 'User not found' });
+            }
+            id = userData.id;
+        }
 
         const { data: follow } = await supabaseAdmin
             .from('followers')
@@ -4994,6 +5067,17 @@ app.put('/api/auth/me', requireAuth, async (req, res) => {
         if (username) {
             if (!isValidUsername(username)) {
                 return res.status(400).json({ error: 'Invalid username format' });
+            }
+            // Check if username is already taken
+            const { data: existingUser } = await supabase
+                .from('users')
+                .select('id')
+                .eq('username', username)
+                .neq('id', req.session.userId)
+                .single();
+            
+            if (existingUser) {
+                return res.status(400).json({ error: 'Username already taken' });
             }
             updates.username = username;
         }

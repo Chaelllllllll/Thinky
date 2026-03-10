@@ -60,8 +60,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         function renderSubjectCards() {
             if (profileH2) profileH2.textContent = 'Subjects';
             container.innerHTML = subjectList.map(sub => `
-                <div class="reviewer-card" data-subkey="${escapeHtml(sub.id)}" style="cursor:pointer;">
-                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <div class="reviewer-card" data-subkey="${escapeHtml(sub.id)}" style="cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;min-height:220px;">
+                    <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;">
                         <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
                             <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
                         </div>
@@ -70,16 +70,39 @@ document.addEventListener('DOMContentLoaded', async () => {
                             <div style="font-size:0.8rem;color:var(--dark-gray);">${sub.reviewers.length} reviewer${sub.reviewers.length !== 1 ? 's' : ''}</div>
                         </div>
                     </div>
-                    <div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid var(--medium-gray);">
-                        <img src="${profileAvatarSrc}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
-                        <span style="font-size:0.875rem;color:var(--dark-gray);">@${profileUname}</span>
+                    <div style="display:flex;align-items:center;gap:4px;padding-top:12px;border-top:1px solid var(--medium-gray);justify-content:space-between;">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <img src="${profileAvatarSrc}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                            <span style="font-size:0.875rem;color:var(--dark-gray);">@${profileUname}</span>
+                        </div>
+                        <button class="share-subject-btn" style="background:transparent;border:none;color:var(--primary-pink);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;display:flex;align-items:center;gap:4px;font-size:0.875rem;font-weight:500;" title="Share subject"><i class="bi bi-share"></i> Share</button>
                     </div>
                 </div>`).join('');
             container.querySelectorAll('[data-subkey]').forEach(el => {
-                el.addEventListener('click', () => {
+                el.addEventListener('click', (e) => {
+                    if (e.target.closest('.share-subject-btn')) {
+                        e.stopPropagation();
+                        return;
+                    }
                     const sub = subjectList.find(s => s.id === el.dataset.subkey);
                     if (sub) renderSubjectReviewers(sub);
                 });
+                
+                // Wire share button
+                const shareBtn = el.querySelector('.share-subject-btn');
+                if (shareBtn) {
+                    shareBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        const sub = subjectList.find(s => s.id === el.dataset.subkey);
+                        if (sub) shareProfileSubject(user.id, sub.id, sub.name);
+                    });
+                    shareBtn.addEventListener('mouseenter', () => {
+                        shareBtn.style.background = 'rgba(233, 30, 140, 0.08)';
+                    });
+                    shareBtn.addEventListener('mouseleave', () => {
+                        shareBtn.style.background = 'transparent';
+                    });
+                }
             });
         }
 
@@ -109,6 +132,45 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         renderSubjectCards();
+
+        // Share profile subject function
+        function shareProfileSubject(userId, subjectId, subjectName) {
+            const shareUrl = `${window.location.origin}/profile.html?user=@${encodeURIComponent(profileUname)}&subject=${encodeURIComponent(subjectId)}`;
+            
+            // Try Web Share API first
+            if (navigator.share) {
+                navigator.share({
+                    title: 'Thinky - ' + subjectName,
+                    text: `Check out ${profileUname}'s ${subjectName} reviewers`,
+                    url: shareUrl
+                }).catch(err => console.log('Error sharing:', err));
+            } else {
+                // Fallback: copy to clipboard and show alert
+                const textarea = document.createElement('textarea');
+                textarea.value = shareUrl;
+                document.body.appendChild(textarea);
+                textarea.select();
+                try {
+                    document.execCommand('copy');
+                    window.showAlert && window.showAlert('success', 'Link copied to clipboard!', 3000);
+                } catch (err) {
+                    window.showAlert && window.showAlert('error', 'Failed to copy link', 3000);
+                }
+                document.body.removeChild(textarea);
+            }
+        }
+        
+        // Check URL for subject parameter and auto-select it
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const subjectId = params.get('subject');
+            if (subjectId && subjectList && subjectList.length > 0) {
+                const subject = subjectList.find(s => s.id === subjectId);
+                if (subject) {
+                    setTimeout(() => renderSubjectReviewers(subject), 200);
+                }
+            }
+        })();
 
     } catch (e) {
         console.error('Failed to load profile or reviewers', e);
