@@ -206,6 +206,97 @@ function normalizeUserAgent(uaRaw) {
     return String(uaRaw || '').trim();
 }
 
+function _readHeader(req, key) {
+    try {
+        const raw = req && req.headers ? req.headers[key] : null;
+        if (Array.isArray(raw)) return String(raw[0] || '').trim();
+        return String(raw || '').trim();
+    } catch (_) {
+        return '';
+    }
+}
+
+function _stripQuotedHeaderValue(value) {
+    return String(value || '').trim().replace(/^"+|"+$/g, '');
+}
+
+function _normalizeIpForDisplay(ipRaw) {
+    const ip = String(ipRaw || '').trim();
+    if (!ip) return 'n/a';
+    if (ip.startsWith('::ffff:')) return ip.slice(7);
+    return ip;
+}
+
+function _extractAndroidModelFromUA(uaRaw) {
+    const ua = normalizeUserAgent(uaRaw);
+    const paren = ua.match(/\(([^)]+)\)/);
+    if (!paren || !paren[1]) return '';
+
+    const parts = paren[1].split(';').map((p) => p.trim()).filter(Boolean);
+    const androidIdx = parts.findIndex((p) => /android/i.test(p));
+    if (androidIdx === -1) return '';
+
+    for (let i = androidIdx + 1; i < parts.length; i += 1) {
+        let token = String(parts[i] || '').replace(/\s+build\/.*/i, '').trim();
+        if (!token) continue;
+
+        const low = token.toLowerCase();
+        if (low === 'wv' || low === 'u' || low === 'mobile' || low === 'tablet') continue;
+        if (/^[a-z]{2}[-_][a-z]{2}$/i.test(token)) continue; // locale like en-US
+        if (/^(linux|android)$/i.test(token)) continue;
+        if (token.length < 2) continue;
+
+        // Keep tokens that look like product identifiers or model names.
+        if (/[a-z]/i.test(token) || /\d/.test(token)) return token;
+    }
+
+    return '';
+}
+
+function getExactDeviceModel(req, uaRaw) {
+    const hinted = _stripQuotedHeaderValue(_readHeader(req, 'sec-ch-ua-model'));
+    if (hinted && hinted !== '?0') return hinted;
+
+    const ua = normalizeUserAgent(uaRaw);
+    if (/android/i.test(ua)) {
+        const model = _extractAndroidModelFromUA(ua);
+        if (model) return model;
+        return 'Android Device';
+    }
+    if (/iphone/i.test(ua)) return 'iPhone';
+    if (/ipad/i.test(ua)) return 'iPad';
+    return '';
+}
+
+function getIpLocationFromHeaders(req, ipRaw) {
+    const ip = _normalizeIpForDisplay(ipRaw);
+
+    const country = _stripQuotedHeaderValue(_readHeader(req, 'x-vercel-ip-country') || _readHeader(req, 'cf-ipcountry'));
+    const region = _stripQuotedHeaderValue(_readHeader(req, 'x-vercel-ip-country-region'));
+    const city = _stripQuotedHeaderValue(_readHeader(req, 'x-vercel-ip-city'));
+
+    const parts = [city, region, country].filter(Boolean);
+    if (parts.length > 0) {
+        return {
+            countryCode: country || null,
+            locationText: parts.join(', ')
+        };
+    }
+
+    // Fallback labels for local/private addresses during development.
+    if (ip === '127.0.0.1' || ip === '::1' || ip === 'localhost') {
+        return { countryCode: null, locationText: 'Localhost' };
+    }
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(ip)) {
+        return { countryCode: null, locationText: 'Private network' };
+    }
+
+    return {
+        countryCode: null,
+        locationText: ip && ip !== 'n/a' ? `IP: ${ip}` : 'Unknown location'
+    };
+}
+
 function getDeviceLabelFromUA(uaRaw) {
     const ua = normalizeUserAgent(uaRaw);
     const low = ua.toLowerCase();
@@ -280,9 +371,12 @@ async function trackLoginActivityAndNotify(req, user) {
 
         const sid = String(req.sessionID);
         const userAgent = normalizeUserAgent(req.headers && req.headers['user-agent']);
-        const ip = getClientIp(req);
+        const ip = _normalizeIpForDisplay(getClientIp(req));
+        const deviceModel = getExactDeviceModel(req, userAgent);
+        const geo = getIpLocationFromHeaders(req, ip);
         const deviceHash = getDeviceFingerprint(userAgent);
-        const deviceLabel = getDeviceLabelFromUA(userAgent);
+        const baseLabel = getDeviceLabelFromUA(userAgent);
+        const deviceLabel = deviceModel ? `${baseLabel} • ${deviceModel}` : baseLabel;
 
         const [{ data: knownDeviceRows }, { data: priorRows }] = await Promise.all([
             supabaseAdmin
@@ -308,7 +402,10 @@ async function trackLoginActivityAndNotify(req, user) {
                 session_sid: sid,
                 device_hash: deviceHash,
                 device_label: deviceLabel,
+                device_model: deviceModel || null,
                 ip_address: ip,
+                country_code: geo.countryCode,
+                location_text: geo.locationText,
                 user_agent: userAgent,
                 is_unfamiliar: isUnfamiliar,
                 last_seen_at: new Date().toISOString(),
@@ -323,7 +420,9 @@ async function trackLoginActivityAndNotify(req, user) {
                 variables: {
                     username: user.username || 'there',
                     device: deviceLabel,
+                    model: deviceModel || 'Unknown',
                     ip,
+                    location: geo.locationText || 'Unknown location',
                     time: new Date().toLocaleString('en-US', { timeZone: 'UTC', hour12: true }) + ' UTC'
                 }
             });
@@ -603,6 +702,16 @@ app.use(helmet({
     noSniff: true,
     hidePoweredBy: true,
 }));
+
+// Ask compatible browsers to send UA Client Hints, including device model.
+app.use((req, res, next) => {
+    try {
+        res.setHeader('Accept-CH', 'Sec-CH-UA-Model, Sec-CH-UA-Platform, Sec-CH-UA-Platform-Version');
+    } catch (_) {
+        // Non-fatal header hint.
+    }
+    next();
+});
 
 if (!isProd) console.info('Helmet CSP: development mode - allowing unsafe-eval for third-party UMDs');
 
@@ -1075,14 +1184,19 @@ app.use((req, res, next) => {
         if (now - last < 60 * 1000) return next(); // throttle to once per minute
         _loginActivityBeat.set(sid, now);
 
-        const ip = getClientIp(req);
+        const ip = _normalizeIpForDisplay(getClientIp(req));
         const userAgent = normalizeUserAgent(req.headers && req.headers['user-agent']);
+        const deviceModel = getExactDeviceModel(req, userAgent);
+        const geo = getIpLocationFromHeaders(req, ip);
 
         supabaseAdmin
             .from('user_login_activity')
             .update({
                 last_seen_at: new Date().toISOString(),
                 ip_address: ip,
+                device_model: deviceModel || null,
+                location_text: geo.locationText,
+                country_code: geo.countryCode,
                 user_agent: userAgent
             })
             .eq('user_id', req.session.userId)
@@ -1403,7 +1517,9 @@ function renderEmailTemplate(name, vars) {
         if (name === 'new_device_login_alert') {
                 const username = vars.username || '';
                 const device = vars.device || 'Unknown device';
+            const model = vars.model || 'Unknown';
                 const ip = vars.ip || 'n/a';
+            const location = vars.location || 'Unknown location';
                 const time = vars.time || '';
                 return `<!doctype html>
                 <html>
@@ -1421,7 +1537,9 @@ function renderEmailTemplate(name, vars) {
                                     <p style="margin:0 0 14px 0;color:#555;">We detected a login from a device we don't recognize.</p>
                                     <table style="width:100%;margin:12px 0;background:#fafafa;padding:12px;border-radius:6px;border:1px solid #eee;">
                                         <tr><td style="font-weight:600;width:160px;padding:6px 8px;">Device</td><td style="padding:6px 8px;">${escapeHtml(device)}</td></tr>
+                                        <tr><td style="font-weight:600;padding:6px 8px;">Model</td><td style="padding:6px 8px;">${escapeHtml(model)}</td></tr>
                                         <tr><td style="font-weight:600;padding:6px 8px;">IP Address</td><td style="padding:6px 8px;">${escapeHtml(ip)}</td></tr>
+                                        <tr><td style="font-weight:600;padding:6px 8px;">Location</td><td style="padding:6px 8px;">${escapeHtml(location)}</td></tr>
                                         <tr><td style="font-weight:600;padding:6px 8px;">Time</td><td style="padding:6px 8px;">${escapeHtml(time)}</td></tr>
                                     </table>
                                     <p style="margin:12px 0 0 0;color:#555;">If this wasn't you, open Settings → Security → Login Activity and sign out unfamiliar devices immediately.</p>
@@ -6060,7 +6178,7 @@ app.get('/api/auth/settings/login-activity', requireAuth, requireLoginActivityVe
     try {
         const { data: rows, error } = await supabaseAdmin
             .from('user_login_activity')
-            .select('session_sid, device_label, ip_address, user_agent, is_unfamiliar, created_at, last_seen_at')
+            .select('session_sid, device_label, device_model, ip_address, country_code, location_text, user_agent, is_unfamiliar, created_at, last_seen_at')
             .eq('user_id', req.session.userId)
             .is('revoked_at', null)
             .order('last_seen_at', { ascending: false })
@@ -6075,7 +6193,10 @@ app.get('/api/auth/settings/login-activity', requireAuth, requireLoginActivityVe
         const sessions = (rows || []).map((row) => ({
             session_sid: row.session_sid,
             device_label: row.device_label || 'Unknown device',
+            device_model: row.device_model || '',
             ip_address: row.ip_address || 'n/a',
+            country_code: row.country_code || null,
+            location_text: row.location_text || 'Unknown location',
             user_agent: row.user_agent || '',
             is_unfamiliar: !!row.is_unfamiliar,
             created_at: row.created_at,
@@ -8592,13 +8713,20 @@ async function applyStartupMigrations() {
                 session_sid VARCHAR NOT NULL UNIQUE,
                 device_hash VARCHAR(128) NOT NULL,
                 device_label TEXT,
+                device_model TEXT,
                 ip_address TEXT,
+                country_code VARCHAR(8),
+                location_text TEXT,
                 user_agent TEXT,
                 is_unfamiliar BOOLEAN NOT NULL DEFAULT false,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                 revoked_at TIMESTAMPTZ NULL
             );
+
+            ALTER TABLE user_login_activity ADD COLUMN IF NOT EXISTS device_model TEXT;
+            ALTER TABLE user_login_activity ADD COLUMN IF NOT EXISTS country_code VARCHAR(8);
+            ALTER TABLE user_login_activity ADD COLUMN IF NOT EXISTS location_text TEXT;
 
             CREATE INDEX IF NOT EXISTS idx_user_login_activity_user_last_seen
             ON user_login_activity (user_id, last_seen_at DESC);

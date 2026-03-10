@@ -697,7 +697,8 @@ function renderLoginActivityList(sessions) {
 
         const title = document.createElement('div');
         title.className = 'login-activity-item-title';
-        title.textContent = session.device_label || 'Unknown device';
+        const deviceText = session.device_label || session.device_model || 'Unknown device';
+        title.textContent = deviceText;
 
         if (session.is_current) {
             const currentBadge = document.createElement('span');
@@ -714,7 +715,7 @@ function renderLoginActivityList(sessions) {
 
         const meta = document.createElement('div');
         meta.className = 'login-activity-item-meta';
-        meta.textContent = `IP: ${session.ip_address || 'n/a'} | Signed in: ${formatLoginActivityTime(session.created_at)} | Last active: ${formatLoginActivityTime(session.last_seen_at)}`;
+        meta.textContent = `IP: ${session.ip_address || 'n/a'} | Location: ${session.location_text || 'Unknown location'} | Signed in: ${formatLoginActivityTime(session.created_at)} | Last active: ${formatLoginActivityTime(session.last_seen_at)}`;
 
         left.appendChild(title);
         left.appendChild(meta);
