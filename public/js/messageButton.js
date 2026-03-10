@@ -41,6 +41,7 @@ let messageButtonState = {
     generalAnonMode: false,
     generalReplyTo: null,
     generalReplyMeta: null,
+    generalDraft: '',
     unreadPerUser: {},
     handlersBound: false,
     touchHoldTimer: null,
@@ -939,19 +940,80 @@ function injectMessageModalPrivateStyles() {
     document.head.appendChild(style);
 }
 
+function normalizeSeenTimestamp(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '1970-01-01T00:00:00Z';
+    const d = new Date(raw);
+    if (Number.isNaN(d.getTime())) return '1970-01-01T00:00:00Z';
+    return d.toISOString();
+}
+
+async function computeUnreadFallback(lastSeenGeneral, lastSeenPrivate) {
+    let generalCount = 0;
+    let privateCount = 0;
+
+    try {
+        const privateResp = await fetch(`/api/messages/unread-per-user?lastSeenPrivate=${encodeURIComponent(lastSeenPrivate)}`, {
+            credentials: 'include'
+        });
+        if (privateResp.ok) {
+            const privateData = await privateResp.json();
+            const counts = privateData && privateData.counts ? privateData.counts : {};
+            privateCount = Object.values(counts).reduce((sum, v) => sum + (parseInt(v || 0, 10) || 0), 0);
+        }
+    } catch (_) {
+        privateCount = 0;
+    }
+
+    try {
+        const generalResp = await fetch(`/api/messages/general?since=${encodeURIComponent(lastSeenGeneral)}&limit=200`, {
+            credentials: 'include'
+        });
+        if (generalResp.ok) {
+            const generalData = await generalResp.json();
+            const msgs = Array.isArray(generalData.messages) ? generalData.messages : [];
+            generalCount = msgs.filter((m) => {
+                if (!m) return false;
+                if (!messageButtonState.currentUser) return true;
+                return String(m.user_id) !== String(messageButtonState.currentUser.id);
+            }).length;
+        }
+    } catch (_) {
+        generalCount = 0;
+    }
+
+    return {
+        general: generalCount,
+        private: privateCount
+    };
+}
+
 async function updateMessageUnreadBadge() {
     try {
-        const lastSeenGeneral = localStorage.getItem('chat_last_seen_general') || '1970-01-01T00:00:00Z';
-        const lastSeenPrivate = localStorage.getItem('chat_last_seen_private') || '1970-01-01T00:00:00Z';
+        const rawGeneral = localStorage.getItem('chat_last_seen_general');
+        const rawPrivate = localStorage.getItem('chat_last_seen_private');
+        const lastSeenGeneral = normalizeSeenTimestamp(rawGeneral);
+        const lastSeenPrivate = normalizeSeenTimestamp(rawPrivate);
 
-        const resp = await fetch(
-            `/api/messages/unread?lastSeenGeneral=${encodeURIComponent(lastSeenGeneral)}&lastSeenPrivate=${encodeURIComponent(lastSeenPrivate)}`,
-            { credentials: 'include' }
-        );
+        if (rawGeneral !== lastSeenGeneral) localStorage.setItem('chat_last_seen_general', lastSeenGeneral);
+        if (rawPrivate !== lastSeenPrivate) localStorage.setItem('chat_last_seen_private', lastSeenPrivate);
 
-        if (!resp.ok) return;
+        let data = null;
+        try {
+            const resp = await fetch(
+                `/api/messages/unread?lastSeenGeneral=${encodeURIComponent(lastSeenGeneral)}&lastSeenPrivate=${encodeURIComponent(lastSeenPrivate)}`,
+                { credentials: 'include' }
+            );
 
-        const data = await resp.json();
+            if (!resp.ok) {
+                throw new Error(`Unread endpoint failed with status ${resp.status}`);
+            }
+
+            data = await resp.json();
+        } catch (_) {
+            data = await computeUnreadFallback(lastSeenGeneral, lastSeenPrivate);
+        }
+
         const total = (parseInt(data.general || 0, 10) + parseInt(data.private || 0, 10)) || 0;
         messageButtonState.unreadCount = total;
 
@@ -959,7 +1021,9 @@ async function updateMessageUnreadBadge() {
         if (!badge) return;
 
         if (total > 0) {
-            badge.style.display = 'flex';
+            badge.style.display = 'inline-flex';
+            badge.style.visibility = 'visible';
+            badge.style.opacity = '1';
             badge.textContent = total > 99 ? '99+' : String(total);
         } else {
             badge.style.display = 'none';
@@ -2272,6 +2336,19 @@ function renderGeneralChat(options = {}) {
     const list = document.getElementById('msgGeneralList');
     if (!list) return;
 
+    const existingInput = document.getElementById('msgGeneralInput');
+    const hadFocus = !!existingInput && document.activeElement === existingInput;
+    const prevSelectionStart = existingInput && typeof existingInput.selectionStart === 'number'
+        ? existingInput.selectionStart
+        : null;
+    const prevSelectionEnd = existingInput && typeof existingInput.selectionEnd === 'number'
+        ? existingInput.selectionEnd
+        : null;
+    const draftValue = existingInput
+        ? String(existingInput.value || '')
+        : String(messageButtonState.generalDraft || '');
+    messageButtonState.generalDraft = draftValue;
+
     const preserveScroll = !!options.preserveScroll;
     const prevScrollTop = Number(options.prevScrollTop || 0);
     const shouldStickToBottom = options.shouldStickToBottom !== false;
@@ -2372,12 +2449,32 @@ function renderGeneralChat(options = {}) {
 
     if (sendBtn) sendBtn.addEventListener('click', sendGeneralMessageFromModal);
     if (input) {
+        input.value = messageButtonState.generalDraft || '';
+
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
                 sendGeneralMessageFromModal();
             }
         });
+
+        input.addEventListener('input', () => {
+            messageButtonState.generalDraft = input.value || '';
+        });
+
+        if (hadFocus) {
+            input.focus();
+            try {
+                if (prevSelectionStart != null && prevSelectionEnd != null) {
+                    const maxLen = input.value.length;
+                    const start = Math.max(0, Math.min(prevSelectionStart, maxLen));
+                    const end = Math.max(start, Math.min(prevSelectionEnd, maxLen));
+                    input.setSelectionRange(start, end);
+                }
+            } catch (_) {
+                // Ignore setSelectionRange errors on unsupported inputs.
+            }
+        }
     }
 
     renderGeneralAnonBanner();
@@ -2461,6 +2558,7 @@ async function sendGeneralMessageFromModal() {
         }
 
         input.value = '';
+        messageButtonState.generalDraft = '';
         messageButtonState.generalReplyTo = null;
         messageButtonState.generalReplyMeta = null;
         await loadGeneralMessages();
