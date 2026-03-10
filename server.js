@@ -34,6 +34,7 @@ import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import crypto from 'crypto';
+import { promises as dns } from 'dns';
 import nodemailer from 'nodemailer';
 import compression from 'compression';
 import webPush from 'web-push';
@@ -123,6 +124,64 @@ function _activityLog(key, title, fields) {
     if (now - last < _ACTIVITY_RATE_MS) return;
     _activityRateMap.set(key, now);
     _activityDiscord(title, fields);
+}
+
+// ─── Chat Logger (DISCORD_CHAT_WEBHOOK) ─────────────────────────────────────
+// Logs general chat messages with anonymous mode enabled to Discord.
+// No rate limiting - every anonymous message is logged.
+function _chatDiscord(title, fields) {
+    const url = process.env.DISCORD_CHAT_WEBHOOK;
+    if (!url) return;
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            embeds: [{
+                title,
+                color: 0x3498db,
+                timestamp: new Date().toISOString(),
+                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 2048), inline: false }))
+            }]
+        })
+    }).catch(() => {});
+}
+
+// ─── Login Logger (DISCORD_LOGIN_WEBHOOK) ──────────────────────────────────
+// Logs user login events to Discord.
+function _loginDiscord(title, fields) {
+    const url = process.env.DISCORD_LOGIN_WEBHOOK;
+    if (!url) return;
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            embeds: [{
+                title,
+                color: 0x27ae60,
+                timestamp: new Date().toISOString(),
+                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 1024), inline: false }))
+            }]
+        })
+    }).catch(() => {});
+}
+
+// ─── Registration Logger (DISCORD_REGISTRATION_WEBHOOK) ────────────────────
+// Logs new user registration events to Discord.
+function _registrationDiscord(title, fields) {
+    const url = process.env.DISCORD_REGISTRATION_WEBHOOK;
+    if (!url) return;
+    fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            embeds: [{
+                title,
+                color: 0x9b59b6,
+                timestamp: new Date().toISOString(),
+                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 1024), inline: false }))
+            }]
+        })
+    }).catch(() => {});
 }
 
 // Generates a clickable Discord markdown link to a user's profile page.
@@ -984,10 +1043,52 @@ if (mailTransporter) {
 }
 
 // Reusable email sender and templates
+function normalizeEmailAddress(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function extractEmailAddress(value) {
+    const raw = normalizeEmailAddress(value);
+    const match = raw.match(/<([^>]+)>/);
+    return normalizeEmailAddress(match ? match[1] : raw);
+}
+
+async function hasDeliverableEmailDomain(email) {
+    const address = extractEmailAddress(email);
+    const atIndex = address.lastIndexOf('@');
+    if (atIndex <= 0 || atIndex === address.length - 1) return false;
+
+    const domain = address.slice(atIndex + 1);
+
+    try {
+        const mx = await dns.resolveMx(domain);
+        if (Array.isArray(mx) && mx.length > 0) return true;
+    } catch (_) {
+        // Ignore and try A/AAAA fallback.
+    }
+
+    try {
+        const a = await dns.resolve4(domain);
+        if (Array.isArray(a) && a.length > 0) return true;
+    } catch (_) {
+        // Ignore and try AAAA fallback.
+    }
+
+    try {
+        const aaaa = await dns.resolve6(domain);
+        if (Array.isArray(aaaa) && aaaa.length > 0) return true;
+    } catch (_) {
+        // No deliverable DNS records found.
+    }
+
+    return false;
+}
+
 async function sendTemplatedEmail({ to, subject, template = 'default', variables = {} }) {
         const from = process.env.SMTP_FROM || `no-reply@${process.env.DOMAIN || 'localhost'}`;
         const html = renderEmailTemplate(template, variables);
         const text = variables.plainText || (typeof variables.message === 'string' ? variables.message : subject || '');
+        const normalizedTo = extractEmailAddress(to);
 
         if (!mailTransporter) {
                 console.warn('No mail transporter configured; email not sent.');
@@ -995,8 +1096,30 @@ async function sendTemplatedEmail({ to, subject, template = 'default', variables
                 return { ok: false, info: 'no-transporter' };
         }
 
+        const deliverableDomain = await hasDeliverableEmailDomain(normalizedTo);
+        if (!deliverableDomain) {
+                console.warn('Email domain has no deliverable DNS records:', normalizedTo);
+                return { ok: false, info: 'invalid-email-domain' };
+        }
+
         try {
                 const info = await mailTransporter.sendMail({ from, to, subject, html, text });
+                const accepted = Array.isArray(info?.accepted) ? info.accepted.map(extractEmailAddress).filter(Boolean) : [];
+                const rejected = Array.isArray(info?.rejected) ? info.rejected.map(extractEmailAddress).filter(Boolean) : [];
+
+                const explicitlyRejected = normalizedTo ? rejected.includes(normalizedTo) : rejected.length > 0;
+                const explicitlyAccepted = normalizedTo ? accepted.includes(normalizedTo) : accepted.length > 0;
+
+                if (!explicitlyAccepted || explicitlyRejected) {
+                        console.warn('SMTP did not confirm recipient acceptance:', {
+                                to: normalizedTo,
+                                accepted,
+                                rejected,
+                                response: info?.response || 'n/a'
+                        });
+                        return { ok: false, info: 'recipient-not-accepted', smtp: { accepted, rejected, response: info?.response || '' } };
+                }
+
                 return { ok: true, info };
         } catch (err) {
                 console.error('sendTemplatedEmail failed:', err && err.message ? err.message : err);
@@ -1577,8 +1700,23 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
         // Send templated email with link
         const sent = await sendTemplatedEmail({ to: lcEmail, subject: 'Verify your Thinky account', template: 'verification', variables: { link: verifyLink, username } });
         if (!sent.ok) {
-            console.warn('Verification code stored but email send failed', sent.error || sent.info);
-            return res.status(202).json({ message: 'Verification code stored but failed to send email. Check server logs or contact support.' });
+            // Email failed to send - delete the created user if it was newly created
+            if (createdUser && createdUser.id) {
+                try {
+                    await supabaseAdmin.from('users').delete().eq('id', createdUser.id);
+                    console.warn('Deleted unverified user due to email send failure:', createdUser.id);
+                } catch (delErr) {
+                    console.error('Failed to delete user after email send failure:', delErr);
+                }
+
+                try {
+                    await supabaseAdmin.from('email_verifications').delete().eq('email', lcEmail);
+                } catch (verDelErr) {
+                    console.error('Failed to delete verification rows after email send failure:', verDelErr);
+                }
+            }
+            console.warn('Verification email send failed for:', lcEmail, sent.error || sent.info);
+            return res.status(400).json({ error: 'The email address provided is not valid or unable to receive emails. Please verify your email address and try again.' });
         }
 
         // Respond instructing client to verify via link
@@ -1659,9 +1797,10 @@ app.get('/api/auth/verify', async (req, res) => {
         // Delete verification rows for token
         await supabaseAdmin.from('email_verifications').delete().eq('token', String(token));
 
-        // Log new registration to Discord activity webhook
-        _activityDiscord('🆕 New User Registered', [
-            ['Username', user.username],
+        // Log new registration to Discord registration webhook
+        const userLink = `[${user.username}](${(process.env.PRODUCTION_URL || process.env.BASE_URL || '').replace(/\/$/, '')}/user?id=${user.id})`;
+        _registrationDiscord('🆕 New User Registered', [
+            ['Username', userLink],
             ['Email', user.email],
             ['Time (UTC)', new Date().toISOString()]
         ]);
@@ -2108,9 +2247,10 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
                 last_seen: new Date().toISOString()
             });
 
-        // Log login event to Discord activity webhook
-        _activityDiscord('✅ User Logged In', [
-            ['Username', user.username],
+        // Log login event to Discord login webhook
+        const userLink = `[${user.username}](${(process.env.PRODUCTION_URL || process.env.BASE_URL || '').replace(/\/$/, '')}/user?id=${user.id})`;
+        _loginDiscord('✅ User Logged In', [
+            ['Username', userLink],
             ['Email', user.email],
             ['Role', user.role],
             ['IP', req.ip || 'n/a'],
@@ -4497,6 +4637,142 @@ app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
     }
 });
 
+const ALLOWED_MESSAGE_REACTIONS = new Set(['like', 'love', 'haha', 'sad', 'wow', 'angry']);
+
+// Get reactions summary for one or more message IDs
+// Example: /api/messages/reactions?ids=<id1>,<id2>
+app.get('/api/messages/reactions', requireAuth, async (req, res) => {
+    try {
+        const raw = String(req.query.ids || '');
+        const ids = [...new Set(raw.split(',').map(s => String(s || '').trim()).filter(Boolean))].slice(0, 300);
+
+        if (ids.length === 0) {
+            return res.json({ reactionsByMessage: {}, userReactions: {} });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('message_reactions')
+            .select('message_id, user_id, reaction_type')
+            .in('message_id', ids);
+
+        if (error) {
+            const msg = String(error.message || '');
+            if (msg.includes('message_reactions')) {
+                // Backward compatibility if migration has not been applied yet
+                return res.json({ reactionsByMessage: {}, userReactions: {} });
+            }
+            console.error('Get message reactions error:', error);
+            return res.status(500).json({ error: 'Failed to fetch message reactions' });
+        }
+
+        const reactionsByMessage = {};
+        const userReactions = {};
+
+        for (const id of ids) reactionsByMessage[id] = {};
+
+        for (const row of (data || [])) {
+            if (!reactionsByMessage[row.message_id]) reactionsByMessage[row.message_id] = {};
+            const prev = reactionsByMessage[row.message_id][row.reaction_type] || 0;
+            reactionsByMessage[row.message_id][row.reaction_type] = prev + 1;
+
+            if (String(row.user_id) === String(req.session.userId)) {
+                userReactions[row.message_id] = row.reaction_type;
+            }
+        }
+
+        return res.json({ reactionsByMessage, userReactions });
+    } catch (error) {
+        console.error('Get message reactions error:', error);
+        return res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Toggle/update a message reaction for current user
+app.post('/api/messages/:id/reactions', requireAuth, async (req, res) => {
+    try {
+        const messageId = req.params.id;
+        const reactionType = String((req.body && req.body.reaction) || '').trim().toLowerCase();
+
+        if (!ALLOWED_MESSAGE_REACTIONS.has(reactionType)) {
+            return res.status(400).json({ error: 'Invalid reaction type' });
+        }
+
+        const { data: message, error: msgError } = await supabaseAdmin
+            .from('messages')
+            .select('id, user_id, recipient_id, chat_type')
+            .eq('id', messageId)
+            .single();
+
+        if (msgError || !message) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+
+        // Access guard for private messages
+        if (message.chat_type === 'private') {
+            const isParticipant = String(message.user_id) === String(req.session.userId)
+                || String(message.recipient_id) === String(req.session.userId);
+            if (!isParticipant) return res.status(403).json({ error: 'Not allowed' });
+        }
+
+        const { data: existing, error: existingError } = await supabaseAdmin
+            .from('message_reactions')
+            .select('id, reaction_type')
+            .eq('message_id', messageId)
+            .eq('user_id', req.session.userId)
+            .maybeSingle();
+
+        if (existingError) {
+            const msg = String(existingError.message || '');
+            if (msg.includes('message_reactions')) {
+                return res.status(503).json({ error: 'Message reactions unavailable. Please run latest database migrations.' });
+            }
+            console.error('Get existing message reaction error:', existingError);
+            return res.status(500).json({ error: 'Failed to update reaction' });
+        }
+
+        // Toggle off when same reaction is clicked again
+        if (existing && existing.reaction_type === reactionType) {
+            const { error: delError } = await supabaseAdmin
+                .from('message_reactions')
+                .delete()
+                .eq('id', existing.id);
+
+            if (delError) {
+                console.error('Delete message reaction error:', delError);
+                return res.status(500).json({ error: 'Failed to update reaction' });
+            }
+
+            return res.json({ success: true, reaction: null, toggledOff: true });
+        }
+
+        if (existing) {
+            const { error: updError } = await supabaseAdmin
+                .from('message_reactions')
+                .update({ reaction_type: reactionType })
+                .eq('id', existing.id);
+
+            if (updError) {
+                console.error('Update message reaction error:', updError);
+                return res.status(500).json({ error: 'Failed to update reaction' });
+            }
+        } else {
+            const { error: insError } = await supabaseAdmin
+                .from('message_reactions')
+                .insert([{ message_id: messageId, user_id: req.session.userId, reaction_type: reactionType }]);
+
+            if (insError) {
+                console.error('Insert message reaction error:', insError);
+                return res.status(500).json({ error: 'Failed to update reaction' });
+            }
+        }
+
+        return res.json({ success: true, reaction: reactionType, toggledOff: false });
+    } catch (error) {
+        console.error('Toggle message reaction error:', error);
+        return res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Get messages
 app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
     try {
@@ -4786,16 +5062,32 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
             user_id: req.session.userId,
             username: is_anonymous ? generateAnonName(req.session.userId) : req.session.username,
             message: cleanMessage,
-            chat_type
+            chat_type,
+            is_anonymous: is_anonymous || false
         };
         if (chat_type === 'private') insertObj.recipient_id = recipient_id;
         if (reply_to) insertObj.reply_to = reply_to;
 
-        const { data: newMessage, error } = await supabaseAdmin
+        let { data: newMessage, error } = await supabaseAdmin
             .from('messages')
             .insert([insertObj])
             .select()
             .single();
+
+        // Backward-compatible fallback when the DB has not yet added messages.is_anonymous
+        if (error && String(error.message || '').includes('is_anonymous')) {
+            const fallbackInsert = { ...insertObj };
+            delete fallbackInsert.is_anonymous;
+
+            const retry = await supabaseAdmin
+                .from('messages')
+                .insert([fallbackInsert])
+                .select()
+                .single();
+
+            newMessage = retry.data;
+            error = retry.error;
+        }
 
         if (error) {
             console.error('Send message error:', error);
@@ -4845,10 +5137,11 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
 
                     const preview = cleanMessage.length > 80 ? cleanMessage.slice(0, 80) + '…' : cleanMessage;
                     const chatLabel = chat_type === 'general' ? 'General Chat' : 'School Chat';
+                    const notifUsername = is_anonymous ? newMessage.username : req.session.username;
 
                     await Promise.allSettled(
                         notifUsers.map(u => sendPushToUser(u.id, {
-                            title: `💬 ${req.session.username} — ${chatLabel}`,
+                            title: `💬 ${notifUsername} — ${chatLabel}`,
                             body: preview,
                             url: '/chat.html',
                             type: 'message',
@@ -4862,6 +5155,34 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
         }
 
         try { console.debug('New message inserted:', newMessage && newMessage.id ? { id: newMessage.id, user_id: newMessage.user_id, chat_type: newMessage.chat_type } : newMessage); } catch (e) {}
+        
+        // Log anonymous general chat messages to Discord
+        if (is_anonymous && chat_type === 'general' && process.env.DISCORD_CHAT_WEBHOOK) {
+            (async () => {
+                try {
+                    // Fetch user email
+                    const { data: userData } = await supabaseAdmin
+                        .from('users')
+                        .select('email')
+                        .eq('id', req.session.userId)
+                        .single();
+                    
+                    const userEmail = userData?.email || 'unknown';
+                    const userLink = _userLink(req);
+                    const anonName = newMessage.username;
+                    
+                    _chatDiscord('💬 Anonymous General Chat', [
+                        ['Username', userLink],
+                        ['Email', userEmail],
+                        ['Anonymous Name', anonName],
+                        ['Message', cleanMessage]
+                    ]);
+                } catch (logErr) {
+                    console.error('Failed to log chat to Discord:', logErr);
+                }
+            })();
+        }
+        
         res.json({ message: newMessage });
     } catch (error) {
         console.error('Send message error:', error);
@@ -6113,20 +6434,6 @@ app.delete('/api/admin/policies/:id', requireAdmin, async (req, res) => {
 // =====================================================
 // SERVE HTML PAGES
 // =====================================================
-
-// Page-visit logger — fires to Discord once per hour per logged-in user
-app.use((req, res, next) => {
-    if (req.session?.userId && !req.path.startsWith('/api/') && !req.path.includes('.')) {
-        _activityLog(`browse:${req.session.userId}`, '👀 User Browsing', [
-            ['Username', req.session.username || String(req.session.userId)],
-            ['Page', req.method + ' ' + req.path],
-            ['IP', req.ip || 'n/a'],
-            ['User-Agent', req.headers['user-agent'] || 'n/a'],
-            ['Time (UTC)', new Date().toISOString()]
-        ]);
-    }
-    next();
-});
 
 // Public pages
 app.get('/', (req, res) => {

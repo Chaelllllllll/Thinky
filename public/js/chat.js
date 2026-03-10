@@ -24,6 +24,15 @@ let _sidebarLoaded = false;
 // Client-side blacklist (mirrors server — server is authoritative; client is UX-only)
 const CLIENT_BLACKLIST = ['badword1','badword2','slur'];
 const CLIENT_MAX_WARNINGS = 3;
+const MESSAGE_REACTION_TYPES = ['like', 'love', 'haha', 'sad', 'wow', 'angry'];
+const MESSAGE_REACTION_EMOJIS = {
+    like: '👍',
+    love: '❤️',
+    haha: '😂',
+    sad: '😢',
+    wow: '😮',
+    angry: '😡'
+};
 
 function clientNormalizeForMatch(text) {
     if (!text) return '';
@@ -587,16 +596,90 @@ async function loadMessages(silent = false) {
             const fresh = newMessages.filter(m => !existingIds.has(m.id));
             if (fresh.length === 0) return;
             messages = [...messages, ...fresh];
+            await hydrateMessageReactions(messages);
             displayMessages(true);
         } else {
             // Initial full load for this chat
             messages = newMessages;
             if (messages.length > 0) oldestMessageId = messages[0].id;
             hasMoreMessages = messages.length >= 30;
+            await hydrateMessageReactions(messages);
             displayMessages(false);
         }
     } catch (err) {
         if (!silent) console.error('loadMessages error:', err);
+    }
+}
+
+async function hydrateMessageReactions(messageList) {
+    try {
+        const list = Array.isArray(messageList) ? messageList : [];
+        const ids = [...new Set(list.map(m => m && m.id).filter(Boolean).map(String))];
+        if (ids.length === 0) return;
+
+        const resp = await fetch(`/api/messages/reactions?ids=${encodeURIComponent(ids.join(','))}`, {
+            credentials: 'include'
+        });
+        if (!resp.ok) return;
+
+        const data = await resp.json();
+        const reactionsByMessage = data.reactionsByMessage || {};
+        const userReactions = data.userReactions || {};
+
+        for (const msg of list) {
+            if (!msg || !msg.id) continue;
+            const key = String(msg.id);
+            msg._reactions = reactionsByMessage[key] || {};
+            msg._myReaction = userReactions[key] || null;
+        }
+    } catch (err) {
+        console.warn('hydrateMessageReactions failed:', err && err.message ? err.message : err);
+    }
+}
+
+function buildMessageReactionMarkup(msg) {
+    const msgId = msg && msg.id ? String(msg.id) : '';
+    if (!msgId) return '';
+
+    const reactions = msg._reactions || {};
+    const myReaction = msg._myReaction || null;
+
+    const chips = MESSAGE_REACTION_TYPES
+        .filter(type => Number(reactions[type] || 0) > 0)
+        .map(type => {
+            const count = Number(reactions[type] || 0);
+            return `<button class="msg-reaction-chip${myReaction === type ? ' mine' : ''}" data-reaction="${type}" data-message-id="${escapeHtml(msgId)}">${MESSAGE_REACTION_EMOJIS[type]} ${count}</button>`;
+        }).join('');
+
+    return `
+        <div class="msg-reactions-row">
+            ${chips}
+        </div>`;
+}
+
+async function reactToMessage(messageId, reactionType) {
+    try {
+        const resp = await fetch(`/api/messages/${encodeURIComponent(messageId)}/reactions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ reaction: reactionType })
+        });
+
+        let payload = null;
+        try { payload = await resp.json(); } catch (_) { payload = null; }
+
+        if (!resp.ok) {
+            const msg = payload && payload.error ? payload.error : 'Failed to react to message';
+            window.showAlert && window.showAlert('error', msg, 4000);
+            return;
+        }
+
+        await hydrateMessageReactions(messages);
+        displayMessages(true);
+    } catch (err) {
+        console.error('reactToMessage error:', err);
+        window.showAlert && window.showAlert('error', 'Failed to react to message', 3000);
     }
 }
 
@@ -620,7 +703,9 @@ function displayMessages(preserveScroll = false) {
 
     container.innerHTML = messages.map(msg => {
         const isSelf = currentUser && String(msg.user_id) === String(currentUser.id);
-        const avatarUrl = (msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg';
+        // For anonymous messages, use a generic incognito/ghost avatar
+        const avatarUrl = msg.is_anonymous ? '/images/default-avatar.svg' : 
+            ((msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg');
         const safeUsername = escapeHtml(msg.username || 'User');
         const safeMessage = escapeHtml(msg.message || '');
         const time = formatTime(msg.created_at);
@@ -641,18 +726,25 @@ function displayMessages(preserveScroll = false) {
         }
 
         return `
-        <div class="chat-message${isSelf ? ' msg-self' : ''}" id="msg-${msgId}" data-username="${safeUsername}">
+        <div class="chat-message${isSelf ? ' msg-self' : ''}" id="msg-${msgId}" data-username="${safeUsername}" data-message-id="${escapeHtml(String(msg.id || ''))}">
             <div class="msg-row">
                 ${!isSelf ? `<img src="${escapeHtml(avatarUrl)}" alt="${safeUsername}" class="msg-avatar" onerror="this.onerror=null;this.src='/images/default-avatar.svg'">` : ''}
                 <div class="msg-body">
-                    ${!isSelf ? `<div class="msg-header"><span class="msg-author">${safeUsername}</span></div>` : ''}
+                    ${!isSelf ? `<div class="msg-header"><span class="msg-author">${safeUsername}</span>${msg.is_anonymous ? '<span style="font-size:0.7rem;margin-left:6px;color:var(--primary-pink);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">anonymous</span>' : ''}</div>` : ''}
                     ${replyBlock}
                     <div class="msg-bubble ${isSelf ? 'right' : 'left'}">${safeMessage}</div>
+                    ${buildMessageReactionMarkup(msg)}
                 </div>
                 <div class="msg-actions-inline">
                     <button class="msg-more-btn" aria-label="Message options"><i class="bi bi-three-dots-vertical"></i></button>
                     <div class="msg-actions-menu">
                         <button class="msg-reply-btn"><i class="bi bi-reply"></i> Reply</button>
+                        <div class="msg-react-action-menu">
+                            <button class="msg-react-menu-btn"><i class="bi bi-emoji-smile"></i> React</button>
+                            <div class="msg-reaction-picker" data-message-id="${escapeHtml(String(msg.id || ''))}">
+                                ${MESSAGE_REACTION_TYPES.map(type => `<button class="msg-reaction-choice" data-reaction="${type}" data-message-id="${escapeHtml(String(msg.id || ''))}" title="${type}">${MESSAGE_REACTION_EMOJIS[type]}</button>`).join('')}
+                            </div>
+                        </div>
                         ${isSelf ? `<button class="msg-delete-all-btn" style="color:var(--danger);"><i class="bi bi-trash"></i> Delete for Everyone</button>` : ''}
                         <button class="msg-delete-me-btn" style="color:var(--danger);"><i class="bi bi-eye-slash"></i> Delete for Me</button>
                         <button class="msg-report-btn" style="color:var(--danger);"><i class="bi bi-flag"></i> Report</button>
@@ -763,11 +855,41 @@ function displayMessages(preserveScroll = false) {
                     if (menu) menu.classList.remove('show');
                 });
             }
+
+            const reactionPicker = el.querySelector('.msg-reaction-picker');
+            const reactMenuBtn = el.querySelector('.msg-react-menu-btn');
+            if (reactMenuBtn && reactionPicker) {
+                reactMenuBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    document.querySelectorAll('.msg-reaction-picker.show').forEach(p => { if (p !== reactionPicker) p.classList.remove('show'); });
+                    reactionPicker.classList.toggle('show');
+                });
+            }
+
+            el.querySelectorAll('.msg-reaction-choice').forEach(btn => {
+                btn.addEventListener('click', async (ev) => {
+                    ev.stopPropagation();
+                    const reaction = btn.getAttribute('data-reaction');
+                    if (!msg || !msg.id || !reaction) return;
+                    if (reactionPicker) reactionPicker.classList.remove('show');
+                    await reactToMessage(msg.id, reaction);
+                });
+            });
+
+            el.querySelectorAll('.msg-reaction-chip').forEach(btn => {
+                btn.addEventListener('click', async (ev) => {
+                    ev.stopPropagation();
+                    const reaction = btn.getAttribute('data-reaction');
+                    if (!msg || !msg.id || !reaction) return;
+                    await reactToMessage(msg.id, reaction);
+                });
+            });
         });
 
         document.addEventListener('click', () => {
             document.querySelectorAll('.chat-message.selected').forEach(x => x.classList.remove('selected'));
             document.querySelectorAll('.msg-actions-menu.show').forEach(m => m.classList.remove('show'));
+            document.querySelectorAll('.msg-reaction-picker.show').forEach(p => p.classList.remove('show'));
         });
     } catch (_) {}
 
@@ -953,6 +1075,7 @@ async function loadOlderMessages() {
         if (older.length < 30) hasMoreMessages = false;
 
         messages = [...older, ...messages];
+        await hydrateMessageReactions(messages);
         oldestMessageId = older[0].id;
         displayMessages(true);
     } catch (err) {

@@ -168,7 +168,7 @@
                 <div class="reviewer-meta-item">
                     <a href="/user.html?user=${rv.user_id}" style="display:inline-flex;align-items:center;gap:8px;text-decoration:none;color:inherit;"><img src="${rv.users?.profile_picture_url || '/images/default-avatar.svg'}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:32px;height:32px;border-radius:999px;object-fit:cover;"> <span>${escapeHtml(rv.users?.username || '')}</span></a>
                 </div>
-                <div class="reviewer-meta-item"><i class="bi bi-book"></i> <span>${escapeHtml(rv.subjects?.name || '')}</span></div>
+                <div class="reviewer-meta-item reviewer-subject-meta"><i class="bi bi-book"></i> <span class="reviewer-subject-name" title="${escapeHtml(rv.subjects?.name || '')}">${escapeHtml(rv.subjects?.name || '')}</span></div>
             </div>
             <div class="reviewer-preview">${escapeHtml(stripHtml(rv.content).substring(0,160))}...</div>
             <div class="card-actions">
@@ -563,7 +563,7 @@
 
     // Wire profile-level message/back interactions
     document.addEventListener('DOMContentLoaded', () => {
-        const msgBtn = document.getElementById('messageBtn');
+        const msgBtn = document.getElementById('messageBtnProfile');
         const backSmall = document.getElementById('profileBackSmall');
         if (backSmall) backSmall.addEventListener('click', () => window.history.back());
 

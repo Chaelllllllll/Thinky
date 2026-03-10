@@ -24,6 +24,282 @@
             .profile-actions .btn { width: 100% !important; }
             #myReviewers { grid-template-columns: 1fr !important; gap: 12px !important; }
         }
+
+        /* ─── Message Button ─── */
+        #messageBtn {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            min-width: 56px;
+            min-height: 56px;
+            border-radius: 50%;
+            background: var(--gradient-primary);
+            color: white;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            box-shadow: var(--shadow-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 998;
+            transition: transform 0.2s, box-shadow 0.2s;
+            padding: 0;
+            overflow: visible;
+        }
+        #messageBtn:hover {
+            transform: scale(1.1);
+            box-shadow: var(--shadow-lg);
+        }
+        #msgBtnBadge {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: var(--danger);
+            color: white;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 700;
+            border: 2px solid white;
+        }
+
+        /* ─── Message Modal ─── */
+        #messageModal {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: min(92vw, 460px);
+            height: min(78vh, 640px);
+            background: var(--white);
+            border-radius: 16px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+            z-index: 1000;
+            flex-direction: column;
+            overflow: hidden;
+            display: none;
+        }
+        #messageModal.show {
+            display: flex !important;
+        }
+
+        .msg-modal-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--medium-gray);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+            background: var(--white);
+            color: var(--text-dark);
+        }
+        .msg-modal-title {
+            font-weight: 700;
+            font-size: 1.1rem;
+            color: var(--text-dark);
+        }
+        .msg-modal-close {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            color: var(--dark-gray);
+            cursor: pointer;
+            padding: 0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+        }
+        .msg-modal-close:hover {
+            background: var(--light-gray);
+        }
+
+        .msg-modal-tabs {
+            display: flex;
+            border-bottom: 1px solid var(--medium-gray);
+            background: var(--light-gray);
+            flex-shrink: 0;
+        }
+        .msg-modal-tab {
+            flex: 1;
+            padding: 12px 16px;
+            background: transparent;
+            border: none;
+            color: var(--dark-gray);
+            font-weight: 500;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+        .msg-modal-tab:hover {
+            color: var(--primary-pink);
+        }
+        .msg-modal-tab.active {
+            color: var(--primary-pink);
+            border-bottom-color: var(--primary-pink);
+            background: var(--white);
+        }
+
+        .msg-modal-body {
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            background: var(--white);
+            color: var(--text-dark);
+        }
+
+        .msg-modal-content {
+            display: none;
+            flex: 1;
+            overflow-y: auto;
+            flex-direction: column;
+        }
+
+        #msgPrivateList, #msgGeneralList {
+            display: flex;
+            flex-direction: column;
+            background: var(--white);
+        }
+
+        .msg-conv-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--light-gray);
+            cursor: pointer;
+            transition: background 0.15s;
+            background: var(--white);
+        }
+        .msg-conv-item:hover {
+            background: var(--light-gray);
+        }
+
+        .msg-conv-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            border: 2px solid var(--medium-gray);
+        }
+
+        .msg-conv-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .msg-conv-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-dark);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .msg-conv-preview {
+            font-size: 0.8rem;
+            color: var(--dark-gray);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 2px;
+        }
+
+        .msg-general-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--light-gray);
+            background: var(--white);
+            color: var(--text-dark);
+        }
+        .msg-general-item.msg-self {
+            background: rgba(255, 158, 180, 0.08);
+        }
+
+        /* Dark mode support (toggle-based) */
+        body.dark #messageModal {
+            background: #1e1e1e;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+            border: 1px solid #333;
+        }
+        body.dark .msg-modal-header {
+            background: #2a2a2a;
+            border-bottom-color: #404040;
+            color: #e0e0e0;
+        }
+        body.dark .msg-modal-title {
+            color: #e0e0e0;
+        }
+        body.dark .msg-modal-close {
+            color: #b0b0b0;
+        }
+        body.dark .msg-modal-close:hover {
+            background: #333;
+        }
+        body.dark .msg-modal-tabs {
+            background: #2a2a2a;
+            border-bottom-color: #404040;
+        }
+        body.dark .msg-modal-tab {
+            color: #b0b0b0;
+        }
+        body.dark .msg-modal-tab:hover {
+            color: #ff9eb4;
+        }
+        body.dark .msg-modal-tab.active {
+            background: #1e1e1e;
+        }
+        body.dark .msg-modal-body {
+            background: #1e1e1e;
+            color: #e0e0e0;
+        }
+        body.dark #msgPrivateList,
+        body.dark #msgGeneralList {
+            background: #1e1e1e;
+        }
+        body.dark .msg-conv-item {
+            background: #1e1e1e;
+            border-bottom-color: #333;
+            color: #e0e0e0;
+        }
+        body.dark .msg-conv-item:hover {
+            background: #2a2a2a;
+        }
+        body.dark .msg-conv-name {
+            color: #e0e0e0;
+        }
+        body.dark .msg-general-item {
+            background: #1e1e1e;
+            border-bottom-color: #333;
+            color: #e0e0e0;
+        }
+        body.dark .msg-general-item.msg-self {
+            background: rgba(216, 27, 96, 0.15);
+        }
+
+        @media (max-width: 768px) {
+            #messageModal {
+                top: 0;
+                left: 0;
+                transform: none;
+                width: 100vw;
+                height: 100vh;
+                height: 100dvh;
+                max-width: none;
+                max-height: none;
+                border-radius: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -133,5 +409,36 @@
     </div>
     <style>.pwa-modal-backdrop.show{display:flex!important;}</style>
     <script src="/js/pwa.js"></script>
+    <script src="/js/messageButton.js"></script>
+
+    <!-- Message Button -->
+    <button id="messageBtn" onclick="openMessageModal()" title="Messages">
+        <i class="bi bi-chat-dots"></i>
+        <div id="msgBtnBadge"></div>
+    </button>
+
+    <!-- Message Modal -->
+    <div id="messageModal">
+        <div class="msg-modal-header">
+            <div class="msg-modal-title">Messages</div>
+            <button class="msg-modal-close" onclick="closeMessageModal()"><i class="bi bi-x"></i></button>
+        </div>
+        <div class="msg-modal-tabs">
+            <button class="msg-modal-tab active" id="msgTab-private" onclick="switchMessageTab('private')">
+                <i class="bi bi-person-fill"></i> Private
+            </button>
+            <button class="msg-modal-tab" id="msgTab-general" onclick="switchMessageTab('general')">
+                <i class="bi bi-chat-fill"></i> General
+            </button>
+        </div>
+        <div class="msg-modal-body">
+            <div class="msg-modal-content" id="msgContent-private">
+                <div id="msgPrivateList"></div>
+            </div>
+            <div class="msg-modal-content" id="msgContent-general">
+                <div id="msgGeneralList"></div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>

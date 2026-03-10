@@ -1579,12 +1579,48 @@ textarea.form-control {
     margin-bottom: 16px;
     font-size: 0.875rem;
     color: var(--dark-gray);
+    min-width: 0;
 }
 
 .reviewer-meta-item {
     display: flex;
     align-items: center;
     gap: 8px;
+}
+
+.reviewer-subject-meta {
+    min-width: 0;
+    flex: 1;
+}
+
+.reviewer-subject-meta i {
+    flex-shrink: 0;
+}
+
+.reviewer-subject-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: block;
+    width: 100%;
+}
+
+@media (max-width: 768px) {
+    .reviewer-card {
+        padding: 16px;
+        padding-bottom: 54px;
+    }
+
+    .reviewer-meta {
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .reviewer-meta .reviewer-meta-item:first-child {
+        min-width: 0;
+        flex-shrink: 0;
+    }
 }
 
 .reviewer-preview {
