@@ -591,6 +591,62 @@ function formatLoginActivityTime(value) {
     return d.toLocaleString();
 }
 
+function escapeHtmlForModal(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function decodeLocationText(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return 'Unknown location';
+    try {
+        return decodeURIComponent(raw.replace(/\+/g, ' '));
+    } catch (_) {
+        return raw;
+    }
+}
+
+async function showLoginActivityDetails(session) {
+    if (!session) return;
+
+    const statusBits = [];
+    if (session.is_current) statusBits.push('Current Session');
+    if (session.is_unfamiliar) statusBits.push('Marked Unfamiliar');
+    if (statusBits.length === 0) statusBits.push('Normal');
+
+    const rows = [
+        ['Device', session.device_label || 'Unknown device'],
+        ['Exact Model', session.device_model || 'Unknown'],
+        ['IP Address', session.ip_address || 'n/a'],
+        ['Location', decodeLocationText(session.location_text)],
+        ['Country Code', session.country_code || 'n/a'],
+        ['Signed In', formatLoginActivityTime(session.created_at)],
+        ['Last Active', formatLoginActivityTime(session.last_seen_at)],
+        ['Status', statusBits.join(' | ')],
+        ['Session ID', session.session_sid || 'n/a'],
+        ['User-Agent', session.user_agent || 'n/a']
+    ];
+
+    const tableHtml = rows
+        .map(([label, val]) => `<tr><td style="font-weight:600;padding:8px 10px;vertical-align:top;width:130px;">${escapeHtmlForModal(label)}</td><td style="padding:8px 10px;word-break:break-word;">${escapeHtmlForModal(val)}</td></tr>`)
+        .join('');
+
+    await window.showModal(
+        `<div style="font-size:0.95rem;color:#333;">` +
+        `<div style="margin-bottom:10px;color:var(--dark-gray);">Detailed login session report.</div>` +
+        `<div style="max-height:52vh;overflow:auto;border:1px solid rgba(0,0,0,0.08);border-radius:10px;">` +
+        `<table style="width:100%;border-collapse:collapse;">${tableHtml}</table>` +
+        `</div>` +
+        `</div>`,
+        'Login Activity Details',
+        { html: true }
+    );
+}
+
 function setLoginActivityStatus(message, isError = false) {
     const statusEl = document.getElementById('loginActivityGateStatus');
     if (!statusEl) return;
@@ -691,6 +747,10 @@ function renderLoginActivityList(sessions) {
     sessions.forEach((session) => {
         const item = document.createElement('div');
         item.className = 'login-activity-item';
+        item.setAttribute('role', 'button');
+        item.setAttribute('tabindex', '0');
+        item.style.cursor = 'pointer';
+        item.title = 'Click to view detailed report';
 
         const left = document.createElement('div');
         left.style.flex = '1';
@@ -715,7 +775,7 @@ function renderLoginActivityList(sessions) {
 
         const meta = document.createElement('div');
         meta.className = 'login-activity-item-meta';
-        meta.textContent = `IP: ${session.ip_address || 'n/a'} | Location: ${session.location_text || 'Unknown location'} | Signed in: ${formatLoginActivityTime(session.created_at)} | Last active: ${formatLoginActivityTime(session.last_seen_at)}`;
+        meta.textContent = `IP: ${session.ip_address || 'n/a'} | Location: ${decodeLocationText(session.location_text)} | Signed in: ${formatLoginActivityTime(session.created_at)} | Last active: ${formatLoginActivityTime(session.last_seen_at)}`;
 
         left.appendChild(title);
         left.appendChild(meta);
@@ -727,8 +787,21 @@ function renderLoginActivityList(sessions) {
         btn.textContent = session.is_current ? 'Log Out This Device' : 'Log Out';
         btn.dataset.sid = session.session_sid;
         btn.dataset.current = session.is_current ? '1' : '0';
+        btn.addEventListener('click', (event) => {
+            event.stopPropagation();
+        });
         btn.addEventListener('click', async () => {
             await revokeLoginActivitySession(btn.dataset.sid, btn.dataset.current === '1');
+        });
+
+        item.addEventListener('click', async () => {
+            await showLoginActivityDetails(session);
+        });
+        item.addEventListener('keydown', async (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                await showLoginActivityDetails(session);
+            }
         });
 
         right.appendChild(btn);

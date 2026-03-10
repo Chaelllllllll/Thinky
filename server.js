@@ -217,7 +217,13 @@ function _readHeader(req, key) {
 }
 
 function _stripQuotedHeaderValue(value) {
-    return String(value || '').trim().replace(/^"+|"+$/g, '');
+    const raw = String(value || '').trim().replace(/^"+|"+$/g, '');
+    if (!raw) return '';
+    try {
+        return decodeURIComponent(raw.replace(/\+/g, ' '));
+    } catch (_) {
+        return raw;
+    }
 }
 
 function _normalizeIpForDisplay(ipRaw) {
@@ -378,20 +384,12 @@ async function trackLoginActivityAndNotify(req, user) {
         const baseLabel = getDeviceLabelFromUA(userAgent);
         const deviceLabel = deviceModel ? `${baseLabel} • ${deviceModel}` : baseLabel;
 
-        const [{ data: knownDeviceRows }, { data: priorRows }] = await Promise.all([
-            supabaseAdmin
-                .from('user_login_activity')
-                .select('id')
-                .eq('user_id', user.id)
-                .eq('device_hash', deviceHash)
-                .limit(1),
-            supabaseAdmin
-                .from('user_login_activity')
-                .select('id')
-                .eq('user_id', user.id)
-                .neq('session_sid', sid)
-                .limit(1)
-        ]);
+        const { data: knownDeviceRows } = await supabaseAdmin
+            .from('user_login_activity')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('device_hash', deviceHash)
+            .limit(1);
 
         const isUnfamiliar = !knownDeviceRows || knownDeviceRows.length === 0;
 
@@ -412,11 +410,12 @@ async function trackLoginActivityAndNotify(req, user) {
                 revoked_at: null
             }], { onConflict: 'session_sid' });
 
-        if (isUnfamiliar && priorRows && priorRows.length > 0 && user.email) {
-            await sendTemplatedEmail({
+        if (isUnfamiliar && user.email) {
+            const mailResult = await sendTemplatedEmail({
                 to: user.email,
                 subject: 'New login detected on your Thinky account',
                 template: 'new_device_login_alert',
+                skipDomainValidation: true,
                 variables: {
                     username: user.username || 'there',
                     device: deviceLabel,
@@ -426,6 +425,16 @@ async function trackLoginActivityAndNotify(req, user) {
                     time: new Date().toLocaleString('en-US', { timeZone: 'UTC', hour12: true }) + ' UTC'
                 }
             });
+
+            if (!mailResult || !mailResult.ok) {
+                console.warn('Unfamiliar-login alert email failed:', {
+                    userId: user.id,
+                    email: user.email,
+                    reason: mailResult && (mailResult.info || mailResult.error) ? (mailResult.info || String(mailResult.error)) : 'unknown'
+                });
+            } else {
+                console.info('Unfamiliar-login alert email sent:', { userId: user.id, email: user.email });
+            }
         }
     } catch (err) {
         console.warn('trackLoginActivityAndNotify warning:', err && err.message ? err.message : err);
@@ -1369,7 +1378,7 @@ async function hasDeliverableEmailDomain(email) {
     return false;
 }
 
-async function sendTemplatedEmail({ to, subject, template = 'default', variables = {} }) {
+async function sendTemplatedEmail({ to, subject, template = 'default', variables = {}, skipDomainValidation = false }) {
         const from = process.env.SMTP_FROM || `no-reply@${process.env.DOMAIN || 'localhost'}`;
         const html = renderEmailTemplate(template, variables);
         const text = variables.plainText || (typeof variables.message === 'string' ? variables.message : subject || '');
@@ -1381,7 +1390,7 @@ async function sendTemplatedEmail({ to, subject, template = 'default', variables
                 return { ok: false, info: 'no-transporter' };
         }
 
-        const deliverableDomain = await hasDeliverableEmailDomain(normalizedTo);
+        const deliverableDomain = skipDomainValidation ? true : await hasDeliverableEmailDomain(normalizedTo);
         if (!deliverableDomain) {
                 console.warn('Email domain has no deliverable DNS records:', normalizedTo);
                 return { ok: false, info: 'invalid-email-domain' };
