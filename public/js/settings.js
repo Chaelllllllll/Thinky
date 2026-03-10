@@ -574,8 +574,246 @@ async function loadSettingsPreferences() {
                 disableEmailAuthBtn.style.display = 'none';
             }
         }
+
+        const securitySection = document.getElementById('securitySection');
+        if (securitySection && securitySection.style.display !== 'none' && window.refreshLoginActivityAccessUI) {
+            window.refreshLoginActivityAccessUI();
+        }
     } catch (error) {
         console.error('Load settings preferences error:', error);
+    }
+}
+
+function formatLoginActivityTime(value) {
+    if (!value) return 'Unknown';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return 'Unknown';
+    return d.toLocaleString();
+}
+
+function setLoginActivityStatus(message, isError = false) {
+    const statusEl = document.getElementById('loginActivityGateStatus');
+    if (!statusEl) return;
+    statusEl.textContent = message;
+    statusEl.style.color = isError ? '#c62828' : 'var(--dark-gray)';
+}
+
+function setLoginActivityGateVisible(visible) {
+    const gate = document.getElementById('loginActivityGate');
+    const listWrap = document.getElementById('loginActivityListWrap');
+    if (gate) gate.style.display = visible ? 'block' : 'none';
+    if (listWrap) listWrap.style.display = visible ? 'none' : 'block';
+}
+
+async function requestLoginActivityCode() {
+    const btn = document.getElementById('loginActivityRequestCodeBtn');
+    const old = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    }
+
+    try {
+        const resp = await fetch('/api/auth/settings/login-activity/request-code', {
+            method: 'POST',
+            credentials: 'include'
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || 'Failed to send verification code');
+
+        setLoginActivityGateVisible(true);
+        setLoginActivityStatus('Verification code sent. Check your email and enter the 6-digit code.');
+    } catch (e) {
+        console.error('requestLoginActivityCode error:', e);
+        setLoginActivityStatus(e.message || 'Failed to send verification code', true);
+        try { window.showAlert('error', e.message || 'Failed to send verification code'); } catch (_) {}
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = old || 'Send Email Code';
+        }
+    }
+}
+
+async function verifyLoginActivityCode() {
+    const input = document.getElementById('loginActivityCodeInput');
+    const btn = document.getElementById('loginActivityVerifyBtn');
+    const code = input ? String(input.value || '').replace(/\s/g, '').trim() : '';
+
+    if (!/^\d{6}$/.test(code)) {
+        setLoginActivityStatus('Please enter a valid 6-digit code.', true);
+        return;
+    }
+
+    const old = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Verifying...';
+    }
+
+    try {
+        const resp = await fetch('/api/auth/settings/login-activity/verify-code', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ code })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || 'Verification failed');
+
+        if (input) input.value = '';
+        setLoginActivityStatus('Verification successful. Loading active sessions...');
+        await refreshLoginActivityAccessUI();
+    } catch (e) {
+        console.error('verifyLoginActivityCode error:', e);
+        setLoginActivityStatus(e.message || 'Verification failed', true);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = old || 'Verify';
+        }
+    }
+}
+
+function renderLoginActivityList(sessions) {
+    const listEl = document.getElementById('loginActivityList');
+    if (!listEl) return;
+    listEl.innerHTML = '';
+
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'login-activity-item-meta';
+        empty.textContent = 'No active sessions found.';
+        listEl.appendChild(empty);
+        return;
+    }
+
+    sessions.forEach((session) => {
+        const item = document.createElement('div');
+        item.className = 'login-activity-item';
+
+        const left = document.createElement('div');
+        left.style.flex = '1';
+
+        const title = document.createElement('div');
+        title.className = 'login-activity-item-title';
+        title.textContent = session.device_label || 'Unknown device';
+
+        if (session.is_current) {
+            const currentBadge = document.createElement('span');
+            currentBadge.className = 'badge-current';
+            currentBadge.textContent = 'Current';
+            title.appendChild(currentBadge);
+        }
+        if (session.is_unfamiliar) {
+            const unfamiliarBadge = document.createElement('span');
+            unfamiliarBadge.className = 'badge-unfamiliar';
+            unfamiliarBadge.textContent = 'Unfamiliar';
+            title.appendChild(unfamiliarBadge);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'login-activity-item-meta';
+        meta.textContent = `IP: ${session.ip_address || 'n/a'} | Signed in: ${formatLoginActivityTime(session.created_at)} | Last active: ${formatLoginActivityTime(session.last_seen_at)}`;
+
+        left.appendChild(title);
+        left.appendChild(meta);
+
+        const right = document.createElement('div');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = session.is_current ? 'btn btn-light' : 'btn btn-primary';
+        btn.textContent = session.is_current ? 'Log Out This Device' : 'Log Out';
+        btn.dataset.sid = session.session_sid;
+        btn.dataset.current = session.is_current ? '1' : '0';
+        btn.addEventListener('click', async () => {
+            await revokeLoginActivitySession(btn.dataset.sid, btn.dataset.current === '1');
+        });
+
+        right.appendChild(btn);
+        item.appendChild(left);
+        item.appendChild(right);
+        listEl.appendChild(item);
+    });
+}
+
+async function revokeLoginActivitySession(sessionSid, isCurrent) {
+    if (!sessionSid) return;
+
+    const confirmed = await window.showConfirm(
+        isCurrent
+            ? 'Log out this current device session?'
+            : 'Log out this device session? The other device will need to log in again.',
+        'Revoke Session'
+    );
+    if (!confirmed) return;
+
+    try {
+        const resp = await fetch(`/api/auth/settings/login-activity/${encodeURIComponent(sessionSid)}`, {
+            method: 'DELETE',
+            credentials: 'include'
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || 'Failed to revoke session');
+
+        if (data.loggedOut) {
+            await window.showModal('This device session was revoked. Please log in again.', 'Logged Out', { small: true });
+            window.location.href = '/login';
+            return;
+        }
+
+        try { window.showAlert('success', 'Session revoked'); } catch (_) {}
+        await refreshLoginActivityAccessUI();
+    } catch (e) {
+        console.error('revokeLoginActivitySession error:', e);
+        await window.showModal(e.message || 'Failed to revoke session', 'Error', { small: true });
+    }
+}
+
+async function refreshLoginActivityAccessUI() {
+    const listEl = document.getElementById('loginActivityList');
+    if (listEl) listEl.innerHTML = '<div class="login-activity-item-meta">Loading sessions...</div>';
+
+    try {
+        const resp = await fetch('/api/auth/settings/login-activity', { credentials: 'include' });
+        const data = await resp.json().catch(() => ({}));
+
+        if (resp.status === 403) {
+            setLoginActivityGateVisible(true);
+            setLoginActivityStatus('Verification required to view active sessions.');
+            if (listEl) listEl.innerHTML = '';
+            return;
+        }
+
+        if (!resp.ok) throw new Error(data.error || 'Failed to load login activity');
+
+        setLoginActivityGateVisible(false);
+        renderLoginActivityList(data.sessions || []);
+    } catch (e) {
+        console.error('refreshLoginActivityAccessUI error:', e);
+        setLoginActivityGateVisible(true);
+        setLoginActivityStatus(e.message || 'Failed to load login activity', true);
+    }
+}
+
+function initLoginActivityUI() {
+    const requestBtn = document.getElementById('loginActivityRequestCodeBtn');
+    const verifyBtn = document.getElementById('loginActivityVerifyBtn');
+    const refreshBtn = document.getElementById('loginActivityRefreshBtn');
+
+    if (requestBtn && !requestBtn.dataset.bound) {
+        requestBtn.dataset.bound = '1';
+        requestBtn.addEventListener('click', requestLoginActivityCode);
+    }
+
+    if (verifyBtn && !verifyBtn.dataset.bound) {
+        verifyBtn.dataset.bound = '1';
+        verifyBtn.addEventListener('click', verifyLoginActivityCode);
+    }
+
+    if (refreshBtn && !refreshBtn.dataset.bound) {
+        refreshBtn.dataset.bound = '1';
+        refreshBtn.addEventListener('click', refreshLoginActivityAccessUI);
     }
 }
 
@@ -594,3 +832,5 @@ window.disableGoogleAuth = disableGoogleAuth;
 window.enableEmailAuth = enableEmailAuth;
 window.disableEmailAuth = disableEmailAuth;
 window.loadSettingsPreferences = loadSettingsPreferences;
+window.initLoginActivityUI = initLoginActivityUI;
+window.refreshLoginActivityAccessUI = refreshLoginActivityAccessUI;

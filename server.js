@@ -194,6 +194,145 @@ function _userLink(req) {
     return base ? `[${username}](${base}/user?id=${userId})` : username;
 }
 
+function getClientIp(req) {
+    try {
+        const xff = req.headers && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']) : '';
+        if (xff) return xff.split(',')[0].trim();
+    } catch (_) {}
+    return req.ip || 'n/a';
+}
+
+function normalizeUserAgent(uaRaw) {
+    return String(uaRaw || '').trim();
+}
+
+function getDeviceLabelFromUA(uaRaw) {
+    const ua = normalizeUserAgent(uaRaw);
+    const low = ua.toLowerCase();
+
+    let os = 'Unknown OS';
+    if (low.includes('windows')) os = 'Windows';
+    else if (low.includes('android')) os = 'Android';
+    else if (low.includes('iphone') || low.includes('ipad') || low.includes('ios')) os = 'iOS';
+    else if (low.includes('mac os') || low.includes('macintosh')) os = 'macOS';
+    else if (low.includes('linux')) os = 'Linux';
+
+    let browser = 'Unknown Browser';
+    if (low.includes('edg/')) browser = 'Edge';
+    else if (low.includes('opr/') || low.includes('opera')) browser = 'Opera';
+    else if (low.includes('chrome/') && !low.includes('edg/')) browser = 'Chrome';
+    else if (low.includes('firefox/')) browser = 'Firefox';
+    else if (low.includes('safari/') && !low.includes('chrome/')) browser = 'Safari';
+
+    const deviceType = /(mobile|iphone|android)/i.test(ua) ? 'Mobile' : 'Desktop';
+    return `${deviceType} • ${os} • ${browser}`;
+}
+
+function getDeviceFingerprint(uaRaw) {
+    const normalized = normalizeUserAgent(uaRaw).toLowerCase();
+    return crypto.createHash('sha256').update(normalized).digest('hex');
+}
+
+const LOGIN_ACTIVITY_VERIFY_WINDOW_MS = 10 * 60 * 1000;
+
+function isLoginActivityVerified(req) {
+    const raw = req && req.session ? req.session.loginActivityVerifiedUntil : null;
+    const until = Number(raw || 0);
+    return Number.isFinite(until) && until > Date.now();
+}
+
+function markLoginActivityVerified(req) {
+    if (!req || !req.session) return;
+    req.session.loginActivityVerifiedUntil = Date.now() + LOGIN_ACTIVITY_VERIFY_WINDOW_MS;
+}
+
+function clearLoginActivityVerified(req) {
+    if (!req || !req.session) return;
+    delete req.session.loginActivityVerifiedUntil;
+}
+
+async function destroySessionBySid(sid) {
+    if (!sid) return;
+
+    // Try the configured session store first (works for pg store and memory store).
+    if (sessionStore && typeof sessionStore.destroy === 'function') {
+        await new Promise((resolve) => {
+            try {
+                sessionStore.destroy(String(sid), () => resolve());
+            } catch (_) {
+                resolve();
+            }
+        });
+    }
+
+    // Best-effort direct delete from Postgres session table.
+    try {
+        const pool = createSessionPool();
+        if (pool) await pool.query('DELETE FROM session WHERE sid = $1', [String(sid)]);
+    } catch (_) {
+        // Non-fatal; not all environments use Postgres session storage.
+    }
+}
+
+async function trackLoginActivityAndNotify(req, user) {
+    try {
+        if (!req || !req.sessionID || !user || !user.id) return;
+
+        const sid = String(req.sessionID);
+        const userAgent = normalizeUserAgent(req.headers && req.headers['user-agent']);
+        const ip = getClientIp(req);
+        const deviceHash = getDeviceFingerprint(userAgent);
+        const deviceLabel = getDeviceLabelFromUA(userAgent);
+
+        const [{ data: knownDeviceRows }, { data: priorRows }] = await Promise.all([
+            supabaseAdmin
+                .from('user_login_activity')
+                .select('id')
+                .eq('user_id', user.id)
+                .eq('device_hash', deviceHash)
+                .limit(1),
+            supabaseAdmin
+                .from('user_login_activity')
+                .select('id')
+                .eq('user_id', user.id)
+                .neq('session_sid', sid)
+                .limit(1)
+        ]);
+
+        const isUnfamiliar = !knownDeviceRows || knownDeviceRows.length === 0;
+
+        await supabaseAdmin
+            .from('user_login_activity')
+            .upsert([{
+                user_id: user.id,
+                session_sid: sid,
+                device_hash: deviceHash,
+                device_label: deviceLabel,
+                ip_address: ip,
+                user_agent: userAgent,
+                is_unfamiliar: isUnfamiliar,
+                last_seen_at: new Date().toISOString(),
+                revoked_at: null
+            }], { onConflict: 'session_sid' });
+
+        if (isUnfamiliar && priorRows && priorRows.length > 0 && user.email) {
+            await sendTemplatedEmail({
+                to: user.email,
+                subject: 'New login detected on your Thinky account',
+                template: 'new_device_login_alert',
+                variables: {
+                    username: user.username || 'there',
+                    device: deviceLabel,
+                    ip,
+                    time: new Date().toLocaleString('en-US', { timeZone: 'UTC', hour12: true }) + ' UTC'
+                }
+            });
+        }
+    } catch (err) {
+        console.warn('trackLoginActivityAndNotify warning:', err && err.message ? err.message : err);
+    }
+}
+
 // =====================================================
 // INPUT VALIDATION & SANITIZATION UTILITIES
 // =====================================================
@@ -925,6 +1064,38 @@ try {
 const sessionMiddleware = session(sessionOptions);
 app.use(sessionMiddleware);
 
+// Keep login activity records fresh without writing on every single request.
+const _loginActivityBeat = new Map();
+app.use((req, res, next) => {
+    try {
+        if (!req.session || !req.session.userId || !req.sessionID) return next();
+        const sid = String(req.sessionID);
+        const now = Date.now();
+        const last = _loginActivityBeat.get(sid) || 0;
+        if (now - last < 60 * 1000) return next(); // throttle to once per minute
+        _loginActivityBeat.set(sid, now);
+
+        const ip = getClientIp(req);
+        const userAgent = normalizeUserAgent(req.headers && req.headers['user-agent']);
+
+        supabaseAdmin
+            .from('user_login_activity')
+            .update({
+                last_seen_at: new Date().toISOString(),
+                ip_address: ip,
+                user_agent: userAgent
+            })
+            .eq('user_id', req.session.userId)
+            .eq('session_sid', sid)
+            .is('revoked_at', null)
+            .then(() => {})
+            .catch(() => {});
+    } catch (_) {
+        // Non-fatal middleware; never block requests.
+    }
+    next();
+});
+
 // If we couldn't initialize the Postgres-backed session store at startup
 // (network/DNS flakiness, transient DNS propagation, etc.), attempt to
 // enable it in the background with exponential backoff. This allows the
@@ -1198,6 +1369,66 @@ function renderEmailTemplate(name, vars) {
                                 </table>
                             </td>
                         </tr>
+                    </table>
+                </body>
+                </html>`;
+        }
+        if (name === 'login_activity_code') {
+                const username = vars.username || '';
+                const code = vars.code || '';
+                return `<!doctype html>
+                <html>
+                <head>
+                    <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                </head>
+                <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8f6f8; margin:0; padding:0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f8;padding:24px 0;">
+                        <tr><td align="center">
+                            <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.06);">
+                                <tr><td style="padding:28px 36px;text-align:center;background:linear-gradient(90deg,#ff9eb4,#ffd4e0);color:#fff;font-weight:700;font-size:20px;">Thinky — Login Activity Verification</td></tr>
+                                <tr><td style="padding:28px 36px;color:#333;text-align:left;">
+                                    <p style="margin:0 0 12px 0;font-size:16px;">Hi ${escapeHtml(username) || 'there'},</p>
+                                    <p style="margin:0 0 14px 0;color:#555;">Enter the code below to access your login activity list. This code expires in 10 minutes.</p>
+                                    <div style="margin:16px 0;text-align:center;"><span style="display:inline-block;padding:14px 22px;border-radius:8px;background:linear-gradient(90deg,#ff6b9d,#ff9eb4);color:#fff;font-weight:700;font-size:24px;letter-spacing:6px;">${escapeHtml(code)}</span></div>
+                                    <p style="color:#888;font-size:13px;margin:18px 0 0 0;">If you didn't request this, you can ignore this email.</p>
+                                </td></tr>
+                                <tr><td style="padding:18px 36px;background:#faf5f7;color:#999;font-size:12px;text-align:center;">© ${new Date().getFullYear()} Thinky — All rights reserved</td></tr>
+                            </table>
+                        </td></tr>
+                    </table>
+                </body>
+                </html>`;
+        }
+        if (name === 'new_device_login_alert') {
+                const username = vars.username || '';
+                const device = vars.device || 'Unknown device';
+                const ip = vars.ip || 'n/a';
+                const time = vars.time || '';
+                return `<!doctype html>
+                <html>
+                <head>
+                    <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                </head>
+                <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background:#f8f6f8; margin:0; padding:0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f8;padding:24px 0;">
+                        <tr><td align="center">
+                            <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.06);">
+                                <tr><td style="padding:28px 36px;text-align:center;background:linear-gradient(90deg,#ff9eb4,#ffd4e0);color:#fff;font-weight:700;font-size:20px;">New Login Detected</td></tr>
+                                <tr><td style="padding:28px 36px;color:#333;text-align:left;">
+                                    <p style="margin:0 0 12px 0;font-size:16px;">Hi ${escapeHtml(username) || 'there'},</p>
+                                    <p style="margin:0 0 14px 0;color:#555;">We detected a login from a device we don't recognize.</p>
+                                    <table style="width:100%;margin:12px 0;background:#fafafa;padding:12px;border-radius:6px;border:1px solid #eee;">
+                                        <tr><td style="font-weight:600;width:160px;padding:6px 8px;">Device</td><td style="padding:6px 8px;">${escapeHtml(device)}</td></tr>
+                                        <tr><td style="font-weight:600;padding:6px 8px;">IP Address</td><td style="padding:6px 8px;">${escapeHtml(ip)}</td></tr>
+                                        <tr><td style="font-weight:600;padding:6px 8px;">Time</td><td style="padding:6px 8px;">${escapeHtml(time)}</td></tr>
+                                    </table>
+                                    <p style="margin:12px 0 0 0;color:#555;">If this wasn't you, open Settings → Security → Login Activity and sign out unfamiliar devices immediately.</p>
+                                </td></tr>
+                                <tr><td style="padding:18px 36px;background:#faf5f7;color:#999;font-size:12px;text-align:center;">© ${new Date().getFullYear()} Thinky — All rights reserved</td></tr>
+                            </table>
+                        </td></tr>
                     </table>
                 </body>
                 </html>`;
@@ -2197,30 +2428,9 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             console.warn('Session save promise error:', e && e.message ? e.message : e);
         }
 
-        // Optionally enforce a single active session per user. When enabled
-        // via env var `SINGLE_SESSION_PER_USER=true` we'll delete other
-        // rows in the `session` table that reference this user. This helps
-        // avoid multiple session rows for the same user (duplicate `sess`
-        // payloads) which can arise from changing cookie attributes or
-        // migrations between stores.
-        try {
-            if (process.env.SINGLE_SESSION_PER_USER === 'true' && typeof createSessionPool === 'function') {
-                try {
-                    const pool = createSessionPool();
-                    const currentSid = req.sessionID || null;
-                    if (pool && currentSid) {
-                        const delSql = `DELETE FROM session WHERE (sess::json->>'userId') = $1 AND sid <> $2`;
-                        // Use non-blocking, backoff-enabled pool runner to avoid pool saturation errors.
-                        runSessionPoolQueryAsync(delSql, [String(user.id), String(currentSid)]);
-                        console.info('Scheduled single-session cleanup for user', user.id);
-                    }
-                } catch (e) {
-                    console.warn('Failed to schedule single-session cleanup:', e && e.message ? e.message : e);
-                }
-            }
-        } catch (e) {
-            // non-fatal
-        }
+        // Multi-device login is allowed. Track this login so users can review
+        // and revoke unfamiliar sessions from Settings.
+        await trackLoginActivityAndNotify(req, user);
 
         // If client is on localhost over plain HTTP, ensure the session cookie
         // is not marked `secure` (otherwise the browser won't store it). This
@@ -2276,11 +2486,22 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 // Logout
 app.post('/api/auth/logout', requireAuth, async (req, res) => {
     try {
+        const currentSid = req.sessionID ? String(req.sessionID) : null;
+
         // Remove from online users (use admin client server-side)
         await supabaseAdmin
             .from('online_users')
             .delete()
             .eq('user_id', req.session.userId);
+
+        if (currentSid) {
+            await supabaseAdmin
+                .from('user_login_activity')
+                .update({ revoked_at: new Date().toISOString() })
+                .eq('user_id', req.session.userId)
+                .eq('session_sid', currentSid)
+                .is('revoked_at', null);
+        }
 
         req.session.destroy((err) => {
             if (err) {
@@ -5690,6 +5911,232 @@ app.put('/api/auth/settings/notifications', requireAuth, async (req, res) => {
     }
 });
 
+function requireLoginActivityVerification(req, res, next) {
+    if (!isLoginActivityVerified(req)) {
+        return res.status(403).json({ error: 'Verification required', codeRequired: true });
+    }
+    next();
+}
+
+app.post('/api/auth/settings/login-activity/request-code', requireAuth, async (req, res) => {
+    try {
+        const userId = req.session.userId;
+        const { data: user, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('id, username, email')
+            .eq('id', userId)
+            .single();
+
+        if (userErr || !user || !user.email) {
+            return res.status(400).json({ error: 'Unable to send verification code' });
+        }
+
+        const now = new Date();
+        const nowIso = now.toISOString();
+
+        // Cleanup stale rows to keep the table compact per user.
+        await Promise.all([
+            supabaseAdmin
+                .from('login_activity_access_codes')
+                .delete()
+                .eq('user_id', userId)
+                .eq('used', true),
+            supabaseAdmin
+                .from('login_activity_access_codes')
+                .delete()
+                .eq('user_id', userId)
+                .lt('expires_at', nowIso)
+        ]);
+
+        const { data: existingCode } = await supabaseAdmin
+            .from('login_activity_access_codes')
+            .select('id, code, expires_at')
+            .eq('user_id', userId)
+            .eq('used', false)
+            .gt('expires_at', nowIso)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        let code = existingCode ? String(existingCode.code) : Math.floor(100000 + Math.random() * 900000).toString();
+        let expiresAt = existingCode ? new Date(existingCode.expires_at) : new Date(Date.now() + LOGIN_ACTIVITY_VERIFY_WINDOW_MS);
+        let insertedId = null;
+
+        if (!existingCode) {
+            const { data: inserted, error: insertErr } = await supabaseAdmin
+                .from('login_activity_access_codes')
+                .insert({
+                    user_id: userId,
+                    code,
+                    expires_at: expiresAt.toISOString(),
+                    used: false
+                })
+                .select('id')
+                .single();
+
+            if (insertErr || !inserted) {
+                console.error('Failed to create login-activity access code:', insertErr);
+                return res.status(500).json({ error: 'Failed to generate verification code' });
+            }
+            insertedId = inserted.id;
+        }
+
+        const sent = await sendTemplatedEmail({
+            to: user.email,
+            subject: 'Thinky Login Activity Verification Code',
+            template: 'login_activity_code',
+            variables: {
+                username: user.username || 'there',
+                code,
+                expires_minutes: String(Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 60000)))
+            }
+        });
+
+        if (!sent) {
+            if (insertedId) {
+                await supabaseAdmin
+                    .from('login_activity_access_codes')
+                    .delete()
+                    .eq('id', insertedId);
+            }
+            return res.status(500).json({ error: 'Failed to send verification email' });
+        }
+
+        clearLoginActivityVerified(req);
+        await new Promise((resolve) => req.session.save(() => resolve()));
+
+        res.json({
+            message: 'Verification code sent to your email',
+            expiresInMinutes: Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 60000))
+        });
+    } catch (error) {
+        console.error('Request login-activity code error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/auth/settings/login-activity/verify-code', requireAuth, async (req, res) => {
+    try {
+        const rawCode = req.body && req.body.code ? String(req.body.code).trim() : '';
+        if (!/^\d{6}$/.test(rawCode)) {
+            return res.status(400).json({ error: 'Invalid verification code' });
+        }
+
+        const nowIso = new Date().toISOString();
+        const { data: codeRow, error: codeErr } = await supabaseAdmin
+            .from('login_activity_access_codes')
+            .select('id, expires_at')
+            .eq('user_id', req.session.userId)
+            .eq('code', rawCode)
+            .eq('used', false)
+            .gt('expires_at', nowIso)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (codeErr || !codeRow) {
+            return res.status(400).json({ error: 'Invalid or expired verification code' });
+        }
+
+        await supabaseAdmin
+            .from('login_activity_access_codes')
+            .update({ used: true })
+            .eq('id', codeRow.id);
+
+        markLoginActivityVerified(req);
+        await new Promise((resolve) => req.session.save(() => resolve()));
+
+        res.json({
+            message: 'Verification successful',
+            verifiedUntil: req.session.loginActivityVerifiedUntil
+        });
+    } catch (error) {
+        console.error('Verify login-activity code error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/auth/settings/login-activity', requireAuth, requireLoginActivityVerification, async (req, res) => {
+    try {
+        const { data: rows, error } = await supabaseAdmin
+            .from('user_login_activity')
+            .select('session_sid, device_label, ip_address, user_agent, is_unfamiliar, created_at, last_seen_at')
+            .eq('user_id', req.session.userId)
+            .is('revoked_at', null)
+            .order('last_seen_at', { ascending: false })
+            .limit(50);
+
+        if (error) {
+            console.error('Get login activity error:', error);
+            return res.status(500).json({ error: 'Failed to load login activity' });
+        }
+
+        const currentSid = req.sessionID ? String(req.sessionID) : '';
+        const sessions = (rows || []).map((row) => ({
+            session_sid: row.session_sid,
+            device_label: row.device_label || 'Unknown device',
+            ip_address: row.ip_address || 'n/a',
+            user_agent: row.user_agent || '',
+            is_unfamiliar: !!row.is_unfamiliar,
+            created_at: row.created_at,
+            last_seen_at: row.last_seen_at,
+            is_current: !!currentSid && String(row.session_sid) === currentSid
+        }));
+
+        res.json({
+            sessions,
+            verifiedUntil: req.session.loginActivityVerifiedUntil || null
+        });
+    } catch (error) {
+        console.error('Get login activity error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.delete('/api/auth/settings/login-activity/:sessionSid', requireAuth, requireLoginActivityVerification, async (req, res) => {
+    try {
+        const sessionSid = sanitizeString(req.params.sessionSid || '', 255);
+        if (!sessionSid) {
+            return res.status(400).json({ error: 'Invalid session id' });
+        }
+
+        const { data: revokedRows, error: revokeErr } = await supabaseAdmin
+            .from('user_login_activity')
+            .update({ revoked_at: new Date().toISOString() })
+            .eq('user_id', req.session.userId)
+            .eq('session_sid', sessionSid)
+            .is('revoked_at', null)
+            .select('session_sid');
+
+        if (revokeErr) {
+            console.error('Revoke login activity error:', revokeErr);
+            return res.status(500).json({ error: 'Failed to revoke session' });
+        }
+
+        if (!revokedRows || revokedRows.length === 0) {
+            return res.status(404).json({ error: 'Session not found' });
+        }
+
+        await destroySessionBySid(sessionSid);
+
+        const isCurrent = req.sessionID && String(req.sessionID) === String(sessionSid);
+        if (isCurrent) {
+            return req.session.destroy((err) => {
+                if (err) {
+                    console.error('Destroy current session after revoke error:', err);
+                    return res.status(500).json({ error: 'Session revoked but local logout failed' });
+                }
+                res.json({ message: 'Current session revoked', loggedOut: true });
+            });
+        }
+
+        res.json({ message: 'Session revoked' });
+    } catch (error) {
+        console.error('Revoke login activity error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Import speakeasy and qrcode for 2FA
 import speakeasy from 'speakeasy';
 import QRCode from 'qrcode';
@@ -5969,6 +6416,8 @@ app.post('/api/auth/2fa/verify', async (req, res) => {
                 resolve();
             });
         });
+
+        await trackLoginActivityAndNotify(req, user);
 
         res.json({
             message: '2FA verification successful',
@@ -8134,6 +8583,40 @@ async function applyStartupMigrations() {
                         CHECK (type IN (''reaction'', ''comment'', ''message'', ''reply'', ''follow'', ''new_reviewer'', ''school_request''))';
                 END IF;
             END $$;
+        `);
+
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS user_login_activity (
+                id BIGSERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                session_sid VARCHAR NOT NULL UNIQUE,
+                device_hash VARCHAR(128) NOT NULL,
+                device_label TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                is_unfamiliar BOOLEAN NOT NULL DEFAULT false,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                revoked_at TIMESTAMPTZ NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_login_activity_user_last_seen
+            ON user_login_activity (user_id, last_seen_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_user_login_activity_user_device
+            ON user_login_activity (user_id, device_hash);
+
+            CREATE TABLE IF NOT EXISTS login_activity_access_codes (
+                id BIGSERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                code VARCHAR(6) NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                used BOOLEAN NOT NULL DEFAULT false,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_login_activity_codes_user_created
+            ON login_activity_access_codes (user_id, created_at DESC);
         `);
         console.log('\u2713 Startup migrations applied');
     } catch (err) {

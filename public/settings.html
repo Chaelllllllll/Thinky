@@ -295,6 +295,91 @@
             gap: 12px;
         }
 
+        .login-activity-gate {
+            background: var(--light-gray);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-top: 12px;
+        }
+
+        .login-activity-code-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 12px;
+            flex-wrap: wrap;
+        }
+
+        .login-activity-code-row input {
+            max-width: 180px;
+            letter-spacing: 4px;
+            text-align: center;
+            font-size: 1.05rem;
+        }
+
+        .login-activity-status {
+            margin-top: 10px;
+            color: var(--dark-gray);
+            font-size: 0.9rem;
+        }
+
+        .login-activity-list-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 18px 0 10px;
+            gap: 10px;
+        }
+
+        .login-activity-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .login-activity-item {
+            border: 1px solid rgba(0,0,0,0.08);
+            border-radius: var(--radius-md);
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            background: #fff;
+        }
+
+        .login-activity-item-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .login-activity-item-meta {
+            color: var(--dark-gray);
+            font-size: 0.88rem;
+            line-height: 1.35;
+        }
+
+        .badge-current,
+        .badge-unfamiliar {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 2px 8px;
+            font-size: 0.75rem;
+            margin-left: 6px;
+            border: 1px solid transparent;
+        }
+
+        .badge-current {
+            background: rgba(76, 175, 80, 0.15);
+            border-color: rgba(76, 175, 80, 0.4);
+            color: #2e7d32;
+        }
+
+        .badge-unfamiliar {
+            background: rgba(255, 152, 0, 0.15);
+            border-color: rgba(255, 152, 0, 0.35);
+            color: #b26a00;
+        }
+
         @media (max-width: 768px) {
             .settings-container {
                 flex-direction: column;
@@ -472,6 +557,32 @@
                                 </div>
                             </div>
                         </div>
+
+                        <div class="settings-divider"></div>
+
+                        <div class="settings-2fa-option">
+                            <h4 style="font-weight:600;margin-bottom:8px;">Login Activity</h4>
+                            <p style="font-size:0.9rem;color:var(--dark-gray);margin-bottom:8px;">
+                                View active devices and log out unfamiliar sessions. Access is protected with an email verification code.
+                            </p>
+
+                            <div id="loginActivityGate" class="login-activity-gate">
+                                <button id="loginActivityRequestCodeBtn" class="btn btn-primary" type="button">Send Email Code</button>
+                                <div class="login-activity-code-row">
+                                    <input id="loginActivityCodeInput" class="form-control" type="text" maxlength="6" placeholder="000000" inputmode="numeric" autocomplete="one-time-code">
+                                    <button id="loginActivityVerifyBtn" class="btn btn-light" type="button">Verify</button>
+                                </div>
+                                <div id="loginActivityGateStatus" class="login-activity-status">Verification required to view active sessions.</div>
+                            </div>
+
+                            <div id="loginActivityListWrap" style="display:none;">
+                                <div class="login-activity-list-header">
+                                    <strong>Active Sessions</strong>
+                                    <button id="loginActivityRefreshBtn" class="btn btn-light" type="button">Refresh</button>
+                                </div>
+                                <div id="loginActivityList" class="login-activity-list"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -504,6 +615,10 @@
             });
             const targetSection = document.getElementById(`${section}Section`);
             if (targetSection) targetSection.style.display = 'block';
+
+            if (section === 'security' && window.refreshLoginActivityAccessUI) {
+                window.refreshLoginActivityAccessUI();
+            }
 
             // Persist selection so reloads remember the active section
             try { localStorage.setItem('settings_section', section); } catch (e) { /* ignore */ }
@@ -614,6 +729,10 @@
                 disableEmailAuthBtn.addEventListener('click', async function() {
                     await window.disableEmailAuth();
                 });
+            }
+
+            if (window.initLoginActivityUI) {
+                window.initLoginActivityUI();
             }
         });
     </script>
