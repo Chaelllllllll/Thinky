@@ -6436,16 +6436,238 @@ async function incrementAiUsage(userId, usageType) {
 const EXT_TO_MIME = {
     pdf:  'application/pdf',
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    txt:  'text/plain'
+    txt:  'text/plain',
+    ppt:  'application/vnd.ms-powerpoint',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    png:  'image/png',
+    jpg:  'image/jpeg',
+    jpeg: 'image/jpeg'
 };
 function resolveFileMime(originalname, fallbackMime) {
     const ext = (originalname || '').toLowerCase().split('.').pop();
     return EXT_TO_MIME[ext] || fallbackMime;
 }
 
+const AI_INLINE_FILE_BYTES = 8 * 1024 * 1024;
+const AI_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+function decodeXmlEntities(text) {
+    return String(text || '')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&#(\d+);/g, (_m, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([0-9a-f]+);/gi, (_m, code) => String.fromCharCode(parseInt(code, 16)));
+}
+
+function isLikelyPptxMetadataText(text) {
+    const normalized = String(text || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!normalized) return true;
+
+    const exactBadPhrases = new Set([
+        'text formatting properties',
+        'paragraph formatting properties'
+    ]);
+    if (exactBadPhrases.has(normalized)) return true;
+
+    return /^(language|font size|font weight|font style|kerning|capitalization|color|typeface|margins?|indent level|alignment|default tab size|line spacing|space before paragraph|space after paragraph|bullets|line breaks|hanging punctuation)\s*:/i.test(normalized);
+}
+
+// Legacy .ppt is not accepted as inline MIME by Gemini. Extract readable text
+// from binary streams (ASCII + UTF-16LE) and feed that text to the model.
+function extractTextFromLegacyPpt(buffer) {
+    if (!buffer || !buffer.length) return '';
+
+    const asciiChunks = (buffer.toString('latin1').match(/[A-Za-z0-9][A-Za-z0-9 .,;:()'"!?&%$#@/\\+\-=\[\]{}<>]{5,}/g) || [])
+        .map(s => s.trim());
+
+    const utf16Chunks = (buffer.toString('utf16le').replace(/[\u0000-\u001f]+/g, ' ').match(/[A-Za-z0-9][A-Za-z0-9 .,;:()'"!?&%$#@/\\+\-=\[\]{}<>]{5,}/g) || [])
+        .map(s => s.trim());
+
+    const merged = [...asciiChunks, ...utf16Chunks];
+    const deduped = [];
+    const seen = new Set();
+    for (const chunk of merged) {
+        const normalized = chunk.toLowerCase();
+        if (!seen.has(normalized)) {
+            seen.add(normalized);
+            deduped.push(chunk);
+        }
+    }
+
+    return deduped.join('\n').slice(0, 50000);
+}
+
+async function extractTextFromPdf(buffer) {
+    // Import the library entry directly; importing `pdf-parse` package root can
+    // trigger its debug harness in some module-loading contexts.
+    const pdfParseModule = await import('pdf-parse/lib/pdf-parse.js');
+    const pdfParse = pdfParseModule.default || pdfParseModule;
+    const parsed = await pdfParse(buffer);
+    return String(parsed?.text || '').replace(/\s+/g, ' ').trim().slice(0, 50000);
+}
+
+async function extractTextFromPptx(buffer) {
+    const jszipModule = await import('jszip');
+    const JSZip = jszipModule.default || jszipModule;
+    const zip = await JSZip.loadAsync(buffer);
+    const fileNames = Object.keys(zip.files || {});
+    const slidePaths = fileNames
+        .filter(name => /^ppt\/slides\/slide\d+\.xml$/i.test(name))
+        .sort((a, b) => {
+            const aNum = parseInt((a.match(/slide(\d+)\.xml/i) || [,'0'])[1], 10);
+            const bNum = parseInt((b.match(/slide(\d+)\.xml/i) || [,'0'])[1], 10);
+            return aNum - bNum;
+        });
+
+    const collected = [];
+    for (const path of slidePaths) {
+        const file = zip.files[path];
+        if (!file) continue;
+        const xml = await file.async('string');
+        const chunks = [];
+        xml.replace(/<(?:a:)?t[^>]*>([\s\S]*?)<\/(?:a:)?t>/g, (_m, chunk) => {
+            const clean = decodeXmlEntities(chunk).replace(/\s+/g, ' ').trim();
+            if (clean && !isLikelyPptxMetadataText(clean)) chunks.push(clean);
+            return _m;
+        });
+        if (chunks.length) collected.push(chunks.join(' '));
+    }
+
+    return collected.join('\n').replace(/\n{2,}/g, '\n').trim().slice(0, 50000);
+}
+
+function renderPdfBuffer(build) {
+    return new Promise((resolve, reject) => {
+        const doc = new PDFDocument({ margin: 56, size: 'A4' });
+        const chunks = [];
+        doc.on('data', chunk => chunks.push(chunk));
+        doc.on('end', () => resolve(Buffer.concat(chunks)));
+        doc.on('error', reject);
+        try {
+            build(doc);
+            doc.end();
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+async function createPdfFromTextContent(title, text) {
+    const safeTitle = String(title || 'Uploaded File').slice(0, 200);
+    const normalized = String(text || '')
+        .replace(/\r/g, '')
+        .replace(/\u0000/g, '')
+        .replace(/[\t ]+\n/g, '\n')
+        .trim();
+
+    return renderPdfBuffer(doc => {
+        doc.info.Title = safeTitle;
+        doc.font('Helvetica-Bold').fontSize(18).text(safeTitle, { align: 'left' });
+        doc.moveDown();
+        doc.font('Helvetica').fontSize(11);
+
+        const paragraphs = normalized.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+        if (!paragraphs.length) {
+            doc.text('No readable text could be extracted from this file.');
+            return;
+        }
+
+        for (const paragraph of paragraphs) {
+            doc.text(paragraph, { align: 'left', paragraphGap: 6 });
+            doc.moveDown(0.35);
+        }
+    });
+}
+
+async function createPdfFromImageContent(title, buffer) {
+    const safeTitle = String(title || 'Uploaded Image').slice(0, 200);
+    return renderPdfBuffer(doc => {
+        doc.info.Title = safeTitle;
+        doc.font('Helvetica-Bold').fontSize(16).text(safeTitle, { align: 'left' });
+        doc.moveDown();
+
+        const x = doc.page.margins.left;
+        const y = doc.y;
+        const width = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+        const height = doc.page.height - y - doc.page.margins.bottom;
+        doc.image(buffer, x, y, { fit: [width, height], align: 'center', valign: 'center' });
+    });
+}
+
+async function normalizeAiUploadToPdf({ buffer, effectiveMime, originalname }) {
+    const fileTitle = String(originalname || 'Uploaded File');
+
+    if (effectiveMime === 'application/pdf') {
+        if (buffer.length > AI_INLINE_FILE_BYTES) {
+            const textContent = await extractTextFromPdf(buffer);
+            if (textContent && textContent.trim().length >= 40) {
+                return {
+                    pdfBuffer: await createPdfFromTextContent(fileTitle, textContent),
+                    sourceDescription: 'uploaded PDF document converted to a compact PDF'
+                };
+            }
+        }
+        return { pdfBuffer: buffer, sourceDescription: 'uploaded PDF document' };
+    }
+
+    if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        const mammoth = (await import('mammoth')).default;
+        const result = await mammoth.extractRawText({ buffer });
+        const textContent = String(result.value || '').trim();
+        if (textContent.length < 40) {
+            throw new Error('This .docx file could not be reliably parsed. Please export/convert it to .pdf or .txt and try again.');
+        }
+        return {
+            pdfBuffer: await createPdfFromTextContent(fileTitle, textContent),
+            sourceDescription: 'uploaded Word (.docx) file converted to PDF'
+        };
+    }
+
+    if (effectiveMime === 'application/vnd.ms-powerpoint') {
+        const textContent = extractTextFromLegacyPpt(buffer);
+        if (textContent.trim().length < 40) {
+            throw new Error('This .ppt file could not be reliably parsed. Please export/convert it to .pptx, .pdf, or .txt and try again.');
+        }
+        return {
+            pdfBuffer: await createPdfFromTextContent(fileTitle, textContent),
+            sourceDescription: 'uploaded PowerPoint (.ppt) file converted to PDF'
+        };
+    }
+
+    if (effectiveMime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+        const textContent = await extractTextFromPptx(buffer);
+        if (textContent.trim().length < 40) {
+            throw new Error('This .pptx file could not be reliably parsed. Please export/convert it to .pdf or .txt and try again.');
+        }
+        return {
+            pdfBuffer: await createPdfFromTextContent(fileTitle, textContent),
+            sourceDescription: 'uploaded PowerPoint (.pptx) file converted to PDF'
+        };
+    }
+
+    if (effectiveMime === 'image/png' || effectiveMime === 'image/jpeg') {
+        return {
+            pdfBuffer: await createPdfFromImageContent(fileTitle, buffer),
+            sourceDescription: 'uploaded image converted to PDF'
+        };
+    }
+
+    const textContent = buffer.toString('utf-8').trim();
+    if (textContent.length < 5) {
+        throw new Error('This text file is empty or could not be read.');
+    }
+    return {
+        pdfBuffer: await createPdfFromTextContent(fileTitle, textContent),
+        sourceDescription: 'uploaded text file converted to PDF'
+    };
+}
+
 const aiUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+    limits: { fileSize: AI_MAX_UPLOAD_BYTES },
     fileFilter: (_req, file, cb) => {
         // Always resolve by extension — mobile browsers send unreliable MIME types
         const effectiveMime = resolveFileMime(file.originalname, file.mimetype);
@@ -6453,7 +6675,7 @@ const aiUpload = multer({
         if (allowedMimes.includes(effectiveMime)) {
             cb(null, true);
         } else {
-            cb(new Error('Only PDF, DOCX, and TXT files are allowed'));
+            cb(new Error('Only PDF, DOCX, TXT, PPT, PPTX, PNG, and JPG files are allowed'));
         }
     }
 });
@@ -6500,13 +6722,18 @@ function getGeminiApiKeys() {
     return single ? [single] : [];
 }
 
-async function callGemini(prompt, pdfBase64 = null, returnJson = true) {
+async function callGemini(prompt, sourceFile = null, returnJson = true) {
     const apiKeys = getGeminiApiKeys();
     if (apiKeys.length === 0) throw new Error('No Gemini API keys configured');
 
     const parts = [];
-    if (pdfBase64) {
-        parts.push({ inlineData: { mimeType: 'application/pdf', data: pdfBase64 } });
+    if (sourceFile) {
+        if (typeof sourceFile === 'string') {
+            // Backward-compatible path for existing PDF callers that pass base64 directly.
+            parts.push({ inlineData: { mimeType: 'application/pdf', data: sourceFile } });
+        } else if (sourceFile.data && sourceFile.mimeType) {
+            parts.push({ inlineData: { mimeType: sourceFile.mimeType, data: sourceFile.data } });
+        }
     }
     parts.push({ text: prompt });
 
@@ -6679,29 +6906,27 @@ app.post('/api/ai/generate-reviewer', (req, res, next) => {
         }
 
         const { mimetype, buffer, originalname } = req.file;
+        const includeFlashcards = String(req.body?.includeFlashcards ?? 'true').toLowerCase() !== 'false';
         // Always resolve by extension — mobile browsers (iOS octet-stream, Android application/zip
         // for .docx, etc.) send unreliable MIME types.
         const effectiveMime = resolveFileMime(originalname, mimetype);
 
-        let pdfBase64 = null;
-        let textContent = null;
-
-        if (effectiveMime === 'application/pdf') {
-            // Gemini natively reads PDFs — send as base64 inline data
-            pdfBase64 = buffer.toString('base64');
-        } else if (effectiveMime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-            const mammoth = (await import('mammoth')).default;
-            const result = await mammoth.extractRawText({ buffer });
-            textContent = result.value;
-        } else {
-            textContent = buffer.toString('utf-8');
+        let normalizedPdf;
+        try {
+            normalizedPdf = await normalizeAiUploadToPdf({ buffer, effectiveMime, originalname });
+        } catch (normalizeError) {
+            return res.status(400).json({ error: normalizeError.message || 'This file could not be converted to PDF for auto-generation.' });
         }
 
-        const textSection = textContent
-            ? `Document text:\n"""\n${textContent.slice(0, 50000)}\n"""\n\n`
-            : '';
+        const flashcardRulesBlock = includeFlashcards
+            ? `- Create one flashcard for EVERY important term, concept, process, person, formula, and fact in the source.
+    - Do NOT limit the count — aim for complete coverage of all material, not a short list.
+    - front: the term or question (concise, plain text — no HTML, no Markdown)
+    - back: a clear, complete explanation or answer (plain text — no HTML, no Markdown)`
+            : `- For this request, do NOT generate flashcards yet.
+    - Return "flashcards": [] exactly.`;
 
-        const prompt = `${textSection}You are an expert educator creating a student study reviewer from the ${pdfBase64 ? 'PDF document' : 'text'} above.
+        const prompt = `You are an expert educator creating a student study reviewer from the ${normalizedPdf.sourceDescription} above.
 
 Return ONLY a valid JSON object with this exact structure:
 {
@@ -6711,7 +6936,9 @@ Return ONLY a valid JSON object with this exact structure:
 }
 
 === CONTENT RULES ===
-- Cover EVERY topic, concept, definition, process, formula, person, and detail in the source — nothing may be skipped.
+- Cover the ENTIRE lesson/file by touching every major section and topic in the source. Do not skip any section, but compress details aggressively.
+- Keep the reviewer VERY SHORT while still covering the full lesson/file end-to-end with no missing parts.
+- Each bullet must be concise and focused while still conveying the key idea.
 - Structure: use <h2> for major sections, <h3> for sub-sections.
 - Format: use <ul><li> bullet lists as the PRIMARY format for all details. Minimize prose paragraphs.
 - Emphasis: wrap key terms, names, formulas, and dates in <strong> tags ONLY. Do NOT use **asterisks** for bold — that is Markdown and will break the output.
@@ -6722,14 +6949,11 @@ Return ONLY a valid JSON object with this exact structure:
 - CODE BLOCKS: If the source contains any source code, commands, scripts, syntax examples, pseudocode, or technical expressions that should be displayed as code, wrap them in <pre><code>…</code></pre>. For short inline code references (variable names, function names, keywords, command snippets) inside text, wrap them in <code>…</code>. Never put code inside regular text or bullet points without these tags.
 
 === FLASHCARD RULES ===
-- Create one flashcard for EVERY important term, concept, process, person, formula, and fact in the source.
-- Do NOT limit the count — aim for complete coverage of all material, not a short list.
-- front: the term or question (concise, plain text — no HTML, no Markdown)
-- back: a clear, complete explanation or answer (plain text — no HTML, no Markdown)
+${flashcardRulesBlock}
 
 Return nothing outside the JSON object.`;
 
-        const result = await callGemini(prompt, pdfBase64);
+        const result = await callGemini(prompt, normalizedPdf.pdfBuffer.toString('base64'));
 
         if (!result.title || !result.content) {
             return res.status(500).json({ error: 'Generation returned incomplete data. Please try again.' });
@@ -6741,7 +6965,7 @@ Return nothing outside the JSON object.`;
         res.json({
             title: String(result.title).trim().slice(0, 200),
             content: String(result.content).trim(),
-            flashcards: Array.isArray(result.flashcards)
+            flashcards: includeFlashcards && Array.isArray(result.flashcards)
                 ? result.flashcards.slice(0, 200)
                     .map(f => ({
                         front: String(f.front || '').trim().slice(0, 300),
@@ -6761,6 +6985,85 @@ Return nothing outside the JSON object.`;
             ['Time (UTC)', new Date().toISOString()]
         ]);
         res.status(500).json({ error: 'Failed to generate reviewer. Please try again.' });
+    }
+});
+
+// POST /api/ai/generate-flashcards — generate flashcards from a saved reviewer
+app.post('/api/ai/generate-flashcards', requireAuth, async (req, res) => {
+    try {
+        if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'Auto generation is not available right now. Please try again later.' });
+
+        const { reviewerId } = req.body;
+        if (!reviewerId || !UUID_REGEX.test(reviewerId)) {
+            return res.status(400).json({ error: 'Invalid reviewer ID' });
+        }
+
+        const { data: reviewer, error } = await supabaseAdmin
+            .from('reviewers')
+            .select('title, content')
+            .eq('id', reviewerId)
+            .eq('user_id', req.session.userId)
+            .single();
+
+        if (error || !reviewer) {
+            return res.status(404).json({ error: 'Reviewer not found or access denied' });
+        }
+
+        const plainContent = (reviewer.content || '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 30000);
+
+        if (plainContent.length < 50) {
+            return res.status(400).json({ error: 'Reviewer content is too short to generate flashcards.' });
+        }
+
+        const prompt = `You are an expert flashcard maker. Based on the reviewer below, generate flashcards that comprehensively cover EVERY topic, concept, definition, process, formula, and key fact.
+
+Reviewer: ${reviewer.title}
+Content:
+"""
+${plainContent}
+"""
+
+Return ONLY a valid JSON object with this exact structure:
+{
+  "flashcards": [
+    { "front": "term or question", "back": "clear answer/explanation" }
+  ]
+}
+
+Rules:
+- Ensure complete coverage of all sections/subtopics from the reviewer.
+- Do not include duplicates or near-duplicates.
+- front and back must be plain text only (no HTML, no Markdown).
+- front should be concise; back should be clear and complete.
+- Return nothing outside the JSON object.`;
+
+        const result = await callGemini(prompt, null, true);
+        const cards = (Array.isArray(result?.flashcards) ? result.flashcards : [])
+            .slice(0, 200)
+            .map(fc => ({
+                front: String(fc?.front || '').trim().slice(0, 300),
+                back: String(fc?.back || '').trim().slice(0, 500)
+            }))
+            .filter(fc => fc.front && fc.back);
+
+        if (!cards.length) {
+            return res.status(500).json({ error: 'No flashcards could be generated. Please try again.' });
+        }
+
+        res.json({ flashcards: cards });
+    } catch (error) {
+        console.error('Auto generate-flashcards error:', error);
+        notifyDiscord('🔴 Auto Generate Flashcards Failed', [
+            ['Error', error?.message || String(error)],
+            ['Stack', error?.stack || 'n/a'],
+            ['User', _userLink(req)],
+            ['Time (UTC)', new Date().toISOString()]
+        ]);
+        res.status(500).json({ error: 'Failed to generate flashcards. Please try again.' });
     }
 });
 
@@ -6788,7 +7091,7 @@ app.post('/api/ai/generate-quiz', requireAuth, async (req, res) => {
         }
 
         // If a specific count is requested (manual quiz builder), honour it (3–100).
-        // When count is omitted (auto-generation), let the AI decide — just enforce the 100 hard cap later.
+        // When count is omitted (auto-generation), let the AI decide based on topic coverage.
         const manualCount = questionCount !== undefined ? Math.min(Math.max(parseInt(questionCount, 10) || 10, 3), 100) : null;
 
         const { data: reviewer, error } = await supabaseAdmin
@@ -6840,7 +7143,7 @@ Rules:
 - Do NOT use any Markdown formatting (no **, no *, except for the correct-answer marker before the option letter).
 - Do NOT include any explanation, commentary, or text outside the question blocks.
 - Output nothing except the numbered question blocks.`
-            : `You are an expert quiz maker. Based on the reviewer below, generate exactly as many multiple-choice questions as needed to comprehensively cover EVERY topic, concept, definition, process, and fact in the reviewer — no more, no less. Let the depth and breadth of the content determine the number: a short reviewer should produce fewer questions, a long detailed one should produce more. Every distinct idea or testable fact in the reviewer must have at least one question.
+            : `You are an expert quiz maker. Based on the reviewer below, generate a multiple-choice quiz that comprehensively covers EVERY topic, concept, definition, process, and fact in the reviewer. Let the depth and breadth of the content determine how many questions are needed. A short reviewer should produce fewer questions, while a long detailed reviewer should produce more. Make sure every section and subtopic is included, with no part left behind.
 
 Reviewer: ${reviewer.title}
 Content:
@@ -6920,7 +7223,7 @@ Rules:
             incrementAiUsage(req.session.userId, 'quiz').catch(e => console.warn('[AI] usage increment error', e));
         }
 
-        res.json({ questions: questions.slice(0, 100) });
+        res.json({ questions });
     } catch (error) {
         console.error('Auto generate-quiz error:', error);
         notifyDiscord('🔴 Auto Generate Quiz Failed', [

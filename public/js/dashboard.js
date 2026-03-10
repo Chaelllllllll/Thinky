@@ -382,6 +382,9 @@ function displaySubjects() {
                     <button class="btn btn-light btn-sm icon-btn" onclick="openReviewersList('${subject.id}')" title="View Reviewers">
                         <i class="bi bi-eye"></i>
                     </button>
+                    <button class="btn btn-light btn-sm icon-btn" onclick="shareSubject('${subject.id}')" title="Share Subject">
+                        <i class="bi bi-share"></i>
+                    </button>
                     <button class="btn btn-light btn-sm icon-btn" onclick="editSubject('${subject.id}')" title="Edit Subject">
                         <i class="bi bi-pencil"></i>
                     </button>
@@ -393,6 +396,36 @@ function displaySubjects() {
         `;
         grid.appendChild(card);
     });
+}
+
+async function shareSubject(subjectId) {
+    const subject = subjects.find(s => String(s.id) === String(subjectId));
+    if (!subject) return;
+
+    const shareUrl = `${window.location.origin}/index.html?subject=${encodeURIComponent(subjectId)}`;
+    const shareTitle = `${subject.name} on Thinky`;
+    const shareText = `Check out this subject on Thinky: ${subject.name}`;
+
+    try {
+        if (navigator.share) {
+            await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
+            return;
+        }
+
+        await navigator.clipboard.writeText(shareUrl);
+        if (window.showAlert) window.showAlert('success', 'Subject link copied to clipboard!', 3500);
+        else alert('Subject link copied to clipboard!');
+    } catch (error) {
+        // Ignore user-cancelled native share. For real failures, fall back to prompt.
+        if (error && error.name === 'AbortError') return;
+        try {
+            await navigator.clipboard.writeText(shareUrl);
+            if (window.showAlert) window.showAlert('success', 'Subject link copied to clipboard!', 3500);
+            else alert('Subject link copied to clipboard!');
+        } catch (_) {
+            window.prompt('Copy this subject link:', shareUrl);
+        }
+    }
 }
 
 // Opens a modal listing reviewers for a subject
@@ -824,6 +857,10 @@ function closeReviewerModal() {
     document.getElementById('reviewerForm').reset();
     quill.setContents([]);
     currentReviewerId = null;
+    // Clear any deferred AI post-save actions when modal is closed/cancelled
+    window._aiPendingQuiz = false;
+    window._aiPendingFlashcards = false;
+    window._aiPendingFlashcardsData = null;
     // Reset flashcard section state
     try {
         const section = document.getElementById('flashcardsSection');
@@ -952,32 +989,81 @@ async function saveReviewer() {
             await loadSubjects();
         }
 
-        // Capture the saved reviewer ID before closing the modal (closeReviewerModal resets currentReviewerId to null)
+        // Capture the saved reviewer ID for deferred AI post-save actions
+        let pendingFlashcardsReviewerId = null;
         let pendingQuizReviewerId = null;
-        if (window._aiPendingQuiz) {
+        if (window._aiPendingFlashcards || window._aiPendingQuiz) {
             if (respData) {
                 const added = respData.reviewer || respData.data || respData;
+                pendingFlashcardsReviewerId = added?.id || null;
                 pendingQuizReviewerId = added?.id || null;
             }
+            pendingFlashcardsReviewerId = pendingFlashcardsReviewerId || currentReviewerId;
             pendingQuizReviewerId = pendingQuizReviewerId || currentReviewerId;
         }
 
-        // If user opted to auto-generate a quiz, do it NOW — keep button disabled until done,
-        // then update the local cache so the quiz builder reflects it immediately on open.
+        // Run deferred AI extras AFTER reviewer save so users can edit first.
+        // Order: flashcards first, then quiz.
         let generationAlertShown = false;
+        let generatedFlashcardsCount = 0;
+        let generatedQuizCount = 0;
+
+        if (window._aiPendingFlashcards && pendingFlashcardsReviewerId) {
+            window._aiPendingFlashcards = false;
+            window._aiPendingFlashcardsData = null;
+            saveTextEl.textContent = 'Saving generated flashcards...';
+            try {
+                const savedFlashcards = await aiGenerateAndSaveFlashcardsInline(
+                    pendingFlashcardsReviewerId,
+                    { title, content, isPublic }
+                );
+                generatedFlashcardsCount = savedFlashcards.length;
+
+                // Reflect generated flashcards immediately in the editor UI.
+                populateFlashcardsList(savedFlashcards.map(fc => ({
+                    id: fc.id || '',
+                    front: fc.front || '',
+                    back: fc.back || '',
+                    is_public: !!fc.is_public
+                })));
+                const section = document.getElementById('flashcardsSection');
+                const fcToggleBtn = document.getElementById('toggleFlashcardsBtn');
+                if (section) section.style.display = 'block';
+                if (fcToggleBtn) fcToggleBtn.innerHTML = '<i class="bi bi-card-text"></i> Hide Flashcards';
+
+                // Patch local cache
+                for (const subj of (subjects || [])) {
+                    if (!subj.reviewers) continue;
+                    const rv = subj.reviewers.find(r => String(r.id) === String(pendingFlashcardsReviewerId));
+                    if (rv) {
+                        rv.flashcards = savedFlashcards;
+                        break;
+                    }
+                }
+            } catch (flashErr) {
+                console.error('Deferred flashcards generation/save error:', flashErr);
+                window.showAlert('error', 'Reviewer saved, but flashcards could not be auto-generated.');
+                generationAlertShown = true;
+            }
+        } else {
+            if (window._aiPendingFlashcards) {
+                window._aiPendingFlashcards = false;
+                window._aiPendingFlashcardsData = null;
+            }
+        }
+
         if (window._aiPendingQuiz && pendingQuizReviewerId) {
             window._aiPendingQuiz = false;
-            saveTextEl.textContent = 'Generating quiz\u2026';
+            saveTextEl.textContent = 'Generating quiz...';
             try {
                 const savedQuiz = await aiGenerateAndSaveQuizInline(pendingQuizReviewerId);
+                generatedQuizCount = Array.isArray(savedQuiz.questions) ? savedQuiz.questions.length : 0;
                 // Patch the subjects cache so quiz builder can read it immediately
                 for (const subj of (subjects || [])) {
                     if (!subj.reviewers) continue;
                     const rv = subj.reviewers.find(r => String(r.id) === String(pendingQuizReviewerId));
                     if (rv) { rv.quiz = savedQuiz; break; }
                 }
-                window.showAlert('success', `Reviewer & quiz saved! (${savedQuiz.questions.length} question${savedQuiz.questions.length !== 1 ? 's' : ''}) — You can close this window when you're ready.`, 8000);
-                generationAlertShown = true;
             } catch (quizErr) {
                 console.error('Inline quiz generation error:', quizErr);
                 window.showAlert('error', 'Reviewer saved, but quiz could not be auto-generated. You can create one manually from the quiz builder.');
@@ -987,11 +1073,19 @@ async function saveReviewer() {
             if (window._aiPendingQuiz) window._aiPendingQuiz = false;
         }
 
-        // Flashcards are saved as part of the reviewer payload (if any)
+        // Flashcards/quiz (if selected in AI modal) are processed after save.
         // Clear the generation lock — do NOT auto-close; let the user review and close manually
         window._aiGenerating = false;
         if (!generationAlertShown) {
-            window.showAlert('success', 'Reviewer saved! You can close this window when you\'re ready.', 5000);
+            if (generatedFlashcardsCount > 0 && generatedQuizCount > 0) {
+                window.showAlert('success', `Reviewer saved! ${generatedFlashcardsCount} flashcard${generatedFlashcardsCount !== 1 ? 's' : ''} and ${generatedQuizCount} quiz question${generatedQuizCount !== 1 ? 's' : ''} generated.`, 8000);
+            } else if (generatedFlashcardsCount > 0) {
+                window.showAlert('success', `Reviewer saved! ${generatedFlashcardsCount} flashcard${generatedFlashcardsCount !== 1 ? 's' : ''} generated.`, 7000);
+            } else if (generatedQuizCount > 0) {
+                window.showAlert('success', `Reviewer saved! ${generatedQuizCount} quiz question${generatedQuizCount !== 1 ? 's' : ''} generated.`, 7000);
+            } else {
+                window.showAlert('success', 'Reviewer saved! You can close this window when you\'re ready.', 5000);
+            }
         }
     } catch (error) {
         console.error('Error saving reviewer:', error);
@@ -1528,6 +1622,74 @@ function qbParsePaste() {
 // ─── AI Generate Reviewer ────────────────────────────────────────────────────
 
 let _aiSelectedFile = null;
+const AI_AUTO_TARGET_FILE_BYTES = 8 * 1024 * 1024;
+const AI_AUTO_MAX_FILE_BYTES = 100 * 1024 * 1024;
+
+function aiIsCompressibleImage(file) {
+    const type = (file?.type || '').toLowerCase();
+    const name = (file?.name || '').toLowerCase();
+    return type === 'image/png' || type === 'image/jpeg' || /\.(png|jpe?g)$/i.test(name);
+}
+
+function aiRenameFileExtension(name, newExt) {
+    return String(name || 'upload').replace(/\.[^.]+$/, '') + newExt;
+}
+
+function aiLoadImage(file) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('Failed to read image file'));
+        };
+        img.src = url;
+    });
+}
+
+function aiCanvasToBlob(canvas, type, quality) {
+    return new Promise((resolve, reject) => {
+        canvas.toBlob(blob => {
+            if (blob) resolve(blob);
+            else reject(new Error('Failed to compress image'));
+        }, type, quality);
+    });
+}
+
+async function aiCompressImageFile(file, targetBytes = AI_AUTO_TARGET_FILE_BYTES) {
+    const img = await aiLoadImage(file);
+    let width = img.naturalWidth || img.width;
+    let height = img.naturalHeight || img.height;
+    let quality = 0.86;
+    let bestBlob = null;
+
+    for (let attempt = 0; attempt < 7; attempt += 1) {
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(width));
+        canvas.height = Math.max(1, Math.round(height));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas is not available for image compression');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const blob = await aiCanvasToBlob(canvas, 'image/jpeg', quality);
+        if (!bestBlob || blob.size < bestBlob.size) bestBlob = blob;
+        if (blob.size <= targetBytes) break;
+
+        width *= 0.85;
+        height *= 0.85;
+        quality = Math.max(0.45, quality - 0.08);
+    }
+
+    if (!bestBlob || bestBlob.size >= file.size) return file;
+    return new File([bestBlob], aiRenameFileExtension(file.name, '.jpg'), {
+        type: 'image/jpeg',
+        lastModified: Date.now()
+    });
+}
 
 function limitReachedMsg(data) {
     const now = new Date();
@@ -1628,14 +1790,58 @@ function aiCloseGeneratePanel() {
     if (btn) btn.disabled = true;
 }
 
-function aiFileSelected(input) {
+async function aiFileSelected(input) {
     const file = input.files[0];
     if (!file) return;
-    _aiSelectedFile = file;
-    document.getElementById('aiSelectedFileName').textContent =
-        file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
-    document.getElementById('aiSelectedFile').style.display = 'flex';
-    document.getElementById('aiGenerateBtn').disabled = false;
+    const fileNameEl = document.getElementById('aiSelectedFileName');
+    const selectedEl = document.getElementById('aiSelectedFile');
+    const generateBtn = document.getElementById('aiGenerateBtn');
+
+    selectedEl.style.display = 'flex';
+    generateBtn.disabled = true;
+    fileNameEl.textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+
+    let finalFile = file;
+    let compressionNote = '';
+
+    try {
+        if (aiIsCompressibleImage(file) && file.size > AI_AUTO_TARGET_FILE_BYTES) {
+            fileNameEl.textContent = 'Optimizing image for upload...';
+            const compressed = await aiCompressImageFile(file, AI_AUTO_TARGET_FILE_BYTES);
+            if (compressed !== file) {
+                finalFile = compressed;
+                compressionNote = `, compressed from ${(file.size / 1024 / 1024).toFixed(1)} MB`;
+                if (window.showAlert) {
+                    window.showAlert('info', 'Large image detected. It was compressed automatically before upload.', 4500);
+                }
+            }
+        }
+
+        if (finalFile.size > AI_AUTO_MAX_FILE_BYTES) {
+            _aiSelectedFile = null;
+            input.value = '';
+            selectedEl.style.display = 'none';
+            window.showAlert('error', 'This file is still too large to process automatically. Please compress or export a smaller version first.');
+            return;
+        }
+
+        _aiSelectedFile = finalFile;
+        fileNameEl.textContent = `${finalFile.name} (${(finalFile.size / 1024).toFixed(0)} KB${compressionNote})`;
+        generateBtn.disabled = false;
+    } catch (error) {
+        console.error('AI file preparation error:', error);
+        if (file.size > AI_AUTO_MAX_FILE_BYTES) {
+            _aiSelectedFile = null;
+            input.value = '';
+            selectedEl.style.display = 'none';
+            window.showAlert('error', 'This file is too large to process automatically. Please compress or export a smaller version first.');
+            return;
+        }
+
+        _aiSelectedFile = file;
+        fileNameEl.textContent = file.name + ' (' + (file.size / 1024).toFixed(0) + ' KB)';
+        generateBtn.disabled = false;
+    }
 }
 
 async function aiDoGenerate() {
@@ -1651,6 +1857,8 @@ async function aiDoGenerate() {
     try {
         const formData = new FormData();
         formData.append('file', _aiSelectedFile);
+        // Defer extras until save so users can edit reviewer content first.
+        formData.append('includeFlashcards', 'false');
         const resp = await fetch('/api/ai/generate-reviewer', {
             method: 'POST',
             credentials: 'include',
@@ -1681,23 +1889,23 @@ async function aiDoGenerate() {
             quill.clipboard.dangerouslyPasteHTML(data.content || '');
         }
 
-        // Populate flashcards only if user opted in
-        if (wantFlashcards && Array.isArray(data.flashcards) && data.flashcards.length > 0) {
-            const container = document.getElementById('flashcardsList');
-            if (container) {
-                container.innerHTML = '';
-                data.flashcards.forEach(fc => addFlashcardRow({ front: fc.front, back: fc.back }));
-            }
-        }
+        // Defer extra generation outputs until AFTER reviewer save.
+        // Flashcards/quiz generation will run after reviewer save.
+        window._aiPendingFlashcards = !!wantFlashcards;
+        window._aiPendingFlashcardsData = null;
 
         aiCloseGeneratePanel();
 
         // After saving reviewer, auto-generate quiz if opted in — store flag for after save
-        if (wantQuiz) {
-            window._aiPendingQuiz = true;
-        }
+        window._aiPendingQuiz = !!wantQuiz;
 
-        window.showAlert('success', 'Reviewer generated! Review and edit, then save.' + (wantQuiz ? ' Quiz will be generated after saving.' : ''), 6000);
+        const postSaveParts = [];
+        if (wantFlashcards) postSaveParts.push('flashcards');
+        if (wantQuiz) postSaveParts.push('quiz');
+        const postSaveMsg = postSaveParts.length
+            ? ` ${postSaveParts.join(' and ')} will be generated after you save the reviewer.`
+            : '';
+        window.showAlert('success', 'Reviewer generated! Review and edit, then save.' + postSaveMsg, 7000);
     } catch (e) {
         console.error('Auto generate reviewer error:', e);
         window.showAlert('error', 'Auto generation failed. Please try again.');
@@ -1717,7 +1925,7 @@ async function aiGenerateAndSaveQuizInline(reviewerId) {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reviewerId, questionCount: 100 })
+        body: JSON.stringify({ reviewerId })
     });
     const genData = await genResp.json();
     if (!genResp.ok || !Array.isArray(genData.questions) || genData.questions.length === 0) {
@@ -1736,6 +1944,50 @@ async function aiGenerateAndSaveQuizInline(reviewerId) {
         throw new Error(errBody.error || 'Failed to save quiz');
     }
     return quiz;
+}
+
+// Generate flashcards from a saved reviewer, then persist them back to that reviewer.
+async function aiGenerateAndSaveFlashcardsInline(reviewerId, reviewerMeta) {
+    const genResp = await fetch('/api/ai/generate-flashcards', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviewerId })
+    });
+    const genData = await genResp.json().catch(() => ({}));
+    if (!genResp.ok || !Array.isArray(genData.flashcards) || genData.flashcards.length === 0) {
+        throw new Error(genData.error || 'Flashcard generation returned no results');
+    }
+
+    return await aiAttachFlashcardsToReviewerInline(reviewerId, genData.flashcards, reviewerMeta);
+}
+
+// Persist generated flashcards to the reviewer after it has been saved.
+async function aiAttachFlashcardsToReviewerInline(reviewerId, flashcards, reviewerMeta) {
+    const payload = {
+        title: reviewerMeta?.title || '',
+        content: reviewerMeta?.content || '',
+        is_public: reviewerMeta?.isPublic !== false,
+        flashcards: (Array.isArray(flashcards) ? flashcards : []).map(fc => ({
+            front: String(fc.front || '').trim(),
+            back: String(fc.back || '').trim(),
+            is_public: fc.is_public !== false
+        })).filter(fc => fc.front && fc.back)
+    };
+
+    if (!payload.flashcards.length) return [];
+
+    const resp = await fetch(`/api/reviewers/${reviewerId}`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+    });
+    const body = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(body.error || 'Failed to save generated flashcards');
+
+    const saved = body?.reviewer?.flashcards;
+    return Array.isArray(saved) ? saved : payload.flashcards;
 }
 
 // Legacy wrapper kept for any other callers — wraps the inline version with UI alerts.

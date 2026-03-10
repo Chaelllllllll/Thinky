@@ -751,13 +751,13 @@
             <div id="aiReviewerUsageBanner" style="display:none;padding:10px 14px;font-size:0.85rem;border-bottom:1px solid var(--medium-gray);"></div>
             <div class="modal-body">
                 <!-- Daily usage indicator removed from here -->
-                <p style="color:var(--dark-gray);font-size:0.9rem;margin:0 0 16px;">Upload a PDF, Word (.docx), or text file and we&rsquo;ll automatically generate the reviewer for you.</p>
+                <p style="color:var(--dark-gray);font-size:0.9rem;margin:0 0 16px;">Upload a PDF, Word (.docx), PowerPoint (.ppt/.pptx), image (PNG/JPG), or text file and we&rsquo;ll automatically generate the reviewer for you. Supported files are automatically converted to PDF for AI processing.</p>
                 <label class="ai-drop-zone" id="aiDropZone" for="aiFileInput" style="display:block;">
                     <i class="bi bi-cloud-arrow-up" style="font-size:2.2rem;color:var(--primary-pink);"></i>
                     <div style="margin-top:10px;font-weight:500;">Tap to browse or drop file here</div>
-                    <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:4px;">PDF, DOCX, TXT &mdash; up to 10 MB</div>
+                    <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:4px;">PDF, DOCX, PPT, PPTX, PNG, JPG, TXT &mdash; up to 100 MB</div>
                 </label>
-                <input type="file" id="aiFileInput" accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" style="display:none;" onchange="aiFileSelected(this)">
+                <input type="file" id="aiFileInput" accept=".pdf,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,text/plain" style="display:none;" onchange="aiFileSelected(this)">
                 <div id="aiSelectedFile" style="display:none;padding:10px 12px;background:var(--light-gray);border-radius:10px;margin-top:12px;font-size:0.88rem;align-items:center;gap:8px;">
                     <i class="bi bi-file-earmark" style="font-size:1.1rem;color:var(--primary-pink);"></i>
                     <span id="aiSelectedFileName"></span>
@@ -1205,7 +1205,7 @@ Answer: B</pre>
                         <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px;">
                             <button type="button" class="btn btn-primary btn-sm" onclick="aiDoGenerateQuiz()"><i class="bi bi-magic"></i> Generate</button>
                         </div>
-                        <p style="font-size:0.78rem;color:var(--dark-gray);margin:8px 0 0;">Automatically generates as many questions as needed to cover all content in this reviewer (up to 100). Questions will be added to the list above.</p>
+                        <p style="font-size:0.78rem;color:var(--dark-gray);margin:8px 0 0;">Automatically generates a quiz that covers all content in this reviewer. Questions will be added to the list above.</p>
                     </div>
                 </div>
 
