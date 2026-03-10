@@ -4691,12 +4691,44 @@ app.delete('/api/messages/private/delete', requireAuth, async (req, res) => {
     }
 });
 
+/**
+ * Generates a deterministic unique anonymous display name from a user's UUID.
+ * Uses three independent polynomial hash functions so adjective, animal, and
+ * number are drawn from independent parts of the hash space.
+ * Matches the client-side generateAnonymousName() in chat.js exactly.
+ */
+function generateAnonName(userId) {
+    const adjectives = [
+        'Mystic','Shadow','Silent','Bright','Swift','Calm','Bold','Gentle','Wild','Noble',
+        'Cosmic','Azure','Crimson','Golden','Jade','Luna','Solar','Stellar','Vivid','Zen',
+        'Amber','Cobalt','Dusk','Ember','Frost','Ivory','Navy','Onyx','Pearl','Ruby'
+    ];
+    const animals = [
+        'Fox','Wolf','Hawk','Bear','Deer','Lion','Owl','Raven','Seal','Tiger',
+        'Crane','Drake','Eagle','Finch','Goose','Heron','Ibis','Jaguar','Koala','Lynx',
+        'Mink','Newt','Orca','Panda','Quail','Robin','Stoat','Toad','Vole','Wren'
+    ];
+    const str = String(userId || '');
+    let h1 = 0, h2 = 0, h3 = 0;
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        h1 = Math.imul(h1, 31) + c | 0;
+        h2 = Math.imul(h2, 37) + c | 0;
+        h3 = Math.imul(h3, 41) + c | 0;
+    }
+    const adj    = adjectives[Math.abs(h1) % 30];
+    const animal = animals[Math.abs(h2) % 30];
+    const num    = Math.abs(h3) % 900 + 100;
+    return `${adj}${animal}#${num}`;
+}
+
 // Send message
 app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
     try {
         const { message, chat_type } = req.body;
         const recipient_id = req.body.recipient_id || null;
         const reply_to = req.body.reply_to || null;
+        const is_anonymous = req.body.is_anonymous === true && chat_type === 'general';
 
         if (!message || !chat_type) {
             return res.status(400).json({ error: 'Message and chat type are required' });
@@ -4752,7 +4784,7 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
 
         const insertObj = {
             user_id: req.session.userId,
-            username: req.session.username,
+            username: is_anonymous ? generateAnonName(req.session.userId) : req.session.username,
             message: cleanMessage,
             chat_type
         };

@@ -14,6 +14,7 @@ let _sendingMessage = false;
 let oldestMessageId = null;
 let isLoadingMore = false;
 let hasMoreMessages = true;
+let isAnonMode = false;
 
 // Sidebar state
 let _sidebarContacts = [];        // merged list: conversations + followers/following
@@ -183,6 +184,10 @@ function selectGeneral() {
     showChatLoadingState();
     loadMessages();
     updateChatInputState();
+
+    // Show anon toggle (general chat only)
+    const anonBtn = document.getElementById('anonToggleBtn');
+    if (anonBtn) anonBtn.style.display = 'flex';
 }
 
 async function selectPrivate(userId, username, avatarUrl) {
@@ -252,6 +257,13 @@ async function selectPrivate(userId, username, avatarUrl) {
     showChatLoadingState();
     loadMessages();
     updateChatInputState();
+
+    // Hide anon toggle and reset anonymous mode for private chats
+    isAnonMode = false;
+    const anonBtn = document.getElementById('anonToggleBtn');
+    const anonBanner = document.getElementById('anonBanner');
+    if (anonBtn) { anonBtn.style.display = 'none'; anonBtn.classList.remove('active'); }
+    if (anonBanner) anonBanner.style.display = 'none';
 }
 
 function showChatLoadingState() {
@@ -524,7 +536,7 @@ function updateChatInputState() {
     if (currentChatType !== 'private') {
         input.disabled = false;
         sendBtn.disabled = false;
-        input.placeholder = 'Type a message to everyone...';
+        input.placeholder = isAnonMode ? 'Sending as anonymous...' : 'Type a message to everyone...';
         return;
     }
 
@@ -822,6 +834,7 @@ async function sendMessage() {
         const body = { message: clean, chat_type: currentChatType };
         if (currentChatType === 'private' && currentRecipientId) body.recipient_id = currentRecipientId;
         if (currentReplyTo) body.reply_to = currentReplyTo;
+        if (isAnonMode && currentChatType === 'general') body.is_anonymous = true;
 
         const response = await fetch('/api/messages', {
             method: 'POST',
@@ -1233,5 +1246,55 @@ async function logout() {
         window.location.href = '/login';
     } catch (_) {
         window.location.href = '/login';
+    }
+}
+
+// ─── Anonymous Mode ───────────────────────────────────────────────────────────
+/**
+ * Generates a deterministic unique anonymous name from the user's ID.
+ * Uses three independent hash functions so the adjective, animal, and
+ * number are chosen from different parts of the hash space.
+ */
+function generateAnonymousName(userId) {
+    const adjectives = [
+        'Mystic','Shadow','Silent','Bright','Swift','Calm','Bold','Gentle','Wild','Noble',
+        'Cosmic','Azure','Crimson','Golden','Jade','Luna','Solar','Stellar','Vivid','Zen',
+        'Amber','Cobalt','Dusk','Ember','Frost','Ivory','Navy','Onyx','Pearl','Ruby'
+    ];
+    const animals = [
+        'Fox','Wolf','Hawk','Bear','Deer','Lion','Owl','Raven','Seal','Tiger',
+        'Crane','Drake','Eagle','Finch','Goose','Heron','Ibis','Jaguar','Koala','Lynx',
+        'Mink','Newt','Orca','Panda','Quail','Robin','Stoat','Toad','Vole','Wren'
+    ];
+    const str = String(userId || '');
+    let h1 = 0, h2 = 0, h3 = 0;
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        h1 = Math.imul(h1, 31) + c | 0;
+        h2 = Math.imul(h2, 37) + c | 0;
+        h3 = Math.imul(h3, 41) + c | 0;
+    }
+    const adj    = adjectives[Math.abs(h1) % 30];
+    const animal = animals[Math.abs(h2) % 30];
+    const num    = Math.abs(h3) % 900 + 100;
+    return `${adj}${animal}#${num}`;
+}
+
+function toggleAnonMode() {
+    isAnonMode = !isAnonMode;
+    const btn       = document.getElementById('anonToggleBtn');
+    const banner    = document.getElementById('anonBanner');
+    const nameEl    = document.getElementById('anonNameDisplay');
+    const input     = document.getElementById('messageInput');
+
+    if (isAnonMode) {
+        if (btn) btn.classList.add('active');
+        if (nameEl && currentUser) nameEl.textContent = generateAnonymousName(currentUser.id);
+        if (banner) banner.style.display = 'flex';
+        if (input) input.placeholder = 'Sending as anonymous...';
+    } else {
+        if (btn) btn.classList.remove('active');
+        if (banner) banner.style.display = 'none';
+        if (input) input.placeholder = 'Type a message to everyone...';
     }
 }

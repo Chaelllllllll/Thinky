@@ -462,6 +462,38 @@
         .toggle-switch input:checked + .toggle-slider { background-color: var(--primary-pink); }
         .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
         .settings-2fa-option { margin-bottom: 4px; }
+
+        /* ─── Anonymous Mode ─── */
+        #anonToggleBtn {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            border: 2px solid var(--medium-gray);
+            background: var(--white);
+            color: var(--dark-gray);
+            font-size: 1.05rem;
+            cursor: pointer;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s;
+        }
+        #anonToggleBtn:hover { border-color: var(--primary-pink); color: var(--primary-pink); background: var(--secondary-pink); }
+        #anonToggleBtn.active { border-color: var(--primary-pink); background: var(--primary-pink); color: white; }
+        #anonBanner {
+            display: none;
+            padding: 7px 20px;
+            background: linear-gradient(90deg, rgba(255,158,180,0.12), rgba(255,158,180,0.04));
+            border-left: 3px solid var(--primary-pink);
+            font-size: 0.82rem;
+            color: var(--primary-pink);
+            font-weight: 600;
+            flex-shrink: 0;
+            align-items: center;
+            gap: 6px;
+        }
+        #anonBanner i { font-size: 0.95rem; }
     </style>
 </head>
 <body>
@@ -581,8 +613,17 @@
                     </div>
                 </div>
 
+                <!-- Anonymous Mode Banner -->
+                <div id="anonBanner">
+                    <i class="bi bi-incognito"></i>
+                    Sending as <strong id="anonNameDisplay">Anonymous</strong>
+                </div>
+
                 <!-- Input -->
                 <div class="chat-input-container">
+                    <button id="anonToggleBtn" onclick="toggleAnonMode()" title="Toggle anonymous mode in General Chat" aria-label="Toggle anonymous mode">
+                        <i class="bi bi-incognito"></i>
+                    </button>
                     <input type="text" class="chat-input" id="messageInput"
                            placeholder="Type your message..." maxlength="500"
                            onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}">
