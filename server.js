@@ -4687,6 +4687,64 @@ app.get('/api/messages/reactions', requireAuth, async (req, res) => {
     }
 });
 
+// Get users for a specific reaction on a specific message
+// Example: /api/messages/<messageId>/reactions/like/users
+app.get('/api/messages/:id/reactions/:reactionType/users', requireAuth, async (req, res) => {
+    try {
+        const messageId = String(req.params.id || '').trim();
+        const reactionType = String(req.params.reactionType || '').trim().toLowerCase();
+
+        if (!messageId) return res.status(400).json({ error: 'Message ID is required' });
+        if (!ALLOWED_MESSAGE_REACTIONS.has(reactionType)) {
+            return res.status(400).json({ error: 'Invalid reaction type' });
+        }
+
+        const { data: message, error: msgError } = await supabaseAdmin
+            .from('messages')
+            .select('id, user_id, recipient_id, chat_type')
+            .eq('id', messageId)
+            .single();
+
+        if (msgError || !message) {
+            return res.status(404).json({ error: 'Message not found' });
+        }
+
+        // Access guard for private messages: only participants can view reactor list.
+        if (message.chat_type === 'private') {
+            const isParticipant = String(message.user_id) === String(req.session.userId)
+                || String(message.recipient_id) === String(req.session.userId);
+            if (!isParticipant) return res.status(403).json({ error: 'Not allowed' });
+        }
+
+        const { data: reactions, error } = await supabaseAdmin
+            .from('message_reactions')
+            .select('user_id, users(id, username, display_name, profile_picture_url)')
+            .eq('message_id', messageId)
+            .eq('reaction_type', reactionType)
+            .order('created_at', { ascending: false })
+            .limit(80);
+
+        if (error) {
+            const msg = String(error.message || '');
+            if (msg.includes('message_reactions')) {
+                // Backward compatibility if migration is missing.
+                return res.json({ users: [] });
+            }
+            console.error('Get message reaction users error:', error);
+            return res.status(500).json({ error: 'Failed to fetch reaction users' });
+        }
+
+        const users = Array.isArray(reactions)
+            ? reactions.map((r) => r && r.users).filter(Boolean)
+            : [];
+
+        return res.json({ users });
+    } catch (error) {
+        console.error('Get message reaction users error:', error);
+        return res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // Toggle/update a message reaction for current user
 app.post('/api/messages/:id/reactions', requireAuth, async (req, res) => {
     try {

@@ -46,18 +46,39 @@ let messageButtonState = {
     touchHoldTimer: null,
     touchHoldTriggered: false,
     unreadIntervalId: null,
-    privatePollIntervalId: null
+    privatePollIntervalId: null,
+    generalPollIntervalId: null
 };
+
+function setMessageButtonVisible(visible) {
+    const buttons = document.querySelectorAll('#messageBtn, #messageFabBtn');
+    buttons.forEach((btn) => {
+        if (btn) btn.style.display = visible ? '' : 'none';
+    });
+
+    if (!visible) {
+        const modal = document.getElementById('messageModal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+        }
+    }
+}
 
 async function initMessageButton() {
     try {
         injectMessageModalPrivateStyles();
+        setMessageButtonVisible(false);
 
         const resp = await fetch('/api/auth/me', { credentials: 'include' });
-        if (!resp.ok) return;
+        if (!resp.ok) {
+            messageButtonState.currentUser = null;
+            return;
+        }
 
         const data = await resp.json();
         messageButtonState.currentUser = data.user;
+        setMessageButtonVisible(true);
         const modalEl = document.getElementById('messageModal');
         if (modalEl && !document.getElementById('msgFloatingMenu')) {
             const fm = document.createElement('div');
@@ -74,6 +95,7 @@ async function initMessageButton() {
         }
         messageButtonState.unreadIntervalId = setInterval(updateMessageUnreadBadge, PRIVATE_POLL_INTERVAL_MS);
     } catch (err) {
+        setMessageButtonVisible(false);
         console.error('Failed to init message button:', err);
     }
 }
@@ -440,6 +462,69 @@ function injectMessageModalPrivateStyles() {
         .msg-private-reaction-chip.mine {
             border-color: var(--primary-pink);
             background: rgba(255, 158, 180, 0.14);
+        }
+
+        .msg-reaction-users-popover {
+            position: absolute;
+            min-width: 220px;
+            max-width: 280px;
+            max-height: 260px;
+            overflow-y: auto;
+            border: 1px solid var(--medium-gray);
+            background: var(--white);
+            border-radius: 10px;
+            box-shadow: var(--shadow-md);
+            z-index: 60;
+            padding: 8px;
+        }
+
+        .msg-reaction-users-header {
+            font-size: 0.75rem;
+            color: var(--dark-gray);
+            font-weight: 700;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .msg-reaction-users-empty {
+            font-size: 0.8rem;
+            color: var(--dark-gray);
+            padding: 6px 2px;
+        }
+
+        .msg-reaction-user-row {
+            width: 100%;
+            border: none;
+            background: transparent;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px;
+            border-radius: 8px;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .msg-reaction-user-row:hover {
+            background: var(--off-white);
+        }
+
+        .msg-reaction-user-avatar {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex: 0 0 24px;
+        }
+
+        .msg-reaction-user-name {
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-size: 0.8rem;
+            color: var(--text-dark);
         }
 
         .msg-general-chat-wrap {
@@ -856,8 +941,8 @@ function injectMessageModalPrivateStyles() {
 
 async function updateMessageUnreadBadge() {
     try {
-        const lastSeenGeneral = localStorage.getItem('chat_last_seen_general') || new Date().toISOString();
-        const lastSeenPrivate = localStorage.getItem('chat_last_seen_private') || new Date().toISOString();
+        const lastSeenGeneral = localStorage.getItem('chat_last_seen_general') || '1970-01-01T00:00:00Z';
+        const lastSeenPrivate = localStorage.getItem('chat_last_seen_private') || '1970-01-01T00:00:00Z';
 
         const resp = await fetch(
             `/api/messages/unread?lastSeenGeneral=${encodeURIComponent(lastSeenGeneral)}&lastSeenPrivate=${encodeURIComponent(lastSeenPrivate)}`,
@@ -885,6 +970,11 @@ async function updateMessageUnreadBadge() {
 }
 
 function openMessageModal() {
+    if (!messageButtonState.currentUser) {
+        setMessageButtonVisible(false);
+        return;
+    }
+
     const modal = document.getElementById('messageModal');
     if (!modal) {
         console.error('Message modal not found');
@@ -901,11 +991,13 @@ function closeMessageModal() {
     if (!modal) return;
 
     stopPrivateConversationPolling();
+    stopGeneralConversationPolling();
     messageButtonState.privateReplyTo = null;
     messageButtonState.privateReplyMeta = null;
     messageButtonState.generalReplyTo = null;
     messageButtonState.generalReplyMeta = null;
     closeAllModalReactionPickers();
+    closeMessageReactionUsersPopover();
     closeAllModalActionMenus();
     clearModalMessageSelection();
     modal.classList.remove('show');
@@ -928,19 +1020,23 @@ function switchMessageTab(tab) {
     clearModalMessageSelection();
     closeAllModalActionMenus();
     closeAllModalReactionPickers();
+    closeMessageReactionUsersPopover();
 
     if (tab === 'private') {
         messageButtonState.activePrivateUser = null;
         messageButtonState.privateReplyTo = null;
         messageButtonState.privateReplyMeta = null;
         renderPrivateReplyBanner();
+        stopGeneralConversationPolling();
         stopPrivateConversationPolling();
+        startPrivateConversationPolling();
         loadPrivateContacts();
     } else {
         messageButtonState.privateReplyTo = null;
         messageButtonState.privateReplyMeta = null;
         renderPrivateReplyBanner();
         stopPrivateConversationPolling();
+        startGeneralConversationPolling();
         loadGeneralMessages();
     }
 }
@@ -990,6 +1086,7 @@ function bindMessageModalEvents() {
         const modal = document.getElementById('messageModal');
         if (!modal || !modal.contains(target)) {
             closeAllModalReactionPickers();
+            closeMessageReactionUsersPopover();
             closeAllModalActionMenus();
             clearModalMessageSelection();
             return;
@@ -1007,6 +1104,7 @@ function bindMessageModalEvents() {
             const isOpen = fm.classList.contains('show') && fm.dataset.activeMsgId === currentMsgId;
             closeAllModalActionMenus();
             closeAllModalReactionPickers();
+            closeMessageReactionUsersPopover();
 
             if (!isOpen) {
                 const msgId = currentMsgId;
@@ -1052,7 +1150,7 @@ function bindMessageModalEvents() {
         }
 
         const selectable = target.closest('[data-selectable-message]');
-        const clickedInteractive = !!target.closest('[data-modal-action], .msg-modal-actions-menu, .msg-private-reaction-choice, .msg-private-reaction-chip');
+        const clickedInteractive = !!target.closest('[data-modal-action], .msg-modal-actions-menu, .msg-private-reaction-choice, .msg-private-reaction-chip, .msg-reaction-users-popover');
         if (selectable && !clickedInteractive) {
             event.preventDefault();
             event.stopPropagation();
@@ -1102,6 +1200,7 @@ function bindMessageModalEvents() {
                     closeAllModalActionMenus();
                     document.getElementById('msgPrivateComposerInput')?.focus();
                 }
+                closeMessageReactionUsersPopover();
                 return;
             }
 
@@ -1111,6 +1210,7 @@ function bindMessageModalEvents() {
                 if (!picker) return;
                 const isOpen = picker.classList.contains('show');
                 closeAllModalReactionPickers();
+                closeMessageReactionUsersPopover();
                 if (!isOpen) picker.classList.add('show');
                 return;
             }
@@ -1151,6 +1251,7 @@ function bindMessageModalEvents() {
             const reaction = reactionChoice.getAttribute('data-reaction') || '';
             const picker = reactionChoice.closest('.msg-private-reaction-picker');
             if (picker) picker.classList.remove('show');
+            closeMessageReactionUsersPopover();
             closeAllModalActionMenus();
             if (messageId && reaction) reactToModalMessage(messageId, reaction, section);
             return;
@@ -1163,12 +1264,15 @@ function bindMessageModalEvents() {
             const messageId = reactionChip.getAttribute('data-message-id') || '';
             const section = reactionChip.getAttribute('data-section') || 'private';
             const reaction = reactionChip.getAttribute('data-reaction') || '';
-            if (messageId && reaction) reactToModalMessage(messageId, reaction, section);
+            if (messageId && reaction) openMessageReactionUsersPopover(reactionChip, messageId, reaction, section);
             return;
         }
 
         if (!target.closest('.msg-private-reaction-wrap') && !target.closest('#msgFloatingMenu')) {
             closeAllModalReactionPickers();
+        }
+        if (!target.closest('.msg-reaction-users-popover') && !target.closest('.msg-private-reaction-chip')) {
+            closeMessageReactionUsersPopover();
         }
         if (!target.closest('.msg-modal-actions-inline') && !target.closest('#msgFloatingMenu')) {
             closeAllModalActionMenus();
@@ -1198,6 +1302,90 @@ function closeAllModalActionMenus() {
         fm.classList.remove('show');
         fm.innerHTML = '';
         delete fm.dataset.activeMsgId;
+    }
+}
+
+function closeMessageReactionUsersPopover() {
+    const pop = document.getElementById('msgReactionUsersPopover');
+    if (pop) pop.remove();
+}
+
+async function openMessageReactionUsersPopover(anchorEl, messageId, reactionType, section) {
+    if (!anchorEl || !messageId || !reactionType) return;
+
+    closeMessageReactionUsersPopover();
+
+    const modal = document.getElementById('messageModal');
+    if (!modal) return;
+
+    const pop = document.createElement('div');
+    pop.id = 'msgReactionUsersPopover';
+    pop.className = 'msg-reaction-users-popover';
+    pop.innerHTML = `
+        <div class="msg-reaction-users-header">${MESSAGE_REACTION_EMOJIS[reactionType] || ''} ${escapeHtml(reactionType)} reactions</div>
+        <div class="msg-reaction-users-empty">Loading...</div>
+    `;
+
+    const modalRect = modal.getBoundingClientRect();
+    const chipRect = anchorEl.getBoundingClientRect();
+    pop.style.top = `${Math.max(8, chipRect.bottom - modalRect.top + 6)}px`;
+    pop.style.left = `${Math.max(8, Math.min(chipRect.left - modalRect.left, modalRect.width - 288))}px`;
+    modal.appendChild(pop);
+
+    try {
+        const resp = await fetch(
+            `/api/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(reactionType)}/users?section=${encodeURIComponent(section)}`,
+            { credentials: 'include' }
+        );
+
+        if (!resp.ok) {
+            pop.innerHTML = `
+                <div class="msg-reaction-users-header">${MESSAGE_REACTION_EMOJIS[reactionType] || ''} ${escapeHtml(reactionType)} reactions</div>
+                <div class="msg-reaction-users-empty">Failed to load users.</div>
+            `;
+            return;
+        }
+
+        const data = await resp.json();
+        const users = Array.isArray(data.users) ? data.users : [];
+        if (users.length === 0) {
+            pop.innerHTML = `
+                <div class="msg-reaction-users-header">${MESSAGE_REACTION_EMOJIS[reactionType] || ''} ${escapeHtml(reactionType)} reactions</div>
+                <div class="msg-reaction-users-empty">No users found.</div>
+            `;
+            return;
+        }
+
+        pop.innerHTML = `
+            <div class="msg-reaction-users-header">${MESSAGE_REACTION_EMOJIS[reactionType] || ''} ${escapeHtml(reactionType)} reactions</div>
+            ${users.map((u) => {
+                const uid = escapeHtml(String((u && u.id) || ''));
+                const name = escapeHtml((u && (u.display_name || u.username)) || 'User');
+                const avatar = escapeHtml((u && u.profile_picture_url) || '/images/default-avatar.svg');
+                return `
+                    <button class="msg-reaction-user-row" data-user-id="${uid}">
+                        <img src="${avatar}" class="msg-reaction-user-avatar" alt="${name}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'">
+                        <span class="msg-reaction-user-name">${name}</span>
+                    </button>
+                `;
+            }).join('')}
+        `;
+
+        pop.querySelectorAll('.msg-reaction-user-row').forEach((row) => {
+            row.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const uid = row.getAttribute('data-user-id');
+                if (!uid) return;
+                closeMessageReactionUsersPopover();
+                goToUserProfile(uid);
+            });
+        });
+    } catch (err) {
+        pop.innerHTML = `
+            <div class="msg-reaction-users-header">${MESSAGE_REACTION_EMOJIS[reactionType] || ''} ${escapeHtml(reactionType)} reactions</div>
+            <div class="msg-reaction-users-empty">Failed to load users.</div>
+        `;
     }
 }
 
@@ -1534,6 +1722,23 @@ function generateAnonymousName(userId) {
     return `${adj}${animal}#${num}`;
 }
 
+function isAnonymousGeneralMessage(msg) {
+    if (!msg) return false;
+
+    const rawFlag = msg.is_anonymous;
+    if (rawFlag === true || rawFlag === 1 || rawFlag === '1' || rawFlag === 'true' || rawFlag === 't') {
+        return true;
+    }
+
+    const uid = msg.user_id;
+    const uname = String(msg.username || '');
+    if (!uid || !uname) return false;
+
+    // Fallback for deployments where messages.is_anonymous may be missing
+    // and anonymous names were still generated server-side.
+    return uname === generateAnonymousName(uid);
+}
+
 function renderPrivateReplyBanner() {
     const banner = document.getElementById('msgPrivateReplyBanner');
     const text = document.getElementById('msgPrivateReplyText');
@@ -1705,6 +1910,7 @@ function renderPrivateConversationShell() {
             messageButtonState.privateReplyMeta = null;
             renderPrivateReplyBanner();
             stopPrivateConversationPolling();
+            startPrivateConversationPolling();
             loadPrivateContacts();
         });
     }
@@ -1761,8 +1967,11 @@ function startPrivateConversationPolling() {
         const modal = document.getElementById('messageModal');
         if (!modal || !modal.classList.contains('show')) return;
         if (messageButtonState.currentTab !== 'private') return;
-        if (!messageButtonState.activePrivateUser) return;
-        loadPrivateConversation(true);
+        if (messageButtonState.activePrivateUser) {
+            loadPrivateConversation(true);
+        } else {
+            loadPrivateContacts();
+        }
     }, PRIVATE_POLL_INTERVAL_MS);
 }
 
@@ -1770,6 +1979,24 @@ function stopPrivateConversationPolling() {
     if (messageButtonState.privatePollIntervalId) {
         clearInterval(messageButtonState.privatePollIntervalId);
         messageButtonState.privatePollIntervalId = null;
+    }
+}
+
+function startGeneralConversationPolling() {
+    stopGeneralConversationPolling();
+
+    messageButtonState.generalPollIntervalId = setInterval(() => {
+        const modal = document.getElementById('messageModal');
+        if (!modal || !modal.classList.contains('show')) return;
+        if (messageButtonState.currentTab !== 'general') return;
+        loadGeneralMessages(true);
+    }, PRIVATE_POLL_INTERVAL_MS);
+}
+
+function stopGeneralConversationPolling() {
+    if (messageButtonState.generalPollIntervalId) {
+        clearInterval(messageButtonState.generalPollIntervalId);
+        messageButtonState.generalPollIntervalId = null;
     }
 }
 
@@ -2051,11 +2278,10 @@ function renderGeneralChat(options = {}) {
 
     const rows = (messageButtonState.generalMessages || []).map((msg) => {
         const isSelf = messageButtonState.currentUser && String(msg.user_id) === String(messageButtonState.currentUser.id);
-        const displayNameRaw = msg.is_anonymous ? (msg.username || 'Anonymous') : (msg.username || 'User');
+        const isAnon = isAnonymousGeneralMessage(msg);
+        const displayNameRaw = isAnon ? (msg.username || 'Anonymous') : (msg.username || 'User');
         const displayName = escapeHtml(displayNameRaw);
-        const anonBadge = msg.is_anonymous
-            ? '<span style="font-size:0.65rem;color:var(--primary-pink);font-weight:600;margin-left:4px;">anonymous</span>'
-            : '';
+        const anonBadge = '';
         const msgId = escapeHtml(String(msg.id || ''));
 
         let replyPreview = '';
@@ -2068,7 +2294,7 @@ function renderGeneralChat(options = {}) {
 
         const actionsMenu = buildModalActionsMenu(msgId, 'general', !!isSelf, true, isSelf ? 'left' : 'right');
         const safeMessage = escapeHtml(String(msg.message || ''));
-        const displayAvatar = msg.is_anonymous
+        const displayAvatar = isAnon
             ? '/images/default-avatar.svg'
             : (((msg.users && msg.users.profile_picture_url) || (isSelf ? (messageButtonState.currentUser && messageButtonState.currentUser.profile_picture_url) : null) || '/images/default-avatar.svg'));
         const messageBubble = `
@@ -2267,6 +2493,71 @@ function escapeHtml(text) {
 function goToUserProfile(userId) {
     if (!userId) return;
     window.location.href = `/user.html?user=${encodeURIComponent(String(userId))}`;
+}
+
+async function openMessageModalFromNotification(opts = {}) {
+    const chatType = String(opts.chatType || (opts.withUser ? 'private' : 'general')).toLowerCase() === 'private'
+        ? 'private'
+        : 'general';
+    const withUser = opts.withUser ? String(opts.withUser) : '';
+    const msgId = opts.msgId ? String(opts.msgId) : '';
+
+    const modal = document.getElementById('messageModal');
+    if (!modal) return false;
+
+    if (!modal.classList.contains('show') || modal.style.display === 'none') {
+        openMessageModal();
+    } else {
+        modal.classList.add('show');
+        modal.style.display = '';
+    }
+
+    if (chatType === 'private') {
+        switchMessageTab('private');
+
+        // Ensure private contacts are up to date before opening a thread.
+        try { await loadPrivateContacts(); } catch (_) {}
+
+        if (withUser) {
+            await openPrivateConversation(withUser);
+            if (msgId) {
+                setTimeout(() => scrollToModalMessage(msgId, 'private'), 140);
+            }
+        }
+        return true;
+    }
+
+    switchMessageTab('general');
+    await loadGeneralMessages(true);
+    if (msgId) {
+        setTimeout(() => scrollToModalMessage(msgId, 'general'), 120);
+    }
+    return true;
+}
+
+window.openMessageModalFromNotification = openMessageModalFromNotification;
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        try {
+            const data = event && event.data ? event.data : null;
+            if (!data || data.type !== 'open-message-modal-from-notification') return;
+
+            const targetUrl = String(data.targetUrl || '/chat.html');
+            const parsed = new URL(targetUrl, window.location.origin);
+            const withUser = parsed.searchParams.get('with') || '';
+            const msgId = parsed.searchParams.get('scrollTo') || '';
+            const chatType = withUser ? 'private' : 'general';
+
+            openMessageModalFromNotification({
+                chatType,
+                withUser: withUser || null,
+                msgId: msgId || null
+            }).catch(() => {});
+        } catch (_) {
+            // Ignore SW message parsing errors.
+        }
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

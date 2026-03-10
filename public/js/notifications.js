@@ -12,6 +12,32 @@
     let _hasMore = false;
     let _isLoadingMore = false;
 
+    async function tryOpenNotificationLinkInModal(link) {
+        try {
+            if (!link) return false;
+            const url = new URL(link, window.location.origin);
+            const path = (url.pathname || '').toLowerCase();
+            if (path !== '/chat.html' && path !== '/chat') return false;
+
+            const withUser = url.searchParams.get('with') || '';
+            const msgId = url.searchParams.get('scrollTo') || '';
+            const chatType = withUser ? 'private' : 'general';
+
+            if (typeof window.openMessageModalFromNotification === 'function') {
+                const opened = await window.openMessageModalFromNotification({
+                    chatType,
+                    withUser: withUser || null,
+                    msgId: msgId || null
+                });
+                return !!opened;
+            }
+
+            return false;
+        } catch (_) {
+            return false;
+        }
+    }
+
     // Initialize notifications on page load
     function initNotifications() {
         const notifBtns = document.querySelectorAll('.notification-btn');
@@ -153,7 +179,10 @@
                         const notifId = item.dataset.id;
                         const link = item.dataset.link;
                         await markAsRead(notifId);
-                        if (link) window.location.href = link;
+                        if (link) {
+                            const handled = await tryOpenNotificationLinkInModal(link);
+                            if (!handled) window.location.href = link;
+                        }
                     });
                 });
             });

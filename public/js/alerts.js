@@ -198,26 +198,31 @@
         console.debug('alerts: showChatNotification', { username: opts.username, chatType: opts.chatType });
         const alertEl = showAlert('info', messageHtml, timeout);
 
-        // Make the toast clickable to open chat and scroll to message when `opts.msgId` is provided.
+        // Make toast click open message modal; fallback to chat page if helper is unavailable.
         try {
-                if (alertEl && opts && opts.msgId) {
+            if (alertEl) {
                 alertEl.style.cursor = 'pointer';
-                alertEl.addEventListener('click', (e) => {
+                alertEl.addEventListener('click', async (e) => {
                     try { e.stopPropagation(); } catch (x) {}
-                    // Close the alert
                     try { alertEl.remove(); } catch (x) {}
-                    // Build URL to chat page with scrollTo param
+
+                    const other = opts.withUser || opts.userId || opts.senderId || null;
+                    const chatTypeSafe = (opts.chatType === 'private') ? 'private' : 'general';
+
+                    if (typeof window.openMessageModalFromNotification === 'function') {
+                        const opened = await window.openMessageModalFromNotification({
+                            chatType: chatTypeSafe,
+                            withUser: chatTypeSafe === 'private' ? other : null,
+                            msgId: opts.msgId || null
+                        });
+                        if (opened) return;
+                    }
+
                     const target = '/chat.html';
                     const qs = new URLSearchParams();
-                    qs.set('scrollTo', String(opts.msgId));
-                    // If private chat, try to include the other user's id so chat opens to that thread.
-                    // Prefer explicit `withUser`, then `userId`/`senderId`, then fall back to `recipientId`.
-                    if (opts.chatType === 'private') {
-                        const other = opts.withUser || opts.userId || opts.senderId || opts.recipientId;
-                        if (other) qs.set('with', String(other));
-                    }
-                    // Navigate
-                    window.location.href = target + '?' + qs.toString();
+                    if (opts.msgId) qs.set('scrollTo', String(opts.msgId));
+                    if (chatTypeSafe === 'private' && other) qs.set('with', String(other));
+                    window.location.href = target + (qs.toString() ? `?${qs.toString()}` : '');
                 });
             }
         } catch (e) { /* ignore */ }

@@ -113,13 +113,25 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      const target = new URL(targetUrl, self.location.origin);
+      const isChatTarget = target.pathname === '/chat.html' || target.pathname === '/chat';
+
       // Focus existing window/tab if already open and same origin
       for (const client of clientList) {
         try {
           const clientUrl = new URL(client.url);
-          const target = new URL(targetUrl, self.location.origin);
           if (clientUrl.origin === target.origin) {
             client.focus();
+            if (isChatTarget) {
+              try {
+                client.postMessage({
+                  type: 'open-message-modal-from-notification',
+                  targetUrl
+                });
+                return;
+              } catch {}
+            }
+
             client.navigate(targetUrl);
             return;
           }
