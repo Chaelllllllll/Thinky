@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact Thinky</title>
+  <meta name="description" content="Contact Thinky for account help, policy reports, and business inquiries.">
+  <link rel="stylesheet" href="/css/info-pages.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-head">
+      <a class="brand" href="/index.html">Thinky</a>
+      <nav class="nav-links" aria-label="Site links">
+        <a href="/about.html">About</a>
+        <a class="active" href="/contact.html">Contact</a>
+        <a href="/privacy.html">Privacy</a>
+        <a href="/terms.html">Terms</a>
+        <a href="/policy.html">Community Policies</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>Contact Us</h1>
+      <p>Need help with your account, content, or a policy issue? Reach out and our team will respond as soon as possible.</p>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Support Channels</h2>
+        <p><strong>Email:</strong> <a href="mailto:thinky.official.io@gmail.com">thinky.official.io@gmail.com</a></p>
+        <p><strong>Policy reports:</strong> Use our moderation tools for urgent safety concerns.</p>
+        <p><strong>Response time:</strong> Usually within 2 to 3 business days.</p>
+      </article>
+
+      <article class="card">
+        <h2>Quick Note</h2>
+        <p>If you contact us about an account issue, include the email address used to sign in so we can assist faster.</p>
+        <p class="note">Do not send passwords or sensitive personal data by email.</p>
+      </article>
+    </section>
+
+    <section class="card">
+      <h2>Send a Message</h2>
+      <form id="contactForm">
+        <div class="field">
+          <label for="name">Name</label>
+          <input id="name" class="input" required>
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" class="input" type="email" required>
+        </div>
+        <div class="field">
+          <label for="message">Message</label>
+          <textarea id="message" class="textarea" required></textarea>
+        </div>
+        <button class="btn" type="submit">Open Email Draft</button>
+      </form>
+      <p class="note">Submitting opens your default email app with a prefilled draft.</p>
+    </section>
+
+    <footer class="footer">
+      <a href="/index.html">Home</a>
+      <a href="/about.html">About</a>
+      <a href="/privacy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+    </footer>
+  </div>
+
+  <script>
+    document.getElementById('contactForm').addEventListener('submit', function (event) {
+      event.preventDefault();
+      var name = document.getElementById('name').value.trim();
+      var email = document.getElementById('email').value.trim();
+      var message = document.getElementById('message').value.trim();
+
+      var subject = encodeURIComponent('Thinky Contact Form: ' + name);
+      var body = encodeURIComponent(
+        'Name: ' + name + '\n' +
+        'Email: ' + email + '\n\n' +
+        message
+      );
+
+      window.location.href = 'mailto:thinky.official.io@gmail.com?subject=' + subject + '&body=' + body;
+    });
+  </script>
+</body>
+</html>
