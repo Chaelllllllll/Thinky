@@ -5,6 +5,9 @@
   },
   "routes": [
     { "src": "^/api/(.*)$", "dest": "/api/[...slug].js" },
+    { "src": "^/sitemap\\.xml/?$", "dest": "/public/sitemap.xml" },
+    { "src": "^/robots\\.txt/?$", "dest": "/public/robots.txt" },
+    { "src": "^/sitemap/?$", "dest": "/public/sitemap.xml" },
     { "src": "^/(js|css|images|auth|fonts)/(.*)$", "dest": "/public/$1/$2" },
     { "src": "^/$", "dest": "/public/index.html" },
     { "src": "^/([^\\.]+)$", "dest": "/public/$1.html" },
