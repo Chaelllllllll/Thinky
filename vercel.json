@@ -1,7 +1,7 @@
 {
   "version": 2,
   "functions": {
-    "api/[...slug].js": { "maxDuration": 60 }
+    "api/[...slug].js": { "maxDuration": 60, "bodySizeLimit": "10mb" }
   },
   "routes": [
     { "src": "^/api/(.*)$", "dest": "/api/[...slug].js" },

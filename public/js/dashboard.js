@@ -1855,6 +1855,11 @@ async function aiDoGenerate() {
     const wantQuiz       = document.getElementById('aiGenQuiz')?.checked ?? false;
 
     try {
+        const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB — must match server bodySizeLimit
+        if (_aiSelectedFile.size > MAX_UPLOAD_BYTES) {
+            window.showAlert('error', `File is too large (${((_aiSelectedFile.size / 1024 / 1024).toFixed(1))} MB). Please upload a file under 10 MB.`);
+            return;
+        }
         const formData = new FormData();
         formData.append('file', _aiSelectedFile);
         // Defer extras until save so users can edit reviewer content first.
@@ -1875,6 +1880,8 @@ async function aiDoGenerate() {
                 ? limitReachedMsg(data)
                 : resp.status === 401
                 ? 'Session expired or not recognized. Please try refreshing the page and logging in again.'
+                : resp.status === 413
+                ? 'File is too large. Please upload a file under 10 MB.'
                 : resp.status === 504
                 ? 'The server took too long to respond. Please try with a smaller file.'
                 : (data.error || `Auto generation failed (HTTP ${resp.status}). Please try again.`);

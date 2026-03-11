@@ -7425,7 +7425,7 @@ function resolveFileMime(originalname, fallbackMime) {
 }
 
 const AI_INLINE_FILE_BYTES = 8 * 1024 * 1024;
-const AI_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const AI_MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB — must match Vercel bodySizeLimit in vercel.json
 
 function decodeXmlEntities(text) {
     return String(text || '')
