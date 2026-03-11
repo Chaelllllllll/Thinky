@@ -6641,6 +6641,86 @@ app.get('/api/admin/subjects/list', requireAdmin, async (req, res) => {
     }
 });
 
+// Create subject (admin)
+app.post('/api/admin/subjects', requireAdmin, async (req, res) => {
+    try {
+        const { name, description, school, user_id } = req.body;
+        if (!name) return res.status(400).json({ error: 'Subject name is required' });
+
+        const cleanName = String(name).trim().slice(0, 200);
+        const payload = { name: cleanName, description: description || '', school: school || null };
+        if (user_id) payload.user_id = user_id;
+
+        const { data: subject, error } = await supabaseAdmin
+            .from('subjects')
+            .insert([payload])
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Admin create subject error:', error);
+            return res.status(500).json({ error: 'Failed to create subject' });
+        }
+
+        res.json({ subject });
+    } catch (error) {
+        console.error('Admin create subject error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Update subject (admin)
+app.put('/api/admin/subjects/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, description, school, user_id } = req.body;
+        if (!name) return res.status(400).json({ error: 'Subject name is required' });
+
+        const update = { name: String(name).trim().slice(0,200), description: description || '' };
+        if (typeof school !== 'undefined') update.school = school || null;
+        if (typeof user_id !== 'undefined') update.user_id = user_id || null;
+
+        const { data: subject, error } = await supabaseAdmin
+            .from('subjects')
+            .update(update)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Admin update subject error:', error);
+            return res.status(500).json({ error: 'Failed to update subject' });
+        }
+
+        res.json({ subject });
+    } catch (error) {
+        console.error('Admin update subject error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Delete subject (admin)
+app.delete('/api/admin/subjects/:id', requireAdmin, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { error } = await supabaseAdmin
+            .from('subjects')
+            .delete()
+            .eq('id', id);
+
+        if (error) {
+            console.error('Admin delete subject error:', error);
+            return res.status(500).json({ error: 'Failed to delete subject' });
+        }
+
+        res.json({ message: 'Subject deleted successfully' });
+    } catch (error) {
+        console.error('Admin delete subject error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
 // GET /api/admin/reviewers/list?page=1&limit=20
 app.get('/api/admin/reviewers/list', requireAdmin, async (req, res) => {
     try {

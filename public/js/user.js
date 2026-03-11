@@ -589,7 +589,7 @@
                     // ignore errors and fall back to message behavior
                 }
 
-                // Default behavior: redirect to chat page for private conversation
+                // Default behavior: open the in-app messages modal (private) for this user
                 msgBtn.addEventListener('click', async () => {
                     try {
                         const resp = await fetch('/api/auth/me', { credentials: 'include' });
@@ -602,7 +602,18 @@
                                 return;
                             }
                         } catch (e) {}
-                        // Navigate to chat page and open private chat with this user
+
+                        // If the global message modal API is available, open it to the private thread with this user.
+                        if (typeof window.openMessageModalFromNotification === 'function') {
+                            try {
+                                await window.openMessageModalFromNotification({ chatType: 'private', withUser: String(userId) });
+                                return;
+                            } catch (e) {
+                                console.warn('openMessageModalFromNotification failed, falling back to chat page', e);
+                            }
+                        }
+
+                        // Fallback: navigate to chat page and open private chat with this user
                         const target = '/chat.html';
                         const qs = new URLSearchParams();
                         qs.set('with', String(userId));

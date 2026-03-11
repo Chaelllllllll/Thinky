@@ -239,6 +239,36 @@
             border: 2px solid white;
         }
 
+        /* Small sub-badges for private/general unread counts */
+        .msg-fab-sub-badge {
+            position: absolute;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.65rem;
+            font-weight: 700;
+            border-radius: 999px;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 4px;
+            line-height: 18px;
+            border: 2px solid white;
+            box-sizing: border-box;
+        }
+
+        #msgPrivateBadge {
+            top: -6px;
+            left: -6px;
+            background: var(--primary-pink);
+        }
+
+        #msgGeneralBadge {
+            bottom: -6px;
+            right: -6px;
+            background: #5aa2ff;
+        }
+
         /* ─── Message Modal ─── */
         #messageModal {
             position: fixed;
@@ -680,6 +710,8 @@
     <button id="messageFabBtn" onclick="openMessageModal()" title="Messages">
         <i class="bi bi-chat-dots"></i>
         <div id="msgBtnBadge"></div>
+        <div id="msgPrivateBadge" class="msg-fab-sub-badge" aria-hidden="true"></div>
+        <div id="msgGeneralBadge" class="msg-fab-sub-badge" aria-hidden="true"></div>
     </button>
 
     <!-- Message Modal -->

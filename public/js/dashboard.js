@@ -180,6 +180,13 @@ async function loadCurrentUser() {
         const data = await response.json();
         currentUser = data.user;
         document.getElementById('username').textContent = currentUser.username;
+        // If user is an admin, reveal the Admin Dashboard link in the sidebar
+        try {
+            const adminLink = document.getElementById('adminDashboardLink');
+            if (adminLink) {
+                adminLink.style.display = (currentUser && currentUser.role === 'admin') ? '' : 'none';
+            }
+        } catch (e) { /* ignore */ }
     } catch (error) {
         console.error('Error loading user:', error);
         window.location.href = '/login';

@@ -1014,12 +1014,17 @@ async function updateMessageUnreadBadge() {
             data = await computeUnreadFallback(lastSeenGeneral, lastSeenPrivate);
         }
 
-        const total = (parseInt(data.general || 0, 10) + parseInt(data.private || 0, 10)) || 0;
+        const privateCount = parseInt(data.private || 0, 10) || 0;
+        const generalCount = parseInt(data.general || 0, 10) || 0;
+        const total = privateCount + generalCount;
         messageButtonState.unreadCount = total;
 
         const badge = document.getElementById('msgBtnBadge');
+        const privateBadge = document.getElementById('msgPrivateBadge');
+        const generalBadge = document.getElementById('msgGeneralBadge');
         if (!badge) return;
 
+        // Total badge (center / top-right)
         if (total > 0) {
             badge.style.display = 'inline-flex';
             badge.style.visibility = 'visible';
@@ -1027,6 +1032,30 @@ async function updateMessageUnreadBadge() {
             badge.textContent = total > 99 ? '99+' : String(total);
         } else {
             badge.style.display = 'none';
+        }
+
+        // Private unread sub-badge (top-left)
+        if (privateBadge) {
+            if (privateCount > 0) {
+                privateBadge.style.display = 'inline-flex';
+                privateBadge.textContent = privateCount > 99 ? '99+' : String(privateCount);
+                privateBadge.setAttribute('aria-label', `${privateCount} unread private messages`);
+            } else {
+                privateBadge.style.display = 'none';
+                privateBadge.removeAttribute('aria-label');
+            }
+        }
+
+        // General unread sub-badge (bottom-right)
+        if (generalBadge) {
+            if (generalCount > 0) {
+                generalBadge.style.display = 'inline-flex';
+                generalBadge.textContent = generalCount > 99 ? '99+' : String(generalCount);
+                generalBadge.setAttribute('aria-label', `${generalCount} unread general messages`);
+            } else {
+                generalBadge.style.display = 'none';
+                generalBadge.removeAttribute('aria-label');
+            }
         }
     } catch (err) {
         console.error('Failed to update unread badge:', err);
@@ -1632,6 +1661,14 @@ async function loadPrivateContacts() {
         });
 
         messageButtonState.privateContacts = contacts;
+
+        // If a private conversation is currently open, do not re-render the
+        // contacts list — that would clobber the active conversation view.
+        if (messageButtonState.activePrivateUser) {
+            messageButtonState.privateContactsRendered = 0;
+            return;
+        }
+
         renderPrivateList();
     } catch (err) {
         console.error('Failed to load private contacts:', err);
@@ -2603,6 +2640,19 @@ async function openMessageModalFromNotification(opts = {}) {
     const modal = document.getElementById('messageModal');
     if (!modal) return false;
 
+    // Ensure we have the current user cached (best-effort)
+    if (!messageButtonState.currentUser) {
+        try {
+            const meResp = await fetch('/api/auth/me', { credentials: 'include' });
+            if (meResp.ok) {
+                const meData = await meResp.json();
+                messageButtonState.currentUser = meData.user || null;
+            }
+        } catch (_) {
+            // ignore
+        }
+    }
+
     if (!modal.classList.contains('show') || modal.style.display === 'none') {
         openMessageModal();
     } else {
@@ -2617,7 +2667,59 @@ async function openMessageModalFromNotification(opts = {}) {
         try { await loadPrivateContacts(); } catch (_) {}
 
         if (withUser) {
-            await openPrivateConversation(withUser);
+            // If the contact is present in the private contacts list, open normally.
+            const found = Array.isArray(messageButtonState.privateContacts)
+                ? messageButtonState.privateContacts.find(c => String(c.userId) === String(withUser))
+                : null;
+
+            if (found) {
+                await openPrivateConversation(withUser);
+            } else {
+                // Not in contacts: fetch the user's public profile and seed an activePrivateUser
+                try {
+                    const uResp = await fetch(`/api/users/${encodeURIComponent(withUser)}`);
+                    if (uResp.ok) {
+                        const udata = await uResp.json();
+                        const user = udata && udata.user ? udata.user : null;
+                        if (user && user.id) {
+                            messageButtonState.activePrivateUser = {
+                                userId: user.id,
+                                displayName: user.display_name || user.username || 'User',
+                                username: user.username || user.display_name || 'User',
+                                avatar: user.profile_picture_url || '/images/default-avatar.svg',
+                                relation: 'profile'
+                            };
+
+                            messageButtonState.privateConversationMessages = [];
+                            messageButtonState.privateHasMore = true;
+                            messageButtonState.privateLoadingOlder = false;
+                            messageButtonState.privateReplyTo = null;
+                            messageButtonState.privateReplyMeta = null;
+
+                            renderPrivateConversationShell();
+                            await loadPrivateConversation(false);
+                        } else {
+                            // Fallback: try to open via normal path (may redirect to chat page)
+                            await openPrivateConversation(withUser);
+                        }
+                    } else {
+                        // If fetching profile failed, fall back to chat page
+                        const target = '/chat.html';
+                        const qs = new URLSearchParams();
+                        qs.set('with', String(withUser));
+                        window.location.href = target + '?' + qs.toString();
+                        return true;
+                    }
+                } catch (err) {
+                    console.warn('openMessageModalFromNotification: failed to open private thread for user', err);
+                    const target = '/chat.html';
+                    const qs = new URLSearchParams();
+                    qs.set('with', String(withUser));
+                    window.location.href = target + '?' + qs.toString();
+                    return true;
+                }
+            }
+
             if (msgId) {
                 setTimeout(() => scrollToModalMessage(msgId, 'private'), 140);
             }

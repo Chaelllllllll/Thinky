@@ -28,6 +28,7 @@ async function loadCommunityPolicies() {
 let users = [];
 let reviewers = [];
 let messages = [];
+let subjects = [];
 let currentUser = null;
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -36,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadAnalytics();
     loadUsers();
     loadReviewers();
+    loadSubjects();
     // Load moderation queue for admins
     if (typeof loadModeration === 'function') loadModeration();
     // If a hash is present (e.g. #users, #reviewers, #moderation), switch to that tab
@@ -46,7 +48,8 @@ document.addEventListener('DOMContentLoaded', () => {
             'users': 'users',
             'reviewers': 'reviewers',
             'moderation': 'moderation',
-            'message-moderation': 'moderation'
+            'message-moderation': 'moderation',
+            'subjects': 'subjects'
         };
         if (hash && map[hash]) {
             // slight delay to allow initial rendering
@@ -60,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loadAnalytics();
         loadUsers();
         loadReviewers();
+        loadSubjects();
         if (typeof loadModeration === 'function') loadModeration();
     }, 30000);
 });
@@ -121,11 +125,12 @@ function updateSidebarActive() {
     const p = (location.pathname || '').toLowerCase();
     if (p.includes('admin-users')) key = 'users';
     else if (p.includes('admin-reviewers')) key = 'reviewers';
+    else if (p.includes('admin-subjects')) key = 'subjects';
     else if (p.includes('admin-message-moderation')) key = 'message-moderation';
     else if (p.includes('admin-moderation')) key = 'moderation';
     else {
         const h = (location.hash || '').replace('#','').toLowerCase();
-        if (['users','reviewers','moderation','message-moderation'].includes(h)) key = h;
+        if (['users','reviewers','moderation','message-moderation','subjects'].includes(h)) key = h;
     }
     if (!key) key = 'users'; // default
 
@@ -134,11 +139,19 @@ function updateSidebarActive() {
         const href = (a.getAttribute('href')||'').toLowerCase();
         if ((key === 'users' && href.includes('admin-users')) ||
             (key === 'reviewers' && href.includes('admin-reviewers')) ||
+            (key === 'subjects' && (href.includes('admin-subjects') || href.includes('#subjects'))) ||
             (key === 'moderation' && href.includes('admin-moderation')) ||
             (key === 'message-moderation' && href.includes('admin-message-moderation'))) {
             a.classList.add('active');
         }
     });
+
+    // If a matching tab-content exists for this key, switch to it so the
+    // sidebar hash or pathname controls which admin tab is shown.
+    try {
+        const tabEl = document.getElementById(`${key}Tab`);
+        if (tabEl) switchTab(key);
+    } catch (e) { /* ignore */ }
 }
 
 // Recompute active when hash changes or navigation occurs
@@ -430,6 +443,140 @@ async function loadReviewers() {
                 </td>
             </tr>
         `;
+    }
+}
+
+// -------------------------
+// Subjects (admin) UI
+// -------------------------
+async function loadSubjects() {
+    try {
+        const response = await fetch('/api/admin/subjects/list?page=1&limit=200', { credentials: 'include' });
+        if (!response.ok) throw new Error('Failed to load subjects');
+
+        const data = await response.json();
+        subjects = data.items || [];
+        renderSubjectsList(subjects);
+    } catch (error) {
+        console.error('Error loading subjects:', error);
+        const tbody = document.getElementById('subjectsTableBody');
+        if (tbody) tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--danger);">Failed to load subjects</td></tr>`;
+    }
+}
+
+function renderSubjectsList(list) {
+    const tbody = document.getElementById('subjectsTableBody');
+    if (!tbody) return;
+    if (!list || list.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:40px;color:var(--dark-gray);">No subjects found</td></tr>`;
+        return;
+    }
+    tbody.innerHTML = list.map(s => {
+        const creator = (s.users && (s.users.display_name || s.users.username)) || (s.user_username || '');
+        const created = s.created_at ? new Date(s.created_at).toLocaleDateString() : '';
+        return `
+            <tr>
+                <td style="font-weight:600;">${escapeHtml(s.name || '')}</td>
+                <td>${escapeHtml(creator)}</td>
+                <td>${created}</td>
+                <td>
+                    <div class="action-buttons">
+                        <button class="btn btn-light btn-sm" onclick="openEditSubjectModal('${s.id || ''}')"><i class="bi bi-pencil"></i> Edit</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteSubjectAdmin('${s.id || ''}')"><i class="bi bi-trash"></i> Delete</button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function filterSubjects() {
+    const term = (document.getElementById('subjectSearch')?.value || '').toLowerCase();
+    if (!term) return renderSubjectsList(subjects);
+    const filtered = (subjects || []).filter(s => (s.name || '').toLowerCase().includes(term) || ((s.users && (s.users.username || s.users.display_name)) || '').toLowerCase().includes(term));
+    renderSubjectsList(filtered);
+}
+
+function openAddSubjectModal() {
+    document.getElementById('subjectModalTitle').textContent = 'Add Subject';
+    document.getElementById('subjectId').value = '';
+    document.getElementById('subjectName').value = '';
+    document.getElementById('subjectDescription').value = '';
+    document.getElementById('subjectSchool').value = '';
+    const modal = document.getElementById('subjectModal');
+    if (modal) { modal.classList.add('show'); modal.style.display = 'flex'; }
+}
+
+function openEditSubjectModal(id) {
+    const s = (subjects || []).find(x => String(x.id) === String(id));
+    if (!s) return window.showModal('Subject not found', 'Error');
+    document.getElementById('subjectModalTitle').textContent = 'Edit Subject';
+    document.getElementById('subjectId').value = s.id || '';
+    document.getElementById('subjectName').value = s.name || '';
+    document.getElementById('subjectDescription').value = s.description || '';
+    document.getElementById('subjectSchool').value = s.school || '';
+    const modal = document.getElementById('subjectModal');
+    if (modal) { modal.classList.add('show'); modal.style.display = 'flex'; }
+}
+
+function closeSubjectModal() {
+    const modal = document.getElementById('subjectModal');
+    if (!modal) return;
+    modal.classList.remove('show');
+    modal.style.display = 'none';
+}
+
+async function saveSubject() {
+    const id = document.getElementById('subjectId').value;
+    const name = document.getElementById('subjectName').value.trim();
+    const description = document.getElementById('subjectDescription').value.trim();
+    const school = document.getElementById('subjectSchool').value.trim();
+
+    if (!name) { window.showAlert('Please provide a subject name', 'error'); return; }
+    const btn = document.getElementById('saveSubjectBtn');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Saving...'; }
+    try {
+        const url = id ? `/api/admin/subjects/${encodeURIComponent(id)}` : '/api/admin/subjects';
+        const method = id ? 'PUT' : 'POST';
+        const resp = await fetch(url, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ name, description, school })
+        });
+        if (!resp.ok) {
+            let err = 'Failed to save subject';
+            try { const j = await resp.json(); if (j && j.error) err = j.error; } catch(e){}
+            window.showAlert(err, 'error');
+            return;
+        }
+        closeSubjectModal();
+        await loadSubjects();
+        window.showAlert('Subject saved', 'success');
+    } catch (e) {
+        console.error('Save subject error:', e);
+        window.showAlert('Failed to save subject', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = 'Save Subject'; }
+    }
+}
+
+async function deleteSubjectAdmin(id) {
+    if (!(await window.showConfirm('Delete this subject? This will remove it for all users.', 'Confirm Delete'))) return;
+    try {
+        const resp = await fetch(`/api/admin/subjects/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' });
+        if (!resp.ok) {
+            let err = 'Failed to delete subject';
+            try { const j = await resp.json(); if (j && j.error) err = j.error; } catch(e){}
+            window.showAlert(err, 'error');
+            return;
+        }
+        window.showAlert('Subject deleted', 'success');
+        await loadSubjects();
+        await loadAnalytics();
+    } catch (e) {
+        console.error('Delete subject error:', e);
+        window.showAlert('Failed to delete subject', 'error');
     }
 }
 
