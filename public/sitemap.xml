@@ -1,51 +1,67 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url>
-    <loc>https://thinkyeducation.vercel.app/</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>daily</changefreq>
-    <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/about</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/contact</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/privacy</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/terms</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/policy</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/login</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-  </url>
-  <url>
-    <loc>https://thinkyeducation.vercel.app/register</loc>
-    <lastmod>2026-03-11</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
+<urlset
+      xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+            http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
+<!-- created with Free Online Sitemap Generator www.xml-sitemaps.com -->
+
+
+<url>
+  <loc>https://thinkyeducation.vercel.app/</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>1.00</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/login</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/register</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/user.html?user=650a3dde-90bc-4580-8491-2c84f12574f3</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/policy.html</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/about.html</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/contact.html</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/privacy.html</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/terms.html</loc>
+  <lastmod>2026-03-11T03:56:18+00:00</lastmod>
+  <priority>0.80</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/index.html</loc>
+  <lastmod>2026-03-11T03:56:18+00:00</lastmod>
+  <priority>0.64</priority>
+</url>
+<url>
+  <loc>https://thinkyeducation.vercel.app/register.html</loc>
+  <lastmod>2018-10-20T01:46:40+00:00</lastmod>
+  <priority>0.64</priority>
+</url>
+
+
 </urlset>
