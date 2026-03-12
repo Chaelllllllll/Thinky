@@ -33,13 +33,22 @@
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
     <script>
         (function(){
+            // Token state: 'unknown'|'fetching'|'applied'|'no_server_token'
+            try { window.__puterTokenState = window.__puterTokenState || 'unknown'; } catch (_) { /* ignore */ }
+
             async function applyPuterToken(){
                 try{
+                    window.__puterTokenState = 'fetching';
                     const resp = await fetch('/puter-token', { credentials: 'same-origin' });
-                    if(!resp.ok) return;
-                    const data = await resp.json();
+                    if(!resp.ok) {
+                        // No server-provided token — continue but mark state so callers know
+                        window.__puterTokenState = 'no_server_token';
+                        return;
+                    }
+                    const data = await resp.json().catch(() => ({}));
                     const token = data && data.token;
-                    if(!token) return;
+                    if(!token) { window.__puterTokenState = 'no_server_token'; return; }
+
                     // wait for the Puter.js global to be available
                     const start = Date.now();
                     while(!window.puter && Date.now() - start < 5000){
@@ -47,11 +56,17 @@
                     }
                     if(window.puter && typeof window.puter.setAuthToken === 'function'){
                         window.puter.setAuthToken(token);
+                        window.__puterTokenState = 'applied';
                         console.info('Puter: client auth token applied from server');
                     } else {
                         console.warn('Puter: client SDK not ready to accept token');
+                        // Keep the state as 'no_server_token' — allow anonymous Puter usage
+                        window.__puterTokenState = 'no_server_token';
                     }
-                }catch(e){ console.warn('Puter: failed to fetch/apply token', e); }
+                }catch(e){
+                    window.__puterTokenState = 'no_server_token';
+                    console.warn('Puter: failed to fetch/apply token', e);
+                }
             }
             // run asynchronously
             setTimeout(applyPuterToken, 0);
@@ -1736,11 +1751,25 @@ Answer: B</pre>
             sendBtn.disabled = true;
 
             try {
+                // If the token fetch is in progress, wait a short moment for it to complete.
+                if (typeof window.__puterTokenState !== 'undefined' && window.__puterTokenState !== 'applied' && window.__puterTokenState !== 'no_server_token') {
+                    const start = Date.now();
+                    while (Date.now() - start < 2000 && window.__puterTokenState !== 'applied' && window.__puterTokenState !== 'no_server_token') {
+                        await new Promise(r => setTimeout(r, 50));
+                    }
+                }
+
+                // If server indicated no token is available for this user, proceed anonymously.
+                if (window.__puterTokenState === 'no_server_token') {
+                    console.info('Puter: no server token found — proceeding with anonymous Puter.js client');
+                }
+
                 if (typeof puter === 'undefined') {
                     botDiv.textContent = 'Puter.js is not loaded. Please refresh the page.';
                     botDiv.classList.remove('streaming');
                     return;
                 }
+
                 const stream = await puter.ai.chat(
                     [{ role: 'system', content: 'You are Thinky AI, a friendly and knowledgeable study assistant for students. Be concise, clear, and encouraging. Use simple language and examples when explaining concepts.' },
                      { role: 'user', content: text }],
