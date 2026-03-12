@@ -26,52 +26,10 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Thinky">
-    <!-- Puter.js (free Claude AI — no API key needed) -->
     <script src="https://js.puter.com/v2/"></script>
     <!-- Markdown renderer + sanitizer for rich AI responses -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
-    <script>
-        (function(){
-            // Token state: 'unknown'|'fetching'|'applied'|'no_server_token'
-            try { window.__puterTokenState = window.__puterTokenState || 'unknown'; } catch (_) { /* ignore */ }
-
-            async function applyPuterToken(){
-                try{
-                    window.__puterTokenState = 'fetching';
-                    const resp = await fetch('/puter-token', { credentials: 'same-origin' });
-                    if(!resp.ok) {
-                        // No server-provided token — continue but mark state so callers know
-                        window.__puterTokenState = 'no_server_token';
-                        return;
-                    }
-                    const data = await resp.json().catch(() => ({}));
-                    const token = data && data.token;
-                    if(!token) { window.__puterTokenState = 'no_server_token'; return; }
-
-                    // wait for the Puter.js global to be available
-                    const start = Date.now();
-                    while(!window.puter && Date.now() - start < 5000){
-                        await new Promise(r => setTimeout(r, 50));
-                    }
-                    if(window.puter && typeof window.puter.setAuthToken === 'function'){
-                        window.puter.setAuthToken(token);
-                        window.__puterTokenState = 'applied';
-                        console.info('Puter: client auth token applied from server');
-                    } else {
-                        console.warn('Puter: client SDK not ready to accept token');
-                        // Keep the state as 'no_server_token' — allow anonymous Puter usage
-                        window.__puterTokenState = 'no_server_token';
-                    }
-                }catch(e){
-                    window.__puterTokenState = 'no_server_token';
-                    console.warn('Puter: failed to fetch/apply token', e);
-                }
-            }
-            // run asynchronously
-            setTimeout(applyPuterToken, 0);
-        })();
-    </script>
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/style.css">
     <style>
@@ -1589,205 +1547,150 @@ Answer: B</pre>
     </div>
 
     <script>
-    (function () {
-        const panel = document.getElementById('thinkyChatPanel');
-        const messagesEl = document.getElementById('thinkyChatMessages');
-        const inputEl = document.getElementById('thinkyChatInput');
-        const sendBtn = document.getElementById('thinkyChatSend');
-        const modelSel = document.getElementById('thinkyChatModel');
-        const fileInput = document.getElementById('thinkyChatFileInput');
-        const attachBtn = document.getElementById('thinkyChatAttachBtn');
-        const attachmentsEl = document.getElementById('thinkyChatAttachments');
-        let attachedFiles = [];
+(function () {
+    const panel = document.getElementById('thinkyChatPanel');
+    const messagesEl = document.getElementById('thinkyChatMessages');
+    const inputEl = document.getElementById('thinkyChatInput');
+    const sendBtn = document.getElementById('thinkyChatSend');
+    const modelSel = document.getElementById('thinkyChatModel');
+    const fileInput = document.getElementById('thinkyChatFileInput');
+    const attachBtn = document.getElementById('thinkyChatAttachBtn');
+    const attachmentsEl = document.getElementById('thinkyChatAttachments');
+    let attachedFiles = [];
 
-        function renderAttachments() {
-            attachmentsEl.innerHTML = '';
-            attachedFiles.forEach(f => {
-                const el = document.createElement('div');
-                el.className = 'chat-attachment-chip';
-                const name = document.createElement('span');
-                name.className = 'name';
-                name.textContent = f.name;
-                const rm = document.createElement('button');
-                rm.className = 'remove-btn';
-                rm.textContent = '×';
-                rm.title = 'Remove';
-                rm.onclick = () => { attachedFiles = attachedFiles.filter(x => x.id !== f.id); renderAttachments(); };
-                el.appendChild(name);
-                el.appendChild(rm);
-                attachmentsEl.appendChild(el);
-            });
-        }
-
-        attachBtn.addEventListener('click', () => fileInput.click());
-        fileInput.addEventListener('change', () => {
-            const files = Array.from(fileInput.files || []);
-            for (const f of files) uploadChatFile(f);
-            fileInput.value = '';
+    function renderAttachments() {
+        attachmentsEl.innerHTML = '';
+        attachedFiles.forEach(f => {
+            const el = document.createElement('div');
+            el.className = 'chat-attachment-chip';
+            const name = document.createElement('span');
+            name.className = 'name';
+            name.textContent = f.name;
+            const rm = document.createElement('button');
+            rm.className = 'remove-btn';
+            rm.textContent = '×';
+            rm.title = 'Remove';
+            rm.onclick = () => { attachedFiles = attachedFiles.filter(x => x.id !== f.id); renderAttachments(); };
+            el.appendChild(name);
+            el.appendChild(rm);
+            attachmentsEl.appendChild(el);
         });
+    }
 
-        async function uploadChatFile(file) {
-            try {
-                const fd = new FormData();
-                fd.append('file', file);
-                const resp = await fetch('/api/ai/upload-chat-file', { method: 'POST', body: fd, credentials: 'include' });
-                if (!resp.ok) {
-                    const err = await resp.json().catch(() => ({}));
-                    alert('Upload failed: ' + (err.error || resp.statusText));
-                    return;
-                }
-                const j = await resp.json();
-                attachedFiles.push({ id: j.id, name: j.name || file.name, sourceDescription: j.sourceDescription });
-                renderAttachments();
-            } catch (err) {
-                console.error('uploadChatFile error', err);
-                alert('Upload failed: ' + (err.message || err));
+    attachBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+        const files = Array.from(fileInput.files || []);
+        for (const f of files) uploadChatFile(f);
+        fileInput.value = '';
+    });
+
+    async function uploadChatFile(file) {
+        try {
+            const fd = new FormData();
+            fd.append('file', file);
+            const resp = await fetch('/api/ai/upload-chat-file', { method: 'POST', body: fd, credentials: 'include' });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                alert('Upload failed: ' + (err.error || resp.statusText));
+                return;
             }
+            const j = await resp.json();
+            attachedFiles.push({ id: j.id, name: j.name || file.name, sourceDescription: j.sourceDescription });
+            renderAttachments();
+        } catch (err) {
+            console.error('uploadChatFile error', err);
+            alert('Upload failed: ' + (err.message || err));
         }
-        let isOpen = false;
-        let isStreaming = false;
+    }
 
-        window.toggleThinkyChat = function () {
-            isOpen = !isOpen;
-            panel.classList.toggle('open', isOpen);
-            if (isOpen) { inputEl.focus(); scrollBottom(); }
-        };
+    let isOpen = false;
+    let isStreaming = false;
 
-        function scrollBottom() {
-            messagesEl.scrollTop = messagesEl.scrollHeight;
+    window.toggleThinkyChat = function () {
+        isOpen = !isOpen;
+        panel.classList.toggle('open', isOpen);
+        if (isOpen) { inputEl.focus(); scrollBottom(); }
+    };
+
+    function scrollBottom() {
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function addMessage(role, text) {
+        const div = document.createElement('div');
+        div.className = 'thinky-msg ' + role;
+        div.textContent = text;
+        messagesEl.appendChild(div);
+        scrollBottom();
+        return div;
+    }
+
+    function renderAiContent(container, rawText) {
+        try {
+            let html;
+            if (window.marked && typeof window.marked.parse === 'function') {
+                try { html = marked.parse(rawText); } catch (e) { html = rawText.replace(/\n/g, '<br>'); }
+            } else {
+                html = rawText.replace(/\n/g, '<br>');
+            }
+            if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
+                html = DOMPurify.sanitize(html);
+            }
+            container.innerHTML = html;
+            try { highlightAllCode(container); } catch (e) { /* ignore */ }
+        } catch (err) {
+            container.textContent = rawText;
         }
+    }
 
-        function addMessage(role, text) {
-            const div = document.createElement('div');
-            div.className = 'thinky-msg ' + role;
-            div.textContent = text;
-            messagesEl.appendChild(div);
+    async function sendMessage() {
+        const text = inputEl.value.trim();
+        if (!text || isStreaming) return;
+
+        inputEl.value = '';
+        inputEl.style.height = '40px';
+        addMessage('user', text);
+
+        const model = modelSel.value;
+
+        // Local override for identity questions — no API call needed
+        const creatorPatterns = [
+            /who\s+(made|created|built|developed)\s+(you|this|thinky|thinky ai|the ai|the assistant)/i,
+            /who\s+is\s+(your|the)\s+(creator|maker|author|developer)/i,
+            /who\s+(made|created)\s+(thinky|this)/i,
+            /who\s+built\s+(you|this|thinky)/i,
+        ];
+        if (creatorPatterns.some(rx => rx.test(text))) {
+            const botDiv = addMessage('bot', '');
+            renderAiContent(botDiv, 'I was made by chael');
             scrollBottom();
-            return div;
+            return;
         }
 
-        // Render AI text (Markdown -> sanitized HTML) inside a container.
-        function renderAiContent(container, rawText) {
-            try {
-                let html;
-                if (window.marked && typeof window.marked.parse === 'function') {
-                    try { html = marked.parse(rawText); } catch (e) { html = rawText.replace(/\n/g, '<br>'); }
-                } else {
-                    html = rawText.replace(/\n/g, '<br>');
-                }
-                if (window.DOMPurify && typeof window.DOMPurify.sanitize === 'function') {
-                    html = DOMPurify.sanitize(html);
-                }
-                container.innerHTML = html;
-                try { highlightAllCode(container); } catch (e) { /* ignore */ }
-            } catch (err) {
-                container.textContent = rawText;
-            }
-        }
-
-        async function sendMessage() {
-            const text = inputEl.value.trim();
-            if (!text || isStreaming) return;
-
-            inputEl.value = '';
-            inputEl.style.height = '40px';
-            addMessage('user', text);
-
-            const model = modelSel.value;
-
-            // If user asks about the bot's creator or similar identity questions,
-            // return a deterministic local response instead of calling the model.
-            const creatorPatterns = [
-                /who\s+(made|created|built|developed)\s+(you|this|thinky|thinky ai|the ai|the assistant)/i,
-                /who\s+is\s+(your|the)\s+(creator|maker|author|developer)/i,
-                /who\s+(made|created)\s+(thinky|this)/i,
-                /who\s+built\s+(you|this|thinky)/i,
-            ];
-            if (creatorPatterns.some(rx => rx.test(text))) {
-                const botDiv = addMessage('bot', '');
-                renderAiContent(botDiv, 'I was made by chael');
-                scrollBottom();
-                return;
-            }
-            // If files are attached, call the server-side file-aware chat endpoint
-            if (attachedFiles.length > 0) {
-                const botDiv = addMessage('bot', '');
-                botDiv.classList.add('streaming');
-                isStreaming = true;
-                sendBtn.disabled = true;
-                try {
-                    const resp = await fetch('/api/ai/chat-with-files', {
-                        method: 'POST',
-                        credentials: 'include',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ message: text, fileIds: attachedFiles.map(f => f.id) })
-                    });
-                    if (!resp.ok) {
-                        const err = await resp.json().catch(() => ({}));
-                        botDiv.textContent = 'Error: ' + (err.error || resp.statusText);
-                    } else {
-                        const j = await resp.json();
-                        renderAiContent(botDiv, j.text || '(No response)');
-                        // Clear attached files from the input after successful send
-                        attachedFiles = [];
-                        renderAttachments();
-                    }
-                } catch (err) {
-                    console.error('[ThinkyChat file]', err);
-                    botDiv.textContent = 'Sorry, something went wrong: ' + (err.message || err);
-                } finally {
-                    botDiv.classList.remove('streaming');
-                    isStreaming = false;
-                    sendBtn.disabled = false;
-                    inputEl.focus();
-                    scrollBottom();
-                }
-                return;
-            }
-
+        // If files are attached, use the server-side file-aware endpoint
+        if (attachedFiles.length > 0) {
             const botDiv = addMessage('bot', '');
             botDiv.classList.add('streaming');
             isStreaming = true;
             sendBtn.disabled = true;
-
             try {
-                // If the token fetch is in progress, wait a short moment for it to complete.
-                if (typeof window.__puterTokenState !== 'undefined' && window.__puterTokenState !== 'applied' && window.__puterTokenState !== 'no_server_token') {
-                    const start = Date.now();
-                    while (Date.now() - start < 2000 && window.__puterTokenState !== 'applied' && window.__puterTokenState !== 'no_server_token') {
-                        await new Promise(r => setTimeout(r, 50));
-                    }
+                const resp = await fetch('/api/ai/chat-with-files', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, fileIds: attachedFiles.map(f => f.id) })
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    botDiv.textContent = 'Error: ' + (err.error || resp.statusText);
+                } else {
+                    const j = await resp.json();
+                    renderAiContent(botDiv, j.text || '(No response)');
+                    attachedFiles = [];
+                    renderAttachments();
                 }
-
-                // If server indicated no token is available for this user, proceed anonymously.
-                if (window.__puterTokenState === 'no_server_token') {
-                    console.info('Puter: no server token found — proceeding with anonymous Puter.js client');
-                }
-
-                if (typeof puter === 'undefined') {
-                    botDiv.textContent = 'Puter.js is not loaded. Please refresh the page.';
-                    botDiv.classList.remove('streaming');
-                    return;
-                }
-
-                const stream = await puter.ai.chat(
-                    [{ role: 'system', content: 'You are Thinky AI, a friendly and knowledgeable study assistant for students. Be concise, clear, and encouraging. Use simple language and examples when explaining concepts.' },
-                     { role: 'user', content: text }],
-                    { model, stream: true }
-                );
-                let full = '';
-                for await (const part of stream) {
-                    const chunk = part?.text ?? part?.delta?.text ?? '';
-                    if (chunk) {
-                        full += chunk;
-                        renderAiContent(botDiv, full);
-                        scrollBottom();
-                    }
-                }
-                if (!full) botDiv.textContent = '(No response received — try again)';
-                else renderAiContent(botDiv, full);
             } catch (err) {
-                console.error('[ThinkyChat]', err);
+                console.error('[ThinkyChat file]', err);
                 botDiv.textContent = 'Sorry, something went wrong: ' + (err.message || err);
             } finally {
                 botDiv.classList.remove('streaming');
@@ -1796,19 +1699,66 @@ Answer: B</pre>
                 inputEl.focus();
                 scrollBottom();
             }
+            return;
         }
 
-        sendBtn.addEventListener('click', sendMessage);
-        inputEl.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-        });
-        // Auto-grow textarea
-        inputEl.addEventListener('input', function () {
-            this.style.height = '40px';
-            this.style.height = Math.min(this.scrollHeight, 100) + 'px';
-        });
-    })();
-    </script>
+        // Standard text chat via Puter.js (anonymous, no login required)
+        const botDiv = addMessage('bot', '');
+        botDiv.classList.add('streaming');
+        isStreaming = true;
+        sendBtn.disabled = true;
+
+        try {
+            if (typeof puter === 'undefined') {
+                botDiv.textContent = 'Puter.js is not loaded. Please refresh the page.';
+                botDiv.classList.remove('streaming');
+                return;
+            }
+
+            const stream = await puter.ai.chat(
+                [
+                    { role: 'system', content: 'You are Thinky AI, a friendly and knowledgeable study assistant for students. Be concise, clear, and encouraging. Use simple language and examples when explaining concepts.' },
+                    { role: 'user', content: text }
+                ],
+                { model, stream: true }
+            );
+
+            let full = '';
+            for await (const part of stream) {
+                const chunk = part?.text ?? part?.delta?.text ?? '';
+                if (chunk) {
+                    full += chunk;
+                    renderAiContent(botDiv, full);
+                    scrollBottom();
+                }
+            }
+            if (!full) botDiv.textContent = '(No response received — try again)';
+            else renderAiContent(botDiv, full);
+
+        } catch (err) {
+            console.error('[ThinkyChat]', err);
+            botDiv.textContent = 'Sorry, something went wrong: ' + (err.message || err);
+        } finally {
+            botDiv.classList.remove('streaming');
+            isStreaming = false;
+            sendBtn.disabled = false;
+            inputEl.focus();
+            scrollBottom();
+        }
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    // Auto-grow textarea
+    inputEl.addEventListener('input', function () {
+        this.style.height = '40px';
+        this.style.height = Math.min(this.scrollHeight, 100) + 'px';
+    });
+})();
+</script>
 
     <script src="/js/dashboard.js"></script>
     <script src="/js/settings.js"></script>
