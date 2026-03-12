@@ -2501,7 +2501,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
 
         // Log login event to Discord login webhook
         const userLink = `[${user.username}](${(process.env.PRODUCTION_URL || process.env.BASE_URL || '').replace(/\/$/, '')}/user?id=${user.id})`;
-        _loginDiscord('✅ User Logged In', [
+        _activityDiscord('✅ User Logged In', [
             ['Username', userLink],
             ['Email', user.email],
             ['Role', user.role],
