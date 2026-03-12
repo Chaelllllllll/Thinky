@@ -1702,7 +1702,7 @@ Answer: B</pre>
             return;
         }
 
-        // Standard text chat via Puter.js (anonymous, no login required)
+        // Standard text chat via Puter.js
         const botDiv = addMessage('bot', '');
         botDiv.classList.add('streaming');
         isStreaming = true;
@@ -1713,6 +1713,12 @@ Answer: B</pre>
                 botDiv.textContent = 'Puter.js is not loaded. Please refresh the page.';
                 botDiv.classList.remove('streaming');
                 return;
+            }
+
+            // Silently create a temp user if not signed in — no popup, no sign-up required
+            const isSignedIn = await puter.auth.isSignedIn();
+            if (!isSignedIn) {
+                await puter.auth.signIn({ attempt_temp_user_creation: true });
             }
 
             const stream = await puter.ai.chat(
