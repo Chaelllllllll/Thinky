@@ -34,6 +34,42 @@ const MESSAGE_REACTION_EMOJIS = {
     angry: '😡'
 };
 
+// Fallback anonymous detection (matches server-side generator)
+function generateAnonymousName(userId) {
+    const adjectives = [
+        'Mystic','Shadow','Silent','Bright','Swift','Calm','Bold','Gentle','Wild','Noble',
+        'Cosmic','Azure','Crimson','Golden','Jade','Luna','Solar','Stellar','Vivid','Zen',
+        'Amber','Cobalt','Dusk','Ember','Frost','Ivory','Navy','Onyx','Pearl','Ruby'
+    ];
+    const animals = [
+        'Fox','Wolf','Hawk','Bear','Deer','Lion','Owl','Raven','Seal','Tiger',
+        'Crane','Drake','Eagle','Finch','Goose','Heron','Ibis','Jaguar','Koala','Lynx',
+        'Mink','Newt','Orca','Panda','Quail','Robin','Stoat','Toad','Vole','Wren'
+    ];
+    const str = String(userId || '');
+    let h1 = 0, h2 = 0, h3 = 0;
+    for (let i = 0; i < str.length; i++) {
+        const c = str.charCodeAt(i);
+        h1 = Math.imul(h1, 31) + c | 0;
+        h2 = Math.imul(h2, 37) + c | 0;
+        h3 = Math.imul(h3, 41) + c | 0;
+    }
+    const adj    = adjectives[Math.abs(h1) % adjectives.length];
+    const animal = animals[Math.abs(h2) % animals.length];
+    const num    = Math.abs(h3) % 900 + 100;
+    return `${adj}${animal}#${num}`;
+}
+
+function isAnonymousGeneralMessage(msg) {
+    if (!msg) return false;
+    const rawFlag = msg.is_anonymous;
+    if (rawFlag === true || rawFlag === 1 || rawFlag === '1' || rawFlag === 'true' || rawFlag === 't') return true;
+    const uid = msg.user_id;
+    const uname = String(msg.username || '');
+    if (!uid || !uname) return false;
+    return uname === generateAnonymousName(uid);
+}
+
 function clientNormalizeForMatch(text) {
     if (!text) return '';
     let s = String(text).normalize('NFKD').replace(/\p{Diacritic}/gu, '');
@@ -49,6 +85,100 @@ function clientHasBlacklistedWord(text) {
         if (new RegExp('\\b' + esc + '\\b', 'i').test(norm)) return true;
     }
     return false;
+}
+
+// WebSocket client for real-time chat updates
+async function initChatWebSocket() {
+    try {
+        // Reuse existing connection if present
+        if (window._chatSocket && window._chatSocket.readyState === 1) return true;
+
+        const resp = await fetch('/api/ws/chat-token', { method: 'POST', credentials: 'include' });
+        if (!resp.ok) return false;
+        const data = await resp.json();
+        const token = data && data.token;
+        if (!token) return false;
+
+        const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+        const url = `${proto}://${location.host}/ws/chat?token=${encodeURIComponent(token)}`;
+
+        return await new Promise((resolve) => {
+            try {
+                const ws = new WebSocket(url);
+                window._chatSocket = ws;
+
+                const timeout = setTimeout(() => {
+                    try { ws.close(); } catch (_) {}
+                    resolve(false);
+                }, 5000);
+
+                ws.addEventListener('open', () => {
+                    clearTimeout(timeout);
+                    window._chatSocketConnected = true;
+                    ws.addEventListener('message', handleChatSocketMessage);
+                    ws.addEventListener('close', () => { window._chatSocketConnected = false; window._chatSocket = null; });
+                    resolve(true);
+                });
+
+                ws.addEventListener('error', () => { clearTimeout(timeout); resolve(false); });
+            } catch (e) { resolve(false); }
+        });
+    } catch (e) {
+        return false;
+    }
+}
+
+async function handleChatSocketMessage(ev) {
+    try {
+        const payload = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString());
+        if (!payload || !payload.type) return;
+        if (payload.type === 'new_message') {
+            const m = payload.message;
+            if (!m || !m.id) return;
+
+            // GENERAL chat message
+            if (String(m.chat_type) === 'general') {
+                // If viewing general chat, append and render
+                if (currentChatType === 'general') {
+                    const exists = messages.find(x => String(x.id) === String(m.id));
+                    if (!exists) {
+                        messages = [...messages, m];
+                        await hydrateMessageReactions([m]);
+                        displayMessages(true);
+                    }
+                } else {
+                    // Not viewing general: update unread indicators
+                    try { pollUnreadCounts(); } catch (_) {}
+                }
+                return;
+            }
+
+            // PRIVATE chat message
+            if (String(m.chat_type) === 'private') {
+                // If we're in the matching private conversation, append
+                if (currentChatType === 'private' && currentRecipientId) {
+                    const isForThisConversation = (
+                        (String(m.user_id) === String(currentRecipientId) && String(m.recipient_id) === String(currentUser && currentUser.id)) ||
+                        (String(m.user_id) === String(currentUser && currentUser.id) && String(m.recipient_id) === String(currentRecipientId))
+                    );
+                    if (isForThisConversation) {
+                        const exists = messages.find(x => String(x.id) === String(m.id));
+                        if (!exists) {
+                            messages = [...messages, m];
+                            await hydrateMessageReactions([m]);
+                            displayMessages(true);
+                        }
+                    }
+                }
+
+                // Update per-user unread dots and badges
+                try { pollSidebarUnreadDots(); pollUnreadCounts(); } catch (_) {}
+                return;
+            }
+        }
+    } catch (e) {
+        // ignore malformed WS messages
+    }
 }
 
 // ─── LocalStorage helpers ────────────────────────────────────────────────────
@@ -98,9 +228,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         loadSidebarContacts();
     }
 
-    // Adaptive message polling
-    (function startAdaptiveMessagesPolling() {
+    // Try real-time WebSocket first, otherwise fallback to adaptive polling
+    (async function startRealtimeOrPolling() {
         try { window._chatPollingActive = true; } catch (e) {}
+        const connected = await initChatWebSocket();
+        if (connected) return; // WebSocket will drive updates
+
+        // Fallback: adaptive polling
         let lastMsgCount = 0;
         let pollInterval = 3000;
 
@@ -703,9 +837,9 @@ function displayMessages(preserveScroll = false) {
 
     container.innerHTML = messages.map(msg => {
         const isSelf = currentUser && String(msg.user_id) === String(currentUser.id);
+        const isAnonMsg = isAnonymousGeneralMessage(msg);
         // For anonymous messages, use a generic incognito/ghost avatar
-        const avatarUrl = msg.is_anonymous ? '/images/default-avatar.svg' : 
-            ((msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg');
+        const avatarUrl = isAnonMsg ? '/images/default-avatar.svg' : ((msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg');
         const safeUsername = escapeHtml(msg.username || 'User');
         const safeMessage = escapeHtml(msg.message || '');
         const time = formatTime(msg.created_at);
@@ -730,7 +864,7 @@ function displayMessages(preserveScroll = false) {
             <div class="msg-row">
                 ${!isSelf ? `<img src="${escapeHtml(avatarUrl)}" alt="${safeUsername}" class="msg-avatar" onerror="this.onerror=null;this.src='/images/default-avatar.svg'">` : ''}
                 <div class="msg-body">
-                    ${!isSelf ? `<div class="msg-header"><span class="msg-author">${safeUsername}</span>${msg.is_anonymous ? '<span style="font-size:0.7rem;margin-left:6px;color:var(--primary-pink);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">anonymous</span>' : ''}</div>` : ''}
+                    ${!isSelf ? `<div class="msg-header"><span class="msg-author">${safeUsername}</span>${isAnonMsg ? '<span style="font-size:0.7rem;margin-left:6px;color:var(--primary-pink);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">anonymous</span>' : ''}</div>` : ''}
                     ${replyBlock}
                     <div class="msg-bubble ${isSelf ? 'right' : 'left'}">${safeMessage}</div>
                     ${buildMessageReactionMarkup(msg)}
@@ -747,7 +881,7 @@ function displayMessages(preserveScroll = false) {
                         </div>
                         ${isSelf ? `<button class="msg-delete-all-btn" style="color:var(--danger);"><i class="bi bi-trash"></i> Delete for Everyone</button>` : ''}
                         <button class="msg-delete-me-btn" style="color:var(--danger);"><i class="bi bi-eye-slash"></i> Delete for Me</button>
-                        <button class="msg-report-btn" style="color:var(--danger);"><i class="bi bi-flag"></i> Report</button>
+                        ${!isSelf ? `<button class="msg-report-btn" style="color:var(--danger);"><i class="bi bi-flag"></i> Report</button>` : ''}
                     </div>
                 </div>
             </div>

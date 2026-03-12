@@ -91,6 +91,17 @@ async function initMessageButton() {
 
         await updateMessageUnreadBadge();
 
+        // Initialize modal WebSocket (reuse global chat socket if present)
+        try {
+            if (window._chatSocket && window._chatSocket.readyState === 1) {
+                // Reuse chat socket
+                window._msgModalSocket = window._chatSocket;
+                window._msgModalSocket.addEventListener('message', handleModalSocketMessage);
+            } else {
+                initMessageModalWebSocket();
+            }
+        } catch (_) {}
+
         if (messageButtonState.unreadIntervalId) {
             clearInterval(messageButtonState.unreadIntervalId);
         }
@@ -1215,7 +1226,8 @@ function bindMessageModalEvents() {
                     MESSAGE_REACTION_TYPES.map(t => `<button class="msg-private-reaction-choice" data-reaction="${t}" data-message-id="${msgId}" data-section="${section}" title="${t}">${MESSAGE_REACTION_EMOJIS[t]}</button>`).join(''),
                     `</div></div>`,
                     isSelf ? `<button class="msg-modal-action-btn danger" data-modal-action="delete-all" data-section="${section}" data-message-id="${msgId}">Delete for Everyone</button>` : '',
-                    `<button class="msg-modal-action-btn danger" data-modal-action="delete-me" data-section="${section}" data-message-id="${msgId}">Delete for You</button>`
+                    `<button class="msg-modal-action-btn danger" data-modal-action="delete-me" data-section="${section}" data-message-id="${msgId}">Delete for You</button>`,
+                    !isSelf ? `<button class="msg-modal-action-btn danger" data-modal-action="report" data-section="${section}" data-message-id="${msgId}"><i class="bi bi-flag"></i> Report</button>` : ''
                 ].join('');
 
                 const btnRect = moreBtn.getBoundingClientRect();
@@ -1313,6 +1325,12 @@ function bindMessageModalEvents() {
                     deleteModalMessage(messageId, 'all', section);
                 }
                 closeAllModalActionMenus();
+                return;
+            }
+
+            if (action === 'report') {
+                closeAllModalActionMenus();
+                if (window.openMessageReportModal) window.openMessageReportModal(messageId);
                 return;
             }
 
@@ -1838,6 +1856,85 @@ function isAnonymousGeneralMessage(msg) {
     // Fallback for deployments where messages.is_anonymous may be missing
     // and anonymous names were still generated server-side.
     return uname === generateAnonymousName(uid);
+}
+
+// WebSocket for message modal (can reuse global chat socket)
+async function initMessageModalWebSocket() {
+    try {
+        if (window._msgModalSocket && window._msgModalSocket.readyState === 1) return true;
+        const resp = await fetch('/api/ws/chat-token', { method: 'POST', credentials: 'include' });
+        if (!resp.ok) return false;
+        const data = await resp.json();
+        const token = data && data.token;
+        if (!token) return false;
+
+        const proto = (location.protocol === 'https:') ? 'wss' : 'ws';
+        const url = `${proto}://${location.host}/ws/chat?token=${encodeURIComponent(token)}`;
+
+        return await new Promise((resolve) => {
+            try {
+                const ws = new WebSocket(url);
+                window._msgModalSocket = ws;
+
+                const timeout = setTimeout(() => {
+                    try { ws.close(); } catch (_) {}
+                    resolve(false);
+                }, 5000);
+
+                ws.addEventListener('open', () => {
+                    clearTimeout(timeout);
+                    ws.addEventListener('message', handleModalSocketMessage);
+                    ws.addEventListener('close', () => { if (window._msgModalSocket === ws) window._msgModalSocket = null; });
+                    resolve(true);
+                });
+
+                ws.addEventListener('error', () => { clearTimeout(timeout); resolve(false); });
+            } catch (e) { resolve(false); }
+        });
+    } catch (e) { return false; }
+}
+
+async function handleModalSocketMessage(ev) {
+    try {
+        const payload = JSON.parse(typeof ev.data === 'string' ? ev.data : ev.data.toString());
+        if (!payload || !payload.type) return;
+        if (payload.type === 'new_message') {
+            const m = payload.message;
+            if (!m || !m.id) return;
+
+            if (String(m.chat_type) === 'general') {
+                // If modal is open and showing general tab, append and render
+                const modal = document.getElementById('messageModal');
+                if (modal && modal.classList.contains('show') && messageButtonState.currentTab === 'general') {
+                    const exists = (messageButtonState.generalMessages || []).some(x => String(x.id) === String(m.id));
+                    if (!exists) {
+                        messageButtonState.generalMessages = mergeMessagesAsc(messageButtonState.generalMessages || [], [m]);
+                        await hydrateModalMessageReactions([m]);
+                        renderGeneralChat({ preserveScroll: true });
+                    }
+                } else {
+                    // Not viewing general — update unread badge
+                    try { updateMessageUnreadBadge(); } catch (_) {}
+                }
+            }
+
+            if (String(m.chat_type) === 'private') {
+                // If private conversation open and relevant, append
+                const active = messageButtonState.activePrivateUser;
+                if (active && String(active.userId) && (String(m.user_id) === String(active.userId) || String(m.recipient_id) === String(active.userId))) {
+                    const exists = (messageButtonState.privateConversationMessages || []).some(x => String(x.id) === String(m.id));
+                    if (!exists) {
+                        messageButtonState.privateConversationMessages = mergeMessagesAsc(messageButtonState.privateConversationMessages || [], [m]);
+                        await hydrateModalMessageReactions([m]);
+                        renderPrivateConversationMessages({ preserveScroll: true });
+                    }
+                } else {
+                    // Update contacts/unread
+                    try { loadPrivateContacts(); updateMessageUnreadBadge(); } catch (_) {}
+                }
+            }
+        }
+    } catch (e) { /* ignore malformed WS frames */ }
 }
 
 function renderPrivateReplyBanner() {

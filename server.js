@@ -5,6 +5,7 @@
 
 import 'dotenv/config';
 import express from 'express';
+import { puter } from '@heyputer/puter.js';
 import PDFDocument from 'pdfkit';
 import session from 'express-session';
 import helmet from 'helmet';
@@ -38,6 +39,18 @@ import { promises as dns } from 'dns';
 import nodemailer from 'nodemailer';
 import compression from 'compression';
 import webPush from 'web-push';
+
+// If a Puter API token is provided in the environment, configure the SDK.
+if (process.env.PUTER_API_TOKEN) {
+    try {
+        puter.setAuthToken(process.env.PUTER_API_TOKEN);
+        console.info('Puter: auth token loaded from environment');
+    } catch (err) {
+        console.warn('Puter: failed to apply auth token from environment', err?.message || err);
+    }
+} else {
+    console.info('Puter: no PUTER_API_TOKEN in environment; Puter.ai calls may fail');
+}
 
 // ─── Discord error reporter (rate-limited) ────────────────────────────────────
 // notifyDiscord() is declared later as a hoisted function declaration — it is
@@ -118,120 +131,7 @@ function _activityDiscord(title, fields) {
         })
     }).catch(() => {});
 }
-function _activityLog(key, title, fields) {
-    const now = Date.now();
-    const last = _activityRateMap.get(key) || 0;
-    if (now - last < _ACTIVITY_RATE_MS) return;
-    _activityRateMap.set(key, now);
-    _activityDiscord(title, fields);
-}
-
-// ─── Chat Logger (DISCORD_CHAT_WEBHOOK) ─────────────────────────────────────
-// Logs general chat messages with anonymous mode enabled to Discord.
-// No rate limiting - every anonymous message is logged.
-function _chatDiscord(title, fields) {
-    const url = process.env.DISCORD_CHAT_WEBHOOK;
-    if (!url) return;
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            embeds: [{
-                title,
-                color: 0x3498db,
-                timestamp: new Date().toISOString(),
-                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 2048), inline: false }))
-            }]
-        })
-    }).catch(() => {});
-}
-
-// ─── Login Logger (DISCORD_LOGIN_WEBHOOK) ──────────────────────────────────
-// Logs user login events to Discord.
-function _loginDiscord(title, fields) {
-    const url = process.env.DISCORD_LOGIN_WEBHOOK;
-    if (!url) return;
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            embeds: [{
-                title,
-                color: 0x27ae60,
-                timestamp: new Date().toISOString(),
-                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 1024), inline: false }))
-            }]
-        })
-    }).catch(() => {});
-}
-
-// ─── Registration Logger (DISCORD_REGISTRATION_WEBHOOK) ────────────────────
-// Logs new user registration events to Discord.
-function _registrationDiscord(title, fields) {
-    const url = process.env.DISCORD_REGISTRATION_WEBHOOK;
-    if (!url) return;
-    fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            embeds: [{
-                title,
-                color: 0x9b59b6,
-                timestamp: new Date().toISOString(),
-                fields: fields.map(([name, value]) => ({ name, value: String(value).slice(0, 1024), inline: false }))
-            }]
-        })
-    }).catch(() => {});
-}
-
-// Generates a clickable Discord markdown link to a user's profile page.
-// Works in embed field values: [username](https://site.com/user?id=...)
-function _userLink(req) {
-    const username = req.session?.username || 'unknown';
-    const userId = req.session?.userId;
-    if (!userId) return 'n/a';
-    const base = (process.env.BASE_URL || process.env.PRODUCTION_URL || '').replace(/\/$/, '');
-    return base ? `[${username}](${base}/user?id=${userId})` : username;
-}
-
-function getClientIp(req) {
-    try {
-        const xff = req.headers && req.headers['x-forwarded-for'] ? String(req.headers['x-forwarded-for']) : '';
-        if (xff) return xff.split(',')[0].trim();
-    } catch (_) {}
-    return req.ip || 'n/a';
-}
-
-function normalizeUserAgent(uaRaw) {
-    return String(uaRaw || '').trim();
-}
-
-function _readHeader(req, key) {
-    try {
-        const raw = req && req.headers ? req.headers[key] : null;
-        if (Array.isArray(raw)) return String(raw[0] || '').trim();
-        return String(raw || '').trim();
-    } catch (_) {
-        return '';
-    }
-}
-
-function _stripQuotedHeaderValue(value) {
-    const raw = String(value || '').trim().replace(/^"+|"+$/g, '');
-    if (!raw) return '';
-    try {
-        return decodeURIComponent(raw.replace(/\+/g, ' '));
-    } catch (_) {
-        return raw;
-    }
-}
-
-function _normalizeIpForDisplay(ipRaw) {
-    const ip = String(ipRaw || '').trim();
-    if (!ip) return 'n/a';
-    if (ip.startsWith('::ffff:')) return ip.slice(7);
-    return ip;
-}
+    
 
 function _extractAndroidModelFromUA(uaRaw) {
     const ua = normalizeUserAgent(uaRaw);
@@ -676,7 +576,7 @@ app.get('/api/_debug_supabase', async (req, res) => {
 // (e.g., older supabase UMD builds) rely on eval/new Function. Do NOT enable
 // this in production for security reasons.
 const isProd = process.env.NODE_ENV === 'production';
-const scriptSrcArray = ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.quilljs.com"];
+const scriptSrcArray = ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.quilljs.com", "https://js.puter.com"];
 if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
 // Enable gzip/brotli compression for all responses
@@ -694,7 +594,7 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            connectSrc: ["'self'", "data:", "https://cdn.jsdelivr.net", process.env.SUPABASE_URL].filter(Boolean),
+            connectSrc: ["'self'", "data:", "https://cdn.jsdelivr.net", "https://js.puter.com", "https://api.puter.com", "https://auth.puter.com", "https://*.puter.com", "wss:", process.env.SUPABASE_URL].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
             scriptSrcAttr: ["'unsafe-inline'"],
@@ -1284,6 +1184,21 @@ if (process.env.DATABASE_URL && !sessionStore) {
 // This provides a reliable fallback even if a static file isn't present.
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Return the server-side Puter API token to authenticated users only.
+// This is used by the client Puter.js instance to make requests on behalf
+// of logged-in users. The token will not be returned to unauthenticated
+// requests.
+app.get('/puter-token', (req, res) => {
+    try {
+        if (!process.env.PUTER_API_TOKEN) return res.status(404).json({ error: 'Puter token not configured' });
+        if (!req.session || !req.session.userId) return res.status(403).json({ error: 'Authentication required' });
+        return res.json({ token: process.env.PUTER_API_TOKEN });
+    } catch (err) {
+        console.error('Failed to serve /puter-token:', err && err.message ? err.message : err);
+        return res.status(500).json({ error: 'internal_error' });
+    }
+});
 
 // Configure multer to keep file in memory for upload to Supabase storage
 const memoryStorage = multer.memoryStorage();
@@ -3095,7 +3010,7 @@ app.get('/api/reviewers/public', requireAuth, async (req, res) => {
             .from('reviewers')
             .select(`
                 *,
-                users:user_id (username, email, profile_picture_url),
+                users:user_id (id, username, display_name, profile_picture_url),
                 subjects:subject_id (name, school)
             `)
             .eq('is_public', true);
@@ -3147,7 +3062,7 @@ app.get('/api/reviewers/public-guest', async (req, res) => {
             .from('reviewers')
             .select(`
                 *,
-                users:user_id (username, email, profile_picture_url),
+                users:user_id (id, username, display_name, profile_picture_url),
                 subjects:subject_id (name, school)
             `, { count: 'exact' })
             .eq('is_public', true);
@@ -3471,6 +3386,13 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             ['Time (UTC)', new Date().toISOString()]
         ]);
 
+        // Background AI proactive moderation scan (fire-and-forget, non-blocking)
+        autoModerateReviewer(reviewer.id, {
+            title: reviewer.title || '',
+            content: reviewer.content || '',
+            username: req.session.username || 'Unknown'
+        }).catch(() => {});
+
         // Notify followers about new reviewer (in-app + push + email, async, non-blocking)
         (async () => {
             try {
@@ -3551,7 +3473,7 @@ app.get('/api/reviewers/:id', requireAuth, async (req, res) => {
             .from('reviewers')
             .select(`
                 *,
-                users:user_id (username, email),
+                users:user_id (id, username, display_name, profile_picture_url),
                 subjects:subject_id (name, school)
             `)
             .eq('id', id)
@@ -3589,6 +3511,26 @@ app.post('/api/reviewers/:id/report', requireAuth, async (req, res) => {
         }
 
         res.json({ ok: true, report: data && data[0] });
+
+        // Fire-and-forget: AI re-scans the reported reviewer with the report context
+        ;(async () => {
+            try {
+                const { data: rev } = await supabaseAdmin
+                    .from('reviewers')
+                    .select('id, title, content, user_id, users:user_id(username)')
+                    .eq('id', reviewerId)
+                    .single();
+                if (rev) {
+                    await autoModerateReviewer(rev.id, {
+                        title: rev.title || '',
+                        content: rev.content || '',
+                        username: rev.users?.username || 'Unknown',
+                        reportType: report_type,
+                        reportDetails: details
+                    });
+                }
+            } catch (e) { /* non-blocking */ }
+        })();
     } catch (err) {
         console.error('Report reviewer error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -3608,7 +3550,7 @@ app.get('/api/users/:id', async (req, res) => {
         
         let query = supabase
             .from('users')
-            .select('id, username, display_name, profile_picture_url, created_at, is_dev, follower_count, following_count');
+            .select('id, username, display_name, profile_picture_url, created_at, follower_count, following_count');
         
         if (isUsername) {
             query = query.eq('username', id);
@@ -4629,6 +4571,418 @@ app.get('/api/admin/moderation', requireModerator, async (req, res) => {
     }
 });
 
+// =====================================================
+// AI MODERATION ENGINE
+// =====================================================
+
+/**
+ * Core AI moderation function.
+ * Analyses content against platform policies and returns a structured verdict.
+ * Uses Puter.js (Claude) for zero-configuration, no-API-key AI moderation.
+ */
+async function runAiModeration({ contentType, content, username, reportType, reportDetails, policies }) {
+    const policyText = (policies || [])
+        .map((p, i) => `  ${i + 1}. [${p.category || 'general'}] ${p.title}: ${p.description}`)
+        .join('\n');
+
+    const reportContext = [
+        reportType   ? `- Report Type Filed: ${reportType}`          : '',
+        reportDetails ? `- Reporter Description: ${reportDetails}` : ''
+    ].filter(Boolean).join('\n');
+
+    const prompt = `You are the professional content moderation AI for Thinky, an educational platform for students. Your responsibility is to impartially, consistently, and fairly evaluate content against the platform's Community Standards and recommend enforcement actions.
+
+You MUST base every decision strictly on the listed policies — not personal opinion, cultural bias, or subjective preference. When in doubt, recommend the less severe action and defer to human review.
+
+=== THINKY COMMUNITY STANDARDS ===
+${policyText || '  1. No hate speech, discrimination, or targeted harassment\n  2. No explicit, offensive, or age-inappropriate content\n  3. No spam, flooding, or repeated unsolicited messages\n  4. All content must be educational, constructive, and respectful\n  5. No promotion of illegal activity, self-harm, violence, or threats'}
+
+=== CONTENT UNDER MODERATION REVIEW ===
+Content Type      : ${contentType}
+Author            : ${username || 'Unknown'}
+${reportContext ? 'Report Context:\n' + reportContext : '(Proactive AI scan — no specific report filed)'}
+
+--- BEGIN CONTENT ---
+${String(content || '').slice(0, 10000)}
+--- END CONTENT ---
+
+=== MODERATION INSTRUCTIONS ===
+1. Read the entire content carefully and holistically.
+2. Compare against EACH policy listed above, citing specific policy numbers where applicable.
+3. Be fair — academic debate, criticism, and strong language in educational context must not be over-penalised.
+4. Context matters: a quoted slur in an academic analysis differs fundamentally from a targeted slur.
+5. For study reviewers / notes: violations are restricted to harassment of named individuals, explicitly harmful non-academic material, severe hate speech, or promotion of illegal activity.
+6. For chat messages: apply stricter enforcement for direct threats, targeted attacks, doxxing, or explicit content.
+7. Do NOT flag content solely for being opinionated, controversial, or uncomfortable — educational discourse requires free inquiry.
+8. False/malicious reports are common; if the content appears clearly benign, recommend dismiss with high confidence.
+
+=== REQUIRED JSON RESPONSE ===
+Return ONLY a valid JSON object — no markdown, no commentary:
+
+{
+  "violation_found": true | false,
+  "severity": "none" | "low" | "medium" | "high" | "critical",
+  "policies_violated": ["exact policy title(s) from the list above"],
+  "violations_summary": "One to two factual sentences describing what was found, or 'No policy violations detected.'",
+  "recommended_action": "dismiss" | "warn_message" | "warn_reviewer" | "mute" | "delete_message" | "delete_content" | "ban_chat" | "suspend_author",
+  "reasoning": "Detailed, professional 3-5 sentence justification citing specific policies and content passages. Must be suitable for inclusion in a formal moderation log.",
+  "confidence": 0.0,
+  "auto_apply": false
+}
+
+=== SEVERITY AND ACTION GUIDELINES ===
+severity   | situation                                          | action (message)       | action (reviewer)    | auto_apply threshold
+-----------|----------------------------------------------------|-----------------------|-----------------------|---------------------
+none       | No violation — benign content or false report      | dismiss                | dismiss               | conf >= 0.90
+low        | Minor rudeness, mild community standard breach     | warn_message           | warn_reviewer         | never (human review)
+medium     | Repeated harassment, explicit personal attacks      | delete_message         | delete_content        | never (human review)
+high       | Targeted threats, hate speech, severe harassment   | mute                   | suspend_author        | never (human review)
+critical   | Doxxing, CSAM-adjacent, calls to violence          | ban_chat               | suspend_author        | conf >= 0.96
+
+IMPORTANT: When confidence < 0.80, set auto_apply to false regardless of severity. Final enforcement authority rests with human moderators.
+
+Return ONLY the JSON object. No other text.`;
+
+    return await callPuter(prompt, true);
+}
+
+/**
+ * Background auto-moderation for newly created/updated reviewers (and report-triggered re-scans).
+ * Fire-and-forget — never throws. Auto-hides only at critical severity with very high confidence.
+ * Flags lower severity violations by inserting an open reviewer_report for human review.
+ */
+async function autoModerateReviewer(reviewerId, { title, content, username, reportType, reportDetails } = {}) {
+    try {
+        if (getGeminiApiKeys().length === 0) return;
+
+        const { data: policies } = await supabaseAdmin.from('policies').select('*').order('id');
+        const plainContent = `Title: ${title || 'Untitled'}\n\nContent:\n${(content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`;
+        const scanLabel = reportType ? 'report-triggered scan' : 'proactive upload scan';
+
+        const aiResult = await runAiModeration({
+            contentType: `reviewer (study notes — ${scanLabel})`,
+            content: plainContent,
+            username: username || 'Unknown',
+            reportType: reportType || null,
+            reportDetails: reportDetails || null,
+            policies: policies || []
+        });
+
+        if (!aiResult || !aiResult.violation_found) return;
+
+        const logNote = `[AI Auto-Review] Severity: ${aiResult.severity}. ${aiResult.violations_summary} Recommended: ${aiResult.recommended_action}. Confidence: ${Math.round((aiResult.confidence || 0) * 100)}%. Reasoning: ${aiResult.reasoning}`;
+
+        if (aiResult.auto_apply && aiResult.severity === 'critical' && (aiResult.confidence || 0) >= 0.96) {
+            await supabaseAdmin.from('reviewers').update({ is_public: false }).eq('id', reviewerId);
+            await supabaseAdmin.from('reviewer_reports').insert([{
+                reviewer_id: reviewerId,
+                reporter_id: null,
+                report_type: 'ai_auto_moderation',
+                details: logNote,
+                status: 'resolved',
+                action_taken: 'hide_content (ai_auto)',
+                action_taken_at: new Date().toISOString(),
+                resolved_at: new Date().toISOString()
+            }]).catch(e => console.warn('[AI Mod] auto-mod report insert failed', e));
+            console.info(`[AI Moderation] Auto-hid reviewer ${reviewerId} — severity: ${aiResult.severity}, confidence: ${aiResult.confidence}`);
+        } else {
+            // Flag for human moderators
+            await supabaseAdmin.from('reviewer_reports').insert([{
+                reviewer_id: reviewerId,
+                reporter_id: null,
+                report_type: 'ai_flagged',
+                details: logNote,
+                status: 'open'
+            }]).catch(e => console.warn('[AI Mod] flag report insert failed', e));
+            console.info(`[AI Moderation] Flagged reviewer ${reviewerId} for human review — severity: ${aiResult.severity}, conf: ${aiResult.confidence}`);
+        }
+    } catch (err) {
+        console.warn('[AI Moderation] Background reviewer scan failed:', err && err.message);
+    }
+}
+
+/**
+ * Background auto-moderation for chat messages (new posts and report-triggered scans).
+ * Fire-and-forget — never throws. Auto-deletes only at critical severity + high confidence.
+ * Flags lower severity violations by inserting an open chat_report for human review.
+ */
+async function autoModerateMessage(messageId, { content, username, chatType, reportType, reportDetails } = {}) {
+    try {
+        const keys = getGeminiApiKeys();
+        console.info(`[AI Mod] autoModerateMessage invoked for message ${messageId} — Gemini keys present: ${keys.length > 0}`);
+        if (keys.length === 0) {
+            console.info('[AI Mod] Skipping AI moderation: no Gemini API keys configured');
+            return;
+        }
+
+        const { data: policies } = await supabaseAdmin.from('policies').select('*').order('id');
+        const scanLabel = reportType ? 'report-triggered scan' : 'proactive scan';
+
+        const aiResult = await runAiModeration({
+            contentType: `chat message (${chatType || 'general'} — ${scanLabel})`,
+            content: String(content || ''),
+            username: username || 'Unknown',
+            reportType: reportType || null,
+            reportDetails: reportDetails || null,
+            policies: policies || []
+        });
+
+        try {
+            console.info('[AI Mod] autoModerateMessage verdict:', {
+                messageId,
+                violation_found: !!aiResult?.violation_found,
+                severity: aiResult?.severity || 'none',
+                confidence: typeof aiResult?.confidence === 'number' ? aiResult.confidence : null,
+                recommended_action: aiResult?.recommended_action || null,
+                auto_apply: !!aiResult?.auto_apply
+            });
+        } catch (logErr) { /* ignore logging errors */ }
+
+        if (!aiResult || !aiResult.violation_found) {
+            console.info(`[AI Mod] No violation detected for message ${messageId}; skipping action.`);
+            return;
+        }
+
+        const logNote = `[AI Auto-Review] Severity: ${aiResult.severity}. ${aiResult.violations_summary} Recommended: ${aiResult.recommended_action}. Confidence: ${Math.round((aiResult.confidence || 0) * 100)}%. Reasoning: ${aiResult.reasoning}`;
+
+        if (aiResult.auto_apply && aiResult.severity === 'critical' && (aiResult.confidence || 0) >= 0.96) {
+            await supabaseAdmin.from('messages').delete().eq('id', messageId);
+            await supabaseAdmin.from('chat_reports').insert([{
+                message_id: messageId,
+                reporter_id: null,
+                report_type: 'ai_auto_moderation',
+                details: logNote,
+                status: 'resolved',
+                handled_by: null,
+                handled_at: new Date().toISOString()
+            }]).catch(e => console.warn('[AI Mod] chat auto-mod insert failed', e));
+            console.info(`[AI Moderation] Auto-deleted message ${messageId} — severity: ${aiResult.severity}, confidence: ${aiResult.confidence}`);
+        } else {
+            // Flag for human moderators
+            await supabaseAdmin.from('chat_reports').insert([{
+                message_id: messageId,
+                reporter_id: null,
+                report_type: 'ai_flagged',
+                details: logNote,
+                status: 'open'
+            }]).catch(e => console.warn('[AI Mod] chat flag insert failed', e));
+            console.info(`[AI Moderation] Flagged message ${messageId} for human review — severity: ${aiResult.severity}, conf: ${aiResult.confidence}`);
+        }
+    } catch (err) {
+        console.warn('[AI Moderation] Background message scan failed:', err && err.message ? err.message : err);
+    }
+}
+
+// POST /api/admin/moderation/ai-review
+// Returns AI moderation verdict for a specific report, reviewer, or message.
+// Admin/moderator only — does NOT auto-apply any action.
+app.post('/api/admin/moderation/ai-review', requireModerator, async (req, res) => {
+    try {
+        if (getGeminiApiKeys().length === 0) {
+            return res.status(503).json({ error: 'AI moderation is not configured — no Gemini API key found.' });
+        }
+
+        const { reportId, reviewerId, messageId } = req.body;
+        if (!reportId && !reviewerId && !messageId) {
+            return res.status(400).json({ error: 'One of reportId, reviewerId, or messageId is required.' });
+        }
+
+        const { data: policies } = await supabaseAdmin.from('policies').select('*').order('id');
+
+        let content = '', contentType = '', username = '', reportType = '', reportDetails = '';
+        let resolvedReportId = reportId || null;
+        let resolvedReviewerId = reviewerId || null;
+        let resolvedMessageId = messageId || null;
+
+        if (reportId) {
+            // Try reviewer_reports first
+            const { data: rr } = await supabaseAdmin
+                .from('reviewer_reports')
+                .select('*, reviewers(id, title, content, user_id, users:user_id(username))')
+                .eq('id', reportId)
+                .single();
+
+            if (rr && rr.reviewers) {
+                const rev = rr.reviewers;
+                resolvedReviewerId = rev.id;
+                contentType = 'reviewer (study notes)';
+                content = `Title: ${rev.title || 'Untitled'}\n\nContent:\n${(rev.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`;
+                username = rev.users?.username || 'Unknown';
+                reportType = rr.report_type;
+                reportDetails = rr.details || '';
+            } else {
+                // Try chat_reports
+                const { data: cr } = await supabaseAdmin
+                    .from('chat_reports')
+                    .select('*, message:messages(id, user_id, username, message, users:user_id(username))')
+                    .eq('id', reportId)
+                    .single();
+
+                if (!cr) return res.status(404).json({ error: 'Report not found.' });
+
+                const msg = cr.message || {};
+                resolvedMessageId = msg.id || null;
+                contentType = 'chat message';
+                content = msg.message || '';
+                username = msg.username || msg.users?.username || 'Unknown';
+                reportType = cr.report_type;
+                reportDetails = cr.details || '';
+            }
+        } else if (reviewerId) {
+            const { data: rev, error: revErr } = await supabaseAdmin
+                .from('reviewers')
+                .select('id, title, content, user_id, users:user_id(username)')
+                .eq('id', reviewerId)
+                .single();
+            if (revErr || !rev) return res.status(404).json({ error: 'Reviewer not found.' });
+            contentType = 'reviewer (study notes)';
+            content = `Title: ${rev.title || 'Untitled'}\n\nContent:\n${(rev.content || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()}`;
+            username = rev.users?.username || 'Unknown';
+        } else if (messageId) {
+            const { data: msg, error: msgErr } = await supabaseAdmin
+                .from('messages')
+                .select('id, user_id, username, message, users:user_id(username)')
+                .eq('id', messageId)
+                .single();
+            if (msgErr || !msg) return res.status(404).json({ error: 'Message not found.' });
+            contentType = 'chat message';
+            content = msg.message || '';
+            username = msg.username || msg.users?.username || 'Unknown';
+        }
+
+        const aiResult = await runAiModeration({ contentType, content, username, reportType, reportDetails, policies: policies || [] });
+
+        res.json({
+            ok: true,
+            result: aiResult,
+            meta: { reportId: resolvedReportId, reviewerId: resolvedReviewerId, messageId: resolvedMessageId }
+        });
+    } catch (err) {
+        console.error('[AI Moderation] ai-review endpoint error:', err);
+        res.status(500).json({ error: 'AI moderation failed: ' + (err.message || 'Unknown error') });
+    }
+});
+
+// POST /api/admin/moderation/ai-apply
+// Applies an AI-recommended action. For reports, delegates to the existing action endpoint.
+// For unreported content (reviewer/message only), applies action directly and logs it.
+app.post('/api/admin/moderation/ai-apply', requireModerator, async (req, res) => {
+    try {
+        const { reportId, reviewerId, messageId, action, note } = req.body;
+        const adminId = req.session.userId;
+        if (!action) return res.status(400).json({ error: 'action is required' });
+
+        if (reportId) {
+            // Delegate to the existing action handler by calling it internally
+            const port = process.env.PORT || 3000;
+            const actionResp = await fetch(`http://127.0.0.1:${port}/api/admin/moderation/${encodeURIComponent(reportId)}/action`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cookie': req.headers.cookie || ''
+                },
+                body: JSON.stringify({ action, note: note || `AI-recommended: ${action}` })
+            });
+            const data = await actionResp.json().catch(() => ({}));
+            return res.status(actionResp.status).json(data);
+        }
+
+        // Direct action on unreported reviewer content
+        if (reviewerId) {
+            const logNote = note || `AI moderator applied: ${action}`;
+            if (action === 'delete_content') {
+                const { error } = await supabaseAdmin.from('reviewers').delete().eq('id', reviewerId);
+                if (error) return res.status(500).json({ error: 'Failed to delete reviewer: ' + error.message });
+            } else if (action === 'hide_content' || action === 'warn_reviewer') {
+                if (action === 'hide_content') {
+                    const { error } = await supabaseAdmin.from('reviewers').update({ is_public: false }).eq('id', reviewerId);
+                    if (error) return res.status(500).json({ error: 'Failed to hide reviewer: ' + error.message });
+                }
+            } else {
+                return res.status(400).json({ error: `Action '${action}' is not valid for an unreported reviewer.` });
+            }
+            await supabaseAdmin.from('reviewer_reports').insert([{
+                reviewer_id: reviewerId,
+                reporter_id: null,
+                report_type: 'ai_moderation',
+                details: logNote,
+                status: 'resolved',
+                action_taken_by: adminId,
+                action_taken: `ai_applied:${action}`,
+                action_taken_at: new Date().toISOString(),
+                resolved_at: new Date().toISOString()
+            }]).catch(e => console.warn('[AI Mod] reviewer log insert failed', e));
+            return res.json({ ok: true });
+        }
+
+        // Direct action on unreported message
+        if (messageId) {
+            const logNote = note || `AI moderator applied: ${action}`;
+            if (action === 'delete_message') {
+                const { error } = await supabaseAdmin.from('messages').delete().eq('id', messageId);
+                if (error) return res.status(500).json({ error: 'Failed to delete message: ' + error.message });
+            } else if (action !== 'warn_message') {
+                return res.status(400).json({ error: `Action '${action}' is not valid for an unreported message.` });
+            }
+            await supabaseAdmin.from('chat_reports').insert([{
+                message_id: messageId,
+                reporter_id: null,
+                report_type: 'ai_moderation',
+                details: logNote,
+                status: 'resolved',
+                handled_by: adminId,
+                handled_at: new Date().toISOString()
+            }]).catch(e => console.warn('[AI Mod] message log insert failed', e));
+            return res.json({ ok: true });
+        }
+
+        return res.status(400).json({ error: 'No valid action target provided (reportId, reviewerId, or messageId required).' });
+    } catch (err) {
+        console.error('[AI Moderation] ai-apply endpoint error:', err);
+        res.status(500).json({ error: 'Failed to apply AI moderation action.' });
+    }
+});
+
+// GET /api/admin/ai-actions
+// Returns all AI-generated moderation records (reporter_id IS NULL) from both tables.
+// Supports ?type=all|message|reviewer  and  ?status=all|open|resolved
+app.get('/api/admin/ai-actions', requireModerator, async (req, res) => {
+    try {
+        const type = req.query.type || 'all';
+        const status = req.query.status || 'all';
+        const AI_TYPES = ['ai_auto_moderation', 'ai_flagged', 'ai_moderation'];
+        let results = [];
+
+        if (type === 'all' || type === 'message') {
+            let q = supabaseAdmin
+                .from('chat_reports')
+                .select('*, message:messages(id, user_id, username, message, chat_type, users:user_id(username, profile_picture_url))')
+                .is('reporter_id', null)
+                .in('report_type', AI_TYPES);
+            if (status !== 'all') q = q.eq('status', status);
+            const { data } = await q.order('created_at', { ascending: false }).limit(300);
+            if (data) results.push(...data.map(r => ({ ...r, _type: 'message' })));
+        }
+
+        if (type === 'all' || type === 'reviewer') {
+            let q = supabaseAdmin
+                .from('reviewer_reports')
+                .select('*, reviewers(id, title, content, user_id, users:user_id(username, profile_picture_url))')
+                .is('reporter_id', null)
+                .in('report_type', AI_TYPES);
+            if (status !== 'all') q = q.eq('status', status);
+            const { data } = await q.order('created_at', { ascending: false }).limit(300);
+            if (data) results.push(...data.map(r => ({ ...r, _type: 'reviewer' })));
+        }
+
+        results.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        res.json({ actions: results });
+    } catch (err) {
+        console.error('[AI Actions] Failed to fetch ai-actions:', err);
+        res.status(500).json({ error: 'Failed to fetch AI actions' });
+    }
+});
+
 // Take action on a report
 app.put('/api/admin/moderation/:id/action', requireModerator, async (req, res) => {
     try {
@@ -4756,17 +5110,38 @@ app.put('/api/admin/moderation/:id/action', requireModerator, async (req, res) =
             await supabaseAdmin.from('users').delete().eq('id', reportedUserId);
         }
 
-        // Mark report resolved
+        // Mark report resolved — use appropriate columns per report table
         const actionTakenAt = new Date().toISOString();
-        const update = {
-            status: action === 'dismiss' ? 'dismissed' : 'resolved',
-            action_taken_by: adminId,
-            action_taken: action + (note ? (' - ' + note) : ''),
-            action_taken_at: actionTakenAt,
-            resolved_at: actionTakenAt
-        };
+        let update = null;
+        if (reportTable === 'chat_reports') {
+            // chat_reports schema uses handled_by/handled_at
+            update = {
+                status: action === 'dismiss' ? 'dismissed' : 'resolved',
+                handled_by: adminId,
+                handled_at: actionTakenAt
+            };
+            if (note) {
+                try {
+                    const existing = rdata && rdata.details ? String(rdata.details) : '';
+                    update.details = existing ? (existing + '\n\nAction: ' + note) : note;
+                } catch (_) {}
+            }
+        } else {
+            // reviewer_reports uses action_taken_* columns
+            update = {
+                status: action === 'dismiss' ? 'dismissed' : 'resolved',
+                action_taken_by: adminId,
+                action_taken: action + (note ? (' - ' + note) : ''),
+                action_taken_at: actionTakenAt,
+                resolved_at: actionTakenAt
+            };
+        }
 
-        await supabaseAdmin.from(reportTable).update(update).eq('id', reportId);
+        const { data: updatedReport, error: updateError } = await supabaseAdmin.from(reportTable).update(update).eq('id', reportId).select().single();
+        if (updateError) {
+            console.error('Failed to update report status:', updateError);
+            return res.status(500).json({ error: 'Failed to update report status' });
+        }
 
         // Notify reporter and reported user by email (best-effort)
         try {
@@ -4975,6 +5350,24 @@ app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
                 const map = (replies || []).reduce((acc, r) => { acc[r.id] = r; return acc; }, {});
                 msgs.forEach(m => { if (m.reply_to && map[m.reply_to]) m.reply_to_meta = map[m.reply_to]; });
             }
+
+            // For anonymous messages, avoid leaking the real user's joined `users` data
+            // to other users. Keep profile info for the message sender only.
+            for (const m of msgs) {
+                try {
+                    const maybeAnon = (m && (m.is_anonymous === true));
+                    const fallbackAnon = (m && m.username && String(m.username) === generateAnonName(m.user_id));
+                    if (maybeAnon || fallbackAnon) {
+                        if (String(m.user_id) !== String(req.session.userId)) {
+                            if (m.users) {
+                                delete m.users.profile_picture_url;
+                                delete m.users.username;
+                            }
+                        }
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
             return res.json({ messages: msgs });
         } catch (e) {
             return res.json({ messages: filteredMessages.reverse() });
@@ -5320,6 +5713,30 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
                         const map = (replies || []).reduce((acc, r) => { acc[r.id] = r; return acc; }, {});
                         msgs.forEach(m => { if (m.reply_to && map[m.reply_to]) m.reply_to_meta = map[m.reply_to]; });
                     }
+
+                    // For anonymous messages, avoid leaking the real user's joined `users` data
+                    // to other users. Keep profile info for the message sender only.
+                    for (const m of msgs) {
+                        try {
+                            const maybeAnon = (m && (m.is_anonymous === true));
+                            const fallbackAnon = (m && m.username && String(m.username) === generateAnonName(m.user_id));
+                            if (maybeAnon || fallbackAnon) {
+                                if (String(m.user_id) !== String(req.session.userId)) {
+                                    // Strip joined user profile fields and the raw `user_id` so
+                                    // anonymous authors cannot be resolved by other clients.
+                                    try { delete m.user_id; } catch (_) {}
+                                    if (m.users) {
+                                        try { delete m.users.profile_picture_url; } catch (_) {}
+                                        try { delete m.users.username; } catch (_) {}
+                                        try { delete m.users.email; } catch (_) {}
+                                        try { delete m.users.is_dev; } catch (_) {}
+                                        try { delete m.users.role; } catch (_) {}
+                                    }
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
                     try { console.debug('Get messages:', chatType, 'count=', (msgs && msgs.length) ? msgs.length : 0); } catch (e) {}
                     return res.json({ messages: msgs });
                 } catch (e) {
@@ -5561,7 +5978,86 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
         }
 
         try { console.debug('New message inserted:', newMessage && newMessage.id ? { id: newMessage.id, user_id: newMessage.user_id, chat_type: newMessage.chat_type } : newMessage); } catch (e) {}
-        
+
+        // Broadcast newly created message to connected WebSocket clients
+        (async () => {
+            try {
+                // Attempt to fetch the inserted message including joined user info
+                let fetched = null;
+                try {
+                    const { data: f, error: fErr } = await supabaseAdmin
+                        .from('messages')
+                        .select('*, users:user_id (username, profile_picture_url)')
+                        .eq('id', newMessage.id)
+                        .single();
+                    if (!fErr) fetched = f;
+                } catch (e) { fetched = null; }
+
+                const baseMsg = fetched || newMessage;
+
+                // Helper to deep-clone and mask joined user info for anonymous messages
+                const maskForOthers = (msgObj) => {
+                    try {
+                        const copy = JSON.parse(JSON.stringify(msgObj));
+                        const maybeAnon = (copy && (copy.is_anonymous === true));
+                        const fallbackAnon = (copy && copy.username && String(copy.username) === generateAnonName(copy.user_id));
+                                if (maybeAnon || fallbackAnon) {
+                                    // Remove any potentially sensitive profile fields that may have
+                                    // been joined by upstream queries. Keep this list conservative.
+                                    if (copy.users) {
+                                        try { delete copy.users.profile_picture_url; } catch (_) {}
+                                        try { delete copy.users.username; } catch (_) {}
+                                        try { delete copy.users.email; } catch (_) {}
+                                        try { delete copy.users.is_dev; } catch (_) {}
+                                        try { delete copy.users.role; } catch (_) {}
+                                    }
+                                    // Remove the raw user_id so other clients cannot resolve the
+                                    // anonymous author's profile by visiting /user.html?user=<id>.
+                                    try { delete copy.user_id; } catch (_) {}
+                                }
+                        return copy;
+                    } catch (e) { return msgObj; }
+                };
+
+                const payloadForSender = { type: 'new_message', message: baseMsg };
+                const payloadForOthers = { type: 'new_message', message: maskForOthers(baseMsg) };
+
+                if (baseMsg.chat_type === 'private') {
+                    // Send to recipient and sender (if connected)
+                    const recipientId = String(baseMsg.recipient_id || '');
+                    const senderId = String(baseMsg.user_id || '');
+                    const sendTo = new Set([recipientId, senderId]);
+                    for (const uid of sendTo) {
+                        const sockets = _wsClientsByUserId.get(uid) || new Set();
+                        for (const s of sockets) {
+                            try {
+                                if (s && s.readyState === 1) {
+                                    // If the recipient is the sender, send full payload; otherwise send full as private messages are not anonymous
+                                    await s.send(JSON.stringify(payloadForSender));
+                                }
+                            } catch (_) {}
+                        }
+                    }
+                } else {
+                    // General chat: send masked payload to everyone except the sender
+                    const senderId = String(baseMsg.user_id || '');
+                    for (const [uid, sockets] of _wsClientsByUserId.entries()) {
+                        for (const s of sockets) {
+                            try {
+                                if (!s || s.readyState !== 1) continue;
+                                if (String(uid) === senderId) {
+                                    s.send(JSON.stringify(payloadForSender));
+                                } else {
+                                    s.send(JSON.stringify(payloadForOthers));
+                                }
+                            } catch (_) {}
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('WS broadcast error:', err && err.message ? err.message : err);
+            }
+        })();
         // Log anonymous general chat messages to Discord
         if (is_anonymous && chat_type === 'general' && process.env.DISCORD_CHAT_WEBHOOK) {
             (async () => {
@@ -5588,7 +6084,15 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
                 }
             })();
         }
-        
+
+        // Background AI proactive moderation scan (fire-and-forget, non-blocking)
+        console.info(`[AI Mod] Scheduling autoModerateMessage for message ${newMessage.id} (chatType=${chat_type})`);
+        autoModerateMessage(newMessage.id, {
+            content: cleanMessage,
+            username: is_anonymous ? (newMessage.username || 'Anonymous') : (req.session.username || 'Unknown'),
+            chatType: chat_type
+        }).catch(e => console.warn('[AI Mod] autoModerateMessage error (new message):', e && e.message ? e.message : e));
+
         res.json({ message: newMessage });
     } catch (error) {
         console.error('Send message error:', error);
@@ -5709,6 +6213,26 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
 
             if (!report_type) return res.status(400).json({ error: 'report_type is required' });
 
+            // Prevent users from reporting their own messages
+            try {
+                const { data: msgRow, error: fetchErr } = await supabaseAdmin
+                    .from('messages')
+                    .select('user_id')
+                    .eq('id', messageId)
+                    .single();
+
+                if (fetchErr || !msgRow) {
+                    return res.status(404).json({ error: 'Message not found' });
+                }
+
+                if (String(msgRow.user_id) === String(reporterId)) {
+                    return res.status(400).json({ error: 'You cannot report your own message' });
+                }
+            } catch (e) {
+                console.error('Failed checking message owner before report:', e);
+                return res.status(500).json({ error: 'Server error' });
+            }
+
             const { data, error } = await supabaseAdmin
                 .from('chat_reports')
                 .insert([{ message_id: messageId, reporter_id: reporterId, report_type, details }]);
@@ -5719,6 +6243,27 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
             }
 
             res.json({ ok: true, report: data && data[0] });
+
+            // Fire-and-forget: AI re-scans the reported message with the report context
+            ;(async () => {
+                try {
+                    const { data: msg } = await supabaseAdmin
+                        .from('messages')
+                        .select('id, message, username, chat_type, user_id, users:user_id(username)')
+                        .eq('id', messageId)
+                        .single();
+                    if (msg) {
+                        console.info(`[AI Mod] Scheduling autoModerateMessage for reported message ${msg.id} (report_type=${report_type})`);
+                        await autoModerateMessage(msg.id, {
+                            content: msg.message || '',
+                            username: msg.username || msg.users?.username || 'Unknown',
+                            chatType: msg.chat_type || 'general',
+                            reportType: report_type,
+                            reportDetails: details
+                        });
+                    }
+                } catch (e) { console.warn('[AI Mod] Failed to schedule AI rescan for reported message', e && e.message ? e.message : e); }
+            })();
         } catch (err) {
             console.error('Report message error:', err);
             res.status(500).json({ error: 'Server error' });
@@ -7736,6 +8281,83 @@ const aiUpload = multer({
     }
 });
 
+// ── Puter.js AI (used for content moderation) ─────────────────────────────
+// Models in preference order; tries each until one succeeds.
+const PUTER_MODERATION_MODELS = [
+    'claude-haiku-4-5',
+    'claude-sonnet-4-6',
+];
+
+async function callPuter(prompt, returnJson = true) {
+    let lastError;
+    for (const model of PUTER_MODERATION_MODELS) {
+        try {
+            const response = await puter.ai.chat(prompt, { model });
+
+            // Try every known response shape from puter.js Node SDK + browser SDK
+            let text = null;
+            if (typeof response === 'string') {
+                text = response;
+            } else if (response?.message?.content?.[0]?.text) {
+                text = response.message.content[0].text;
+            } else if (typeof response?.message?.content === 'string') {
+                text = response.message.content;
+            } else if (typeof response?.message === 'string') {
+                text = response.message;
+            } else if (response?.content?.[0]?.text) {
+                text = response.content[0].text;
+            } else if (typeof response?.content === 'string') {
+                text = response.content;
+            } else if (response?.choices?.[0]?.message?.content) {
+                text = response.choices[0].message.content;
+            } else if (response?.text) {
+                text = typeof response.text === 'string' ? response.text : null;
+            } else if (response?.result) {
+                text = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
+            }
+
+            if (!text) {
+                // Log the raw shape so we can diagnose the actual format
+                console.warn(`[AI] Puter model "${model}" returned empty text. Raw response:`,
+                    JSON.stringify(response)?.slice(0, 400));
+                lastError = new Error(`Empty response from Puter model "${model}"`);
+                continue;
+            }
+
+            if (!returnJson) return text;
+
+            let jsonText = text.trim();
+            // Strip extended-thinking <thinking> blocks that Claude may prepend
+            jsonText = jsonText.replace(/<thinking>[\s\S]*?<\/antml:thinking>/gi, '').trim();
+            // Strip markdown code fences
+            if (jsonText.startsWith('```')) {
+                jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+            }
+            let parsed = null;
+            try { parsed = JSON.parse(jsonText); } catch (_) {}
+            if (!parsed) {
+                // Try extracting a JSON object
+                const objMatch = jsonText.match(/\{[\s\S]*\}/);
+                if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
+            }
+            if (!parsed) {
+                // Try extracting a JSON array
+                const arrMatch = jsonText.match(/\[[\s\S]*\]/);
+                if (arrMatch) try { parsed = JSON.parse(arrMatch[0]); } catch (_) {}
+            }
+            if (parsed) return parsed;
+
+            console.warn(`[AI] Puter model "${model}" returned unparseable JSON. Text snippet:`, jsonText.slice(0, 300));
+            lastError = new Error(`Puter model "${model}" returned malformed JSON`);
+        } catch (err) {
+            lastError = err;
+            console.warn(`[AI] Puter model "${model}" error: ${err.message}, trying next...`);
+        }
+    }
+    throw lastError || new Error('All Puter AI models are currently unavailable.');
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 // Ordered list of models to try — cycles through all before giving up
 // Uses currently available API model identifiers; falls back down the list on any capacity/quota/not-found error
 const GEMINI_MODELS = [
@@ -7794,117 +8416,230 @@ async function callGemini(prompt, sourceFile = null, returnJson = true) {
     parts.push({ text: prompt });
 
     let lastError;
-    for (const apiKey of apiKeys) {
-    for (const model of GEMINI_MODELS) {
-        let resp;
-        try {
-            resp = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts }],
-                        generationConfig: {
-                            ...(returnJson ? { response_mime_type: 'application/json' } : {}),
-                            temperature: 0.3,
-                            maxOutputTokens: 65536
-                        }
-                    })
-                }
-            );
-        } catch (networkErr) {
-            // Network-level failure — try next model
-            lastError = networkErr;
-            console.warn(`[AI] Model "${model}" network error, trying next model...`, networkErr.message);
-            continue;
-        }
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    const MAX_RETRY_MS = 30000; // max wait for a Retry-After suggestion
 
-        if (!resp.ok) {
-            const errBody = await resp.json().catch(() => ({}));
-            const errMsg = errBody.error?.message || `Gemini API error: ${resp.status}`;
-            if (resp.status === 401 || resp.status === 403) {
-                // Invalid/revoked key — skip remaining models for this key
-                lastError = new Error(errMsg);
-                console.warn(`[AI] API key rejected (${resp.status}), trying next key...`);
-                break;
-            }
-            if (isGeminiRetryableError(resp.status, errMsg)) {
-                lastError = new Error(errMsg);
-                console.warn(`[AI] Model "${model}" unavailable (${resp.status}: ${errMsg}), trying next model...`);
+    // Prefer trying models first; for each model try all API keys.
+    for (const model of GEMINI_MODELS) {
+        let suggestedRetryMs = null;
+
+        for (const apiKey of apiKeys) {
+            let resp;
+            try {
+                resp = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                    {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            contents: [{ parts }],
+                            generationConfig: {
+                                ...(returnJson ? { response_mime_type: 'application/json' } : {}),
+                                temperature: 0.3,
+                                maxOutputTokens: 65536
+                            }
+                        })
+                    }
+                );
+            } catch (networkErr) {
+                lastError = networkErr;
+                console.warn(`[AI] Model "${model}" network error (key), trying next key...`, networkErr.message);
                 continue;
             }
-            // Non-retryable error (e.g. 400 bad request) — fail immediately
-            throw new Error(errMsg);
+
+            if (!resp.ok) {
+                const errBody = await resp.json().catch(() => ({}));
+                const errMsg = errBody.error?.message || `Gemini API error: ${resp.status}`;
+
+                if (resp.status === 401 || resp.status === 403) {
+                    // Invalid/revoked key — try the next key for this model
+                    lastError = new Error(errMsg);
+                    console.warn(`[AI] API key rejected (${resp.status}) for model "${model}", trying next key...`);
+                    continue;
+                }
+
+                if (resp.status === 429) {
+                    // Record retry suggestion if present, then try next key
+                    let retryMs = null;
+                    try {
+                        const ra = resp.headers && resp.headers.get ? resp.headers.get('Retry-After') : null;
+                        if (ra) {
+                            const raInt = parseInt(ra, 10);
+                            if (!isNaN(raInt)) retryMs = raInt * 1000;
+                            else {
+                                const raDate = new Date(ra);
+                                if (!isNaN(raDate.getTime())) retryMs = Math.max(0, raDate.getTime() - Date.now());
+                            }
+                        } else {
+                            const m = (errMsg || '').match(/please retry in\s*([\d.]+)\s*s/i) || (errMsg || '').match(/retry in\s*([\d.]+)\s*s/i) || (errMsg || '').match(/retry in\s*([\d.]+)\s*seconds/i);
+                            if (m) retryMs = Math.round(parseFloat(m[1]) * 1000);
+                        }
+                    } catch (_) { /* ignore */ }
+
+                    if (retryMs) suggestedRetryMs = suggestedRetryMs === null ? retryMs : Math.min(suggestedRetryMs, retryMs);
+                    lastError = new Error(errMsg);
+                    console.warn(`[AI] Model "${model}" rate-limited (${resp.status}: ${errMsg}), trying next key...`);
+                    continue;
+                }
+
+                if (isGeminiRetryableError(resp.status, errMsg)) {
+                    lastError = new Error(errMsg);
+                    console.warn(`[AI] Model "${model}" unavailable (${resp.status}: ${errMsg}), trying next key...`);
+                    continue;
+                }
+
+                // Non-retryable error (e.g. 400 bad request) — fail immediately
+                throw new Error(errMsg);
+            }
+
+            const data = await resp.json();
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+            // Empty/blocked response — try next key instead of hard-failing
+            const finishReason = data.candidates?.[0]?.finishReason;
+            if (!text) {
+                const blockReason = data.promptFeedback?.blockReason;
+                if (blockReason) {
+                    throw new Error(`Request blocked by Gemini safety filters: ${blockReason}`);
+                }
+                lastError = new Error(`Empty response from model "${model}" (finishReason: ${finishReason || 'unknown'})`);
+                console.warn(`[AI] Model "${model}" returned empty text, trying next key...`);
+                continue;
+            }
+
+            // Truncated response — output was cut off at the token limit, JSON will be malformed
+            if (finishReason === 'MAX_TOKENS') {
+                lastError = new Error(`Response from model "${model}" was truncated (MAX_TOKENS) — JSON likely incomplete`);
+                console.warn(`[AI] Model "${model}" hit MAX_TOKENS, trying next key...`);
+                continue;
+            }
+
+            if (returnJson) {
+                let jsonText = text.trim();
+                // Strip markdown code fences that Gemini sometimes adds despite response_mime_type
+                if (jsonText.startsWith('```')) {
+                    jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+                }
+                let parsed = null;
+                // Attempt 1: direct parse
+                try { parsed = JSON.parse(jsonText); } catch (_) {}
+                // Attempt 2: extract outermost {...} or [...] in case there's surrounding prose
+                if (!parsed) {
+                    const objMatch = jsonText.match(/\{[\s\S]*\}/);
+                    if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
+                }
+                if (!parsed) {
+                    const arrMatch = jsonText.match(/\[[\s\S]*\]/);
+                    if (arrMatch) try { parsed = JSON.parse(arrMatch[0]); } catch (_) {}
+                }
+                // Attempt 3: trim trailing incomplete property/comma and close open braces (handles real truncation)
+                if (!parsed) {
+                    try {
+                        let s = jsonText.replace(/,\s*$/, '').replace(/[^}\]]+$/, '');
+                        const stack = [];
+                        for (const ch of s) {
+                            if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+                            else if (ch === '}' || ch === ']') stack.pop();
+                        }
+                        s = s + stack.reverse().join('');
+                        parsed = JSON.parse(s);
+                    } catch (_) {}
+                }
+                if (parsed) return parsed;
+                // All parse attempts failed — treat as retryable so the next model gets a shot
+                lastError = new Error(`Model "${model}" returned malformed JSON (SyntaxError)`);
+                console.warn(`[AI] Model "${model}" returned unparseable JSON, trying next key...`);
+                continue;
+            }
+            return text;
         }
 
-        const data = await resp.json();
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        // If one or more keys suggested a short retry, wait and attempt one more pass for this model
+        if (suggestedRetryMs && suggestedRetryMs > 0 && suggestedRetryMs <= MAX_RETRY_MS) {
+            const waitMs = Math.min(suggestedRetryMs, MAX_RETRY_MS);
+            console.warn(`[AI] Waiting ${Math.round(waitMs/1000)}s to retry model "${model}" across API keys after rate-limit suggestion...`);
+            await sleep(waitMs);
 
-        // Empty/blocked response — try next model instead of hard-failing
-        const finishReason = data.candidates?.[0]?.finishReason;
-        if (!text) {
-            const blockReason = data.promptFeedback?.blockReason;
-            if (blockReason) {
-                // Content blocked — not a capacity issue, fail immediately
-                throw new Error(`Request blocked by Gemini safety filters: ${blockReason}`);
-            }
-            lastError = new Error(`Empty response from model "${model}" (finishReason: ${finishReason || 'unknown'})`);
-            console.warn(`[AI] Model "${model}" returned empty text, trying next model...`);
-            continue;
-        }
-
-        // Truncated response — output was cut off at the token limit, JSON will be malformed
-        if (finishReason === 'MAX_TOKENS') {
-            lastError = new Error(`Response from model "${model}" was truncated (MAX_TOKENS) — JSON likely incomplete`);
-            console.warn(`[AI] Model "${model}" hit MAX_TOKENS, trying next model...`);
-            continue;
-        }
-
-        if (returnJson) {
-            let jsonText = text.trim();
-            // Strip markdown code fences that Gemini sometimes adds despite response_mime_type
-            if (jsonText.startsWith('```')) {
-                jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
-            }
-            let parsed = null;
-            // Attempt 1: direct parse
-            try { parsed = JSON.parse(jsonText); } catch (_) {}
-            // Attempt 2: extract outermost {...} or [...] in case there's surrounding prose
-            if (!parsed) {
-                const objMatch = jsonText.match(/\{[\s\S]*\}/);
-                if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
-            }
-            if (!parsed) {
-                const arrMatch = jsonText.match(/\[[\s\S]*\]/);
-                if (arrMatch) try { parsed = JSON.parse(arrMatch[0]); } catch (_) {}
-            }
-            // Attempt 3: trim trailing incomplete property/comma and close open braces (handles real truncation)
-            if (!parsed) {
+            for (const apiKey of apiKeys) {
                 try {
-                    // Remove everything from the last complete comma-terminated value onward,
-                    // then close all open braces/brackets to form valid JSON.
-                    let s = jsonText.replace(/,\s*$/, '').replace(/[^}\]]+$/, '');
-                    // Count unclosed braces
-                    let open = 0;
-                    const stack = [];
-                    for (const ch of s) {
-                        if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
-                        else if (ch === '}' || ch === ']') stack.pop();
+                    const resp2 = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                        {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                contents: [{ parts }],
+                                generationConfig: {
+                                    ...(returnJson ? { response_mime_type: 'application/json' } : {}),
+                                    temperature: 0.3,
+                                    maxOutputTokens: 65536
+                                }
+                            })
+                        }
+                    );
+                    if (!resp2.ok) {
+                        const errBody = await resp2.json().catch(() => ({}));
+                        const errMsg = errBody.error?.message || `Gemini API error: ${resp2.status}`;
+                        if (resp2.status === 401 || resp2.status === 403) {
+                            lastError = new Error(errMsg);
+                            continue;
+                        }
+                        lastError = new Error(errMsg);
+                        continue;
                     }
-                    s = s + stack.reverse().join('');
-                    parsed = JSON.parse(s);
-                } catch (_) {}
+                    const data2 = await resp2.json();
+                    const text2 = data2.candidates?.[0]?.content?.parts?.[0]?.text;
+                    const finishReason2 = data2.candidates?.[0]?.finishReason;
+                    if (!text2) {
+                        const blockReason = data2.promptFeedback?.blockReason;
+                        if (blockReason) throw new Error(`Request blocked by Gemini safety filters: ${blockReason}`);
+                        lastError = new Error(`Empty response from model "${model}" on retry`);
+                        continue;
+                    }
+                    if (finishReason2 === 'MAX_TOKENS') {
+                        lastError = new Error(`Response from model "${model}" was truncated (MAX_TOKENS) on retry`);
+                        continue;
+                    }
+                    if (returnJson) {
+                        let jsonText = text2.trim();
+                        if (jsonText.startsWith('```')) {
+                            jsonText = jsonText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+                        }
+                        let parsed = null;
+                        try { parsed = JSON.parse(jsonText); } catch (_) {}
+                        if (!parsed) {
+                            const objMatch = jsonText.match(/\{[\s\S]*\}/);
+                            if (objMatch) try { parsed = JSON.parse(objMatch[0]); } catch (_) {}
+                        }
+                        if (!parsed) {
+                            const arrMatch = jsonText.match(/\[[\s\S]*\]/);
+                            if (arrMatch) try { parsed = JSON.parse(arrMatch[0]); } catch (_) {}
+                        }
+                        if (!parsed) {
+                            try {
+                                let s = jsonText.replace(/,\s*$/, '').replace(/[^}\]]+$/, '');
+                                const stack = [];
+                                for (const ch of s) {
+                                    if (ch === '{' || ch === '[') stack.push(ch === '{' ? '}' : ']');
+                                    else if (ch === '}' || ch === ']') stack.pop();
+                                }
+                                s = s + stack.reverse().join('');
+                                parsed = JSON.parse(s);
+                            } catch (_) {}
+                        }
+                        if (parsed) return parsed;
+                        lastError = new Error(`Model "${model}" returned malformed JSON (SyntaxError) on retry`);
+                        continue;
+                    }
+                    return text2;
+                } catch (retryErr) {
+                    lastError = retryErr;
+                    continue;
+                }
             }
-            if (parsed) return parsed;
-            // All parse attempts failed — treat as retryable so the next model gets a shot
-            lastError = new Error(`Model "${model}" returned malformed JSON (SyntaxError)`);
-            console.warn(`[AI] Model "${model}" returned unparseable JSON, trying next model...`);
-            continue;
         }
-        return text;
+        // Nothing for this model worked — try next model
     }
-    } // end key loop
 
     throw lastError || new Error('All Gemini models are currently unavailable. Please try again later.');
 }
@@ -8043,6 +8778,80 @@ Return nothing outside the JSON object.`;
         res.status(500).json({ error: 'Failed to generate reviewer. Please try again.' });
     }
 });
+
+    // In-memory temporary store for chat-uploaded files. Keys are UUIDs.
+    const chatUploadedFiles = new Map();
+
+    // POST /api/ai/upload-chat-file — upload a single file to reference in chat
+    app.post('/api/ai/upload-chat-file', requireAuth, (req, res, next) => {
+        // Run multer for a single file under field name 'file'
+        aiUpload.single('file')(req, res, (multerErr) => {
+            if (multerErr) return res.status(400).json({ error: multerErr.message || 'File upload failed.' });
+            next();
+        });
+    }, async (req, res) => {
+        try {
+            if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+            if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'File-based chat is not available right now.' });
+
+            const { originalname, mimetype, buffer } = req.file;
+            const effectiveMime = resolveFileMime(originalname, mimetype);
+            let normalized;
+            try {
+                normalized = await normalizeAiUploadToPdf({ buffer, effectiveMime, originalname });
+            } catch (e) {
+                return res.status(400).json({ error: e.message || 'Could not process uploaded file' });
+            }
+
+            const id = crypto.randomUUID();
+            const base64 = normalized.pdfBuffer.toString('base64');
+            chatUploadedFiles.set(id, {
+                id,
+                owner: req.session.userId,
+                base64,
+                originalname,
+                mimetype: 'application/pdf',
+                size: normalized.pdfBuffer.length,
+                sourceDescription: normalized.sourceDescription,
+                createdAt: Date.now()
+            });
+
+            // Track uploaded file ids in the user's session for convenience
+            req.session.chatFiles = req.session.chatFiles || [];
+            req.session.chatFiles.push(id);
+
+            res.json({ id, name: originalname, size: normalized.pdfBuffer.length, sourceDescription: normalized.sourceDescription });
+        } catch (err) {
+            console.error('upload-chat-file error:', err);
+            res.status(500).json({ error: 'Upload failed' });
+        }
+    });
+
+    // POST /api/ai/chat-with-files — ask a question referencing previously uploaded files
+    app.post('/api/ai/chat-with-files', requireAuth, async (req, res) => {
+        try {
+            if (getGeminiApiKeys().length === 0) return res.status(503).json({ error: 'File-based chat is not available right now.' });
+            const { message, fileIds } = req.body || {};
+            if (!message || String(message).trim().length === 0) return res.status(400).json({ error: 'No message provided' });
+
+            const ids = Array.isArray(fileIds) && fileIds.length ? fileIds : (req.session.chatFiles || []);
+            if (!ids || ids.length === 0) return res.status(400).json({ error: 'No file attached' });
+
+            // Use the first provided file for now
+            const fid = ids[0];
+            const fileEntry = chatUploadedFiles.get(fid);
+            if (!fileEntry || fileEntry.owner !== req.session.userId) return res.status(404).json({ error: 'File not found' });
+
+            const prompt = `You have access to an uploaded document: ${fileEntry.sourceDescription}. Answer the user's question using the document as the primary source. Be concise and cite short excerpts when helpful.\n\nUser question: ${message}`;
+
+            const resultText = await callGemini(prompt, fileEntry.base64, false);
+            if (!resultText) return res.status(500).json({ error: 'No response from AI' });
+            res.json({ text: String(resultText) });
+        } catch (err) {
+            console.error('chat-with-files error:', err);
+            res.status(500).json({ error: 'Chat failed' });
+        }
+    });
 
 // POST /api/ai/generate-flashcards — generate flashcards from a saved reviewer
 app.post('/api/ai/generate-flashcards', requireAuth, async (req, res) => {
@@ -8697,6 +9506,16 @@ app.post('/api/compiler/terminal-token', requireAuth, (req, res) => {
     res.json({ token });
 });
 
+// One-time WebSocket tokens for chat (short-lived, default 5 minutes)
+const _wsTokens = new Map();
+app.post('/api/ws/chat-token', requireAuth, (req, res) => {
+    const token = crypto.randomBytes(32).toString('hex');
+    _wsTokens.set(token, { userId: req.session.userId, expiresAt: Date.now() + (5 * 60 * 1000) });
+    // Auto-delete after expiry
+    setTimeout(() => _wsTokens.delete(token), 5 * 60 * 1000);
+    res.json({ token });
+});
+
 // 404 handler - distinguish between API and page requests
 app.use((req, res) => {
     if (req.path.startsWith('/api/')) {
@@ -8848,6 +9667,51 @@ async function applyStartupMigrations() {
 
 const _httpServer = http.createServer(app);
 const _wss = new WebSocketServer({ server: _httpServer, path: '/ws/compiler' });
+
+// Chat WebSocket server (real-time message pushes)
+const _chatWss = new WebSocketServer({ server: _httpServer, path: '/ws/chat' });
+// Map of userId -> Set of WebSocket connections for that user
+const _wsClientsByUserId = new Map();
+
+_chatWss.on('connection', (socket, req) => {
+    // Token passed as query param: ?token=<hex>
+    const qs = req.url && req.url.includes('?') ? req.url.slice(req.url.indexOf('?') + 1) : '';
+    const token = new URLSearchParams(qs).get('token');
+    const tokenData = token ? _wsTokens.get(token) : null;
+    if (!tokenData || Date.now() > tokenData.expiresAt) { socket.close(1008, 'Unauthorized'); return; }
+    // Remove token so it can't be reused
+    _wsTokens.delete(token);
+
+    const userId = String(tokenData.userId);
+    socket.__chatUserId = userId;
+
+    let set = _wsClientsByUserId.get(userId);
+    if (!set) { set = new Set(); _wsClientsByUserId.set(userId, set); }
+    set.add(socket);
+
+    // Acknowledge
+    try { socket.send(JSON.stringify({ type: 'connected', userId })); } catch (_) {}
+
+    socket.on('close', () => {
+        try {
+            const s = _wsClientsByUserId.get(userId);
+            if (s) {
+                s.delete(socket);
+                if (s.size === 0) _wsClientsByUserId.delete(userId);
+            }
+        } catch (_) {}
+    });
+
+    socket.on('message', (raw) => {
+        // Currently only support pings from client (keep-alive). Expect JSON {type:'ping'}
+        try {
+            const m = JSON.parse(typeof raw === 'string' ? raw : raw.toString());
+            if (m && m.type === 'ping') {
+                try { socket.send(JSON.stringify({ type: 'pong', ts: Date.now() })); } catch (_) {}
+            }
+        } catch (_) {}
+    });
+});
 
 const _LANG_EXT = { cpp: '.cpp', c: '.c', python: '.py', javascript: '.js', typescript: '.ts', java: '.java', go: '.go', rust: '.rs', php: '.php', ruby: '.rb' };
 // Prepend to C/C++ source to disable stdout/stderr buffering without needing a PTY

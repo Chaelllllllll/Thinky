@@ -65,8 +65,35 @@ document.addEventListener('DOMContentLoaded', () => {
         loadReviewers();
         loadSubjects();
         if (typeof loadModeration === 'function') loadModeration();
+        // update moderation badge if present
+        try { updateModerationBadge(); } catch (e) {}
     }, 30000);
 });
+
+// Update the moderation badge in the sidebar with open message reports count
+async function updateModerationBadge() {
+    try {
+        const resp = await fetch('/api/admin/moderation', { credentials: 'include' });
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const reports = Array.isArray(data.reports) ? data.reports : [];
+        const openMessageReports = reports.filter(r => (!r.status || r.status === 'open') && (r.type === 'chat' || !!r.message));
+        const count = openMessageReports.length;
+        const el = document.getElementById('messageModerationBadge');
+        if (!el) return;
+        if (count > 0) {
+            el.style.display = 'inline-flex';
+            el.textContent = count > 99 ? '99+' : String(count);
+        } else {
+            el.style.display = 'none';
+        }
+    } catch (err) {
+        console.error('Failed to update moderation badge:', err);
+    }
+}
+
+// Initial badge update on load
+try { document.addEventListener('DOMContentLoaded', () => { updateModerationBadge(); }); } catch (e) {}
 
 // Delegated click handler to catch edit/delete clicks if direct handlers fail
 document.addEventListener('click', (ev) => {
@@ -162,6 +189,9 @@ window.addEventListener('popstate', () => { updateSidebarActive(); });
 document.addEventListener('click', (ev) => {
     const a = ev.target.closest && ev.target.closest('.sidebar-link');
     if (!a) return;
+    // Skip for onclick-only links (href="#") — they manage their own tab state
+    const href = (a.getAttribute('href') || '').trim();
+    if (href === '#') return;
     // let normal navigation occur, but update active immediately for responsiveness
     setTimeout(() => updateSidebarActive(), 10);
 });
@@ -1056,11 +1086,149 @@ window.openReviewerActionModal = function(reportId) {
     };
 };
 
+// ── AI Automated Reviews ─────────────────────────────────────────────────────
+let _aiActions = [];
+
+function _aiSeverityBadge(severity) {
+    const map = { none: 'success', low: 'info', medium: 'warning', high: 'danger', critical: 'dark' };
+    const label = (severity || 'unknown').toUpperCase();
+    return `<span class="badge bg-${map[severity] || 'secondary'}">${label}</span>`;
+}
+
+function _aiConfidenceBar(conf) {
+    const pct = Math.round((conf || 0) * 100);
+    const color = pct >= 90 ? '#22c55e' : pct >= 70 ? '#f59e0b' : '#ef4444';
+    return `<div style="background:#e5e7eb;border-radius:99px;height:8px;overflow:hidden;margin-top:4px;min-width:80px;">
+      <div style="width:${pct}%;height:100%;background:${color};border-radius:99px;"></div>
+    </div><small class="text-muted">${pct}%</small>`;
+}
+
+function _aiActionLabel(action) {
+    const labels = {
+        dismiss: 'No violation',
+        warn_message: 'Warn (message)',
+        warn_reviewer: 'Warn (reviewer)',
+        mute: 'Mute author',
+        delete_message: 'Delete message',
+        delete_content: 'Delete reviewer',
+        ban_chat: 'Ban from chat',
+        suspend_author: 'Suspend author',
+        hide_content: 'Hide reviewer'
+    };
+    return labels[action] || (action || '—');
+}
+
+function _parseAiDetails(details) {
+    const d = details || '';
+    const severityM = d.match(/Severity:\s*(\w+)/i);
+    const confM = d.match(/Confidence:\s*(\d+)%/i);
+    const recM = d.match(/Recommended:\s*([\w_]+)/i);
+    return {
+        severity: severityM ? severityM[1].toLowerCase() : 'unknown',
+        confidence: confM ? parseInt(confM[1]) / 100 : 0,
+        recommended: recM ? recM[1] : ''
+    };
+}
+
+async function loadAiActions() {
+    const tbody = document.getElementById('aiActionsTableBody');
+    if (!tbody) return;
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;"><div class="spinner"></div></td></tr>`;
+
+    const type = (document.getElementById('aiTypeFilter') || {}).value || 'all';
+    const status = (document.getElementById('aiStatusFilter') || {}).value || 'all';
+
+    try {
+        const resp = await fetch(`/api/admin/ai-actions?type=${encodeURIComponent(type)}&status=${encodeURIComponent(status)}`, { credentials: 'include' });
+        if (!resp.ok) throw new Error('Failed to load');
+        const data = await resp.json();
+        _aiActions = data.actions || [];
+        displayAiActions();
+
+        // Update badge
+        const openCount = _aiActions.filter(a => a.status === 'open').length;
+        const badge = document.getElementById('aiActionsBadge');
+        if (badge) {
+            badge.textContent = openCount > 0 ? openCount : '';
+            badge.style.display = openCount > 0 ? '' : 'none';
+        }
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--dark-gray);">Failed to load AI actions. Try refreshing.</td></tr>`;
+    }
+}
+
+function displayAiActions() {
+    const tbody = document.getElementById('aiActionsTableBody');
+    if (!tbody) return;
+
+    if (!_aiActions.length) {
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--dark-gray);">No automated AI reviews found.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = _aiActions.map(a => {
+        const isMsg = a._type === 'message';
+        const reportId = a.id;
+        const parsed = _parseAiDetails(a.details);
+
+        const typeBadge = isMsg
+            ? `<span class="badge" style="background:#0ea5e9;"><i class="bi bi-chat-left-text"></i> Message</span>`
+            : `<span class="badge" style="background:#8b5cf6;"><i class="bi bi-journal-text"></i> Reviewer</span>`;
+
+        const author = isMsg
+            ? escapeHtml(a.message?.username || a.message?.users?.username || 'Unknown')
+            : escapeHtml(a.reviewers?.users?.username || 'Unknown');
+
+        const contentPreview = isMsg
+            ? escapeHtml((a.message?.message || '').slice(0, 90))
+            : escapeHtml((a.reviewers?.title || 'Untitled').slice(0, 90));
+
+        const statusBadge = a.status === 'resolved'
+            ? `<span class="badge bg-danger">Auto-Actioned</span>`
+            : `<span class="badge bg-warning text-dark">Flagged</span>`;
+
+        const overrideBtn = isMsg
+            ? `<button class="btn btn-sm btn-warning" onclick="openMessageActionModal('${reportId}')"><i class="bi bi-pencil-square"></i> Override</button>`
+            : `<button class="btn btn-sm btn-warning" onclick="openReviewerActionModal('${reportId}')"><i class="bi bi-pencil-square"></i> Override</button>`;
+
+        return `<tr>
+            <td>${typeBadge}</td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${contentPreview}">${contentPreview}</td>
+            <td>${author}</td>
+            <td>${_aiSeverityBadge(parsed.severity)}<br>${_aiConfidenceBar(parsed.confidence)}</td>
+            <td><small>${escapeHtml(_aiActionLabel(parsed.recommended))}</small></td>
+            <td>${statusBadge}</td>
+            <td style="white-space:nowrap;"><small>${new Date(a.created_at).toLocaleString()}</small></td>
+            <td>${overrideBtn}</td>
+        </tr>`;
+    }).join('');
+}
+
+function filterAiActions() {
+    loadAiActions();
+}
+
+function showAiActionsSection() {
+    document.querySelectorAll('.tab-content').forEach(t => {
+        t.classList.remove('active');
+        t.style.display = ''; // clear any inline display set by showPolicySection
+    });
+    const tab = document.getElementById('aiActionsTab');
+    if (tab) {
+        tab.classList.add('active');
+        loadAiActions();
+    }
+    document.querySelectorAll('.sidebar-link').forEach(a => a.classList.remove('active'));
+    const link = document.getElementById('aiActionsSidebarLink');
+    if (link) link.classList.add('active');
+}
+
 // Dismiss report without action
 window.dismissReport = async function(reportId) {
     if (!await window.showConfirm('Mark this report as reviewed without taking action?', 'Dismiss Report')) return;
     await adminTakeAction(reportId, 'dismiss', {});
 };
+
 
 function computeUntilFromDuration(duration) {
     if (!duration) return null;

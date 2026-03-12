@@ -1192,7 +1192,7 @@ textarea.form-control {
 .reviewer-preview pre {
     background: #f3f0f5;
     border: 1px solid #e0d8e8;
-    border-left: 4px solid var(--primary-pink, #e91e8c);
+    border-left: 4px solid var(--primary-pink, #ff9eb4);
     padding: 14px 16px;
     border-radius: 8px;
     overflow-x: auto;
