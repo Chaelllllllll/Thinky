@@ -131,6 +131,22 @@ function _activityDiscord(title, fields) {
         })
     }).catch(() => {});
 }
+// Helper: format a user link for Discord/activity logs
+function _userLink(req) {
+    try {
+        const base = (process.env.BASE_URL || process.env.PRODUCTION_URL || '').replace(/\/$/, '');
+        const username = req && req.session && req.session.username ? String(req.session.username) : null;
+        const userId = req && req.session && req.session.userId ? String(req.session.userId) : null;
+        if (base && username && userId) {
+            return `[${username}](${base}/user?id=${encodeURIComponent(userId)})`;
+        }
+        if (username) return username;
+        if (userId) return `user:${userId}`;
+        return 'n/a';
+    } catch (_) {
+        return 'n/a';
+    }
+}
     
 
 function _extractAndroidModelFromUA(uaRaw) {
