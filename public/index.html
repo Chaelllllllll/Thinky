@@ -748,8 +748,13 @@
         data-ad-slot="2516960734"
         data-ad-format="auto"
         data-full-width-responsive="true"></ins>
-    <script>
-        (adsbygoogle = window.adsbygoogle || []).push({});
+<script>
+        // Ensure AdSense initializes properly
+        window.addEventListener('load', () => {
+            if (typeof adsbygoogle !== 'undefined') {
+                (adsbygoogle = window.adsbygoogle || []).push({});
+            }
+        });
     </script>
 
     <!-- Main Content -->
@@ -1541,6 +1546,7 @@
     </script>
     <script src="/js/modalAlerts.js"></script>
     <script src="/js/moderation.js"></script>
+    <script src="/js/ads.js"></script>
 
     <!-- PWA Notification Permission Modal -->
     <div id="pwaNotifModal" class="pwa-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,0.35);align-items:flex-end;justify-content:center;">
@@ -1606,6 +1612,20 @@
         <i class="bi bi-chat-dots"></i>
         <div id="msgBtnBadge"></div>
     </button>
+
+    <!-- AdSense Modal -->
+    <div id="adModal" class="ad-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,0.8);align-items:center;justify-content:center;padding:20px;">
+        <div style="background:var(--white);border-radius:20px;max-width:400px;width:100%;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="padding:20px;text-align:center;border-bottom:1px solid var(--medium-gray);">
+                <div style="font-weight:700;font-size:1.1rem;color:var(--text-dark);margin-bottom:8px;">Advertisement</div>
+                <button onclick="closeAdModal()" style="background:var(--light-gray);border:1px solid var(--medium-gray);border-radius:20px;padding:6px 16px;color:var(--dark-gray);font-size:0.9rem;cursor:pointer;">⨉</button>
+            </div>
+            <div class="ad-slot" style="padding:20px;text-align:center;min-height:250px;display:flex;align-items:center;justify-content:center;">
+                <!-- AdSense unit will be pushed here -->
+                <div style="color:var(--dark-gray);font-style:italic;">Loading ad...</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Message Modal -->
     <div id="messageModal">
