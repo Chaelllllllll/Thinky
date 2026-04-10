@@ -17,6 +17,7 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createRedisClient } from 'redis';
 import bcryptLib from 'bcryptjs';
 
 // Promise-based wrapper around bcryptjs to keep async/await usage
@@ -435,6 +436,189 @@ const supabaseAdmin = createClient(
     process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
+// ── Redis cache + optional distributed rate limiting ─────────────────────────
+const REDIS_URL = process.env.REDIS_URL || process.env.UPSTASH_REDIS_URL || '';
+const CACHE_PREFIX = process.env.REDIS_CACHE_PREFIX || 'thinky';
+const DEFAULT_CACHE_TTL_SECONDS = Math.max(5, parseInt(process.env.CACHE_DEFAULT_TTL_SECONDS || '120', 10));
+let redisClient = null;
+let redisReady = false;
+
+if (REDIS_URL) {
+    try {
+        redisClient = createRedisClient({ url: REDIS_URL });
+        redisClient.on('error', (err) => {
+            redisReady = false;
+            console.warn('[cache] Redis error, fallback to DB:', err && err.message ? err.message : err);
+        });
+        redisClient.on('ready', () => {
+            redisReady = true;
+            console.info('[cache] Redis ready');
+        });
+        redisClient.connect().catch((err) => {
+            redisReady = false;
+            console.warn('[cache] Redis connect failed, fallback to DB:', err && err.message ? err.message : err);
+        });
+    } catch (err) {
+        redisReady = false;
+        console.warn('[cache] Redis init failed, fallback to DB:', err && err.message ? err.message : err);
+    }
+} else {
+    console.info('[cache] REDIS_URL not set, caching disabled');
+}
+
+function stableStringifyForCache(input) {
+    if (input === null || typeof input !== 'object') return JSON.stringify(input);
+    if (Array.isArray(input)) return '[' + input.map(stableStringifyForCache).join(',') + ']';
+    const keys = Object.keys(input).sort();
+    return '{' + keys.map((k) => JSON.stringify(k) + ':' + stableStringifyForCache(input[k])).join(',') + '}';
+}
+
+function hashForCache(raw) {
+    return crypto.createHash('sha1').update(String(raw || '')).digest('hex');
+}
+
+function normalizeQueryForCache(queryObj) {
+    if (!queryObj || typeof queryObj !== 'object') return '';
+    return Object.keys(queryObj)
+        .sort()
+        .map((key) => {
+            const value = queryObj[key];
+            if (Array.isArray(value)) {
+                return `${encodeURIComponent(key)}=${encodeURIComponent(value.map((v) => String(v)).sort().join(','))}`;
+            }
+            return `${encodeURIComponent(key)}=${encodeURIComponent(String(value ?? ''))}`;
+        })
+        .join('&');
+}
+
+function buildApiCacheKey(req, options = {}) {
+    const {
+        namespace = 'api',
+        includeUser = false,
+        extraParts = []
+    } = options;
+
+    const userScope = includeUser ? String((req.session && req.session.userId) || 'anon') : 'public';
+    const routePart = String(req.path || req.originalUrl || 'unknown');
+    const queryPart = normalizeQueryForCache(req.query);
+    const extraPart = stableStringifyForCache(extraParts);
+    const fingerprint = hashForCache(`${routePart}|${queryPart}|${extraPart}`);
+    return `${CACHE_PREFIX}:cache:${namespace}:user:${userScope}:key:${fingerprint}`;
+}
+
+async function safeRedisGetJson(key) {
+    if (!redisClient || !redisReady) return null;
+    try {
+        const raw = await redisClient.get(key);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch (err) {
+        console.warn('[cache] read failed, fallback to DB:', err && err.message ? err.message : err);
+        return null;
+    }
+}
+
+async function safeRedisSetJson(key, value, ttlSeconds = DEFAULT_CACHE_TTL_SECONDS) {
+    if (!redisClient || !redisReady) return;
+    try {
+        const ttl = Math.max(1, parseInt(ttlSeconds || DEFAULT_CACHE_TTL_SECONDS, 10));
+        await redisClient.setEx(key, ttl, JSON.stringify(value));
+    } catch (err) {
+        console.warn('[cache] write failed:', err && err.message ? err.message : err);
+    }
+}
+
+function cacheResponse(options = {}) {
+    const {
+        namespace = 'api',
+        ttlSeconds = DEFAULT_CACHE_TTL_SECONDS,
+        includeUser = false,
+        extraParts = []
+    } = options;
+
+    return async (req, res, next) => {
+        if (req.method !== 'GET') return next();
+
+        const resolvedExtraParts = typeof extraParts === 'function' ? extraParts(req) : extraParts;
+        const cacheKey = buildApiCacheKey(req, {
+            namespace,
+            includeUser,
+            extraParts: resolvedExtraParts || []
+        });
+
+        const cached = await safeRedisGetJson(cacheKey);
+        if (cached !== null) {
+            console.info('[cache] HIT', namespace, cacheKey);
+            res.set('X-Cache', 'HIT');
+            return res.json(cached);
+        }
+
+        console.info('[cache] MISS', namespace, cacheKey);
+        res.set('X-Cache', 'MISS');
+
+        const originalJson = res.json.bind(res);
+        res.json = (body) => {
+            if (res.statusCode >= 200 && res.statusCode < 400) {
+                safeRedisSetJson(cacheKey, body, ttlSeconds).catch(() => {});
+            }
+            return originalJson(body);
+        };
+
+        next();
+    };
+}
+
+async function invalidateCacheNamespace(namespace) {
+    if (!redisClient || !redisReady) return;
+    const matchPattern = `${CACHE_PREFIX}:cache:${namespace}:*`;
+    const keys = [];
+    try {
+        for await (const key of redisClient.scanIterator({ MATCH: matchPattern, COUNT: 100 })) {
+            keys.push(key);
+            if (keys.length >= 200) {
+                await redisClient.del(keys);
+                keys.length = 0;
+            }
+        }
+        if (keys.length > 0) await redisClient.del(keys);
+        console.info('[cache] INVALIDATE namespace=', namespace);
+    } catch (err) {
+        console.warn('[cache] invalidate failed for namespace', namespace, err && err.message ? err.message : err);
+    }
+}
+
+async function invalidateCacheNamespaces(namespaces = []) {
+    const unique = [...new Set((namespaces || []).filter(Boolean))];
+    await Promise.allSettled(unique.map((ns) => invalidateCacheNamespace(ns)));
+}
+
+function createRedisRateLimitMiddleware(options = {}) {
+    const {
+        windowSeconds = 60,
+        maxRequests = 120,
+        keyPrefix = `${CACHE_PREFIX}:ratelimit`
+    } = options;
+
+    return async (req, res, next) => {
+        if (!redisClient || !redisReady) return next();
+        try {
+            const userOrIp = (req.session && req.session.userId) || req.ip || 'anonymous';
+            const key = `${keyPrefix}:${userOrIp}`;
+            const count = await redisClient.incr(key);
+            if (count === 1) {
+                await redisClient.expire(key, Math.max(1, parseInt(windowSeconds, 10)));
+            }
+            if (count > maxRequests) {
+                return res.status(429).json({ error: 'Too many requests (distributed limiter)' });
+            }
+            next();
+        } catch (err) {
+            console.warn('[rate-limit] Redis limiter failed, allowing request:', err && err.message ? err.message : err);
+            next();
+        }
+    };
+}
+
 // ── Web Push (VAPID) setup ────────────────────────────────────────────────────
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
     webPush.setVapidDetails(
@@ -667,6 +851,14 @@ app.use(cors({
 }));
 
 // Rate limiting
+if (process.env.REDIS_RATE_LIMIT_ENABLED === 'true') {
+    app.use('/api/', createRedisRateLimitMiddleware({
+        windowSeconds: parseInt(process.env.REDIS_RATE_LIMIT_WINDOW_SECONDS || '60', 10),
+        maxRequests: parseInt(process.env.REDIS_RATE_LIMIT_MAX_REQUESTS || '250', 10),
+        keyPrefix: `${CACHE_PREFIX}:ratelimit:api`
+    }));
+}
+
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 500, // limit each IP to 500 requests per windowMs
@@ -2609,7 +2801,7 @@ app.get('/api/auth/me', requireAuth, async (req, res) => {
 // =====================================================
 
 // Get all subjects for current user
-app.get('/api/subjects', requireAuth, async (req, res) => {
+app.get('/api/subjects', requireAuth, cacheResponse({ namespace: 'subjects:user', includeUser: true, ttlSeconds: 120 }), async (req, res) => {
     try {
         const { data: subjects, error } = await supabase
             .from('subjects')
@@ -2630,7 +2822,7 @@ app.get('/api/subjects', requireAuth, async (req, res) => {
 });
 
 // Get verified schools (admin-provided). If table doesn't exist, return empty list.
-app.get('/api/schools', requireAuth, async (req, res) => {
+app.get('/api/schools', requireAuth, cacheResponse({ namespace: 'schools:list', ttlSeconds: 600 }), async (req, res) => {
     try {
         const { data: schools, error } = await supabaseAdmin
             .from('verified_schools')
@@ -2776,6 +2968,8 @@ app.put('/api/admin/school-requests/:id/approve', requireAdmin, async (req, res)
             .update({ status: 'approved', admin_note: admin_note || null, updated_at: new Date().toISOString() })
             .eq('id', id);
 
+        await invalidateCacheNamespaces(['schools:list', 'subjects:public']);
+
         // Notify requester (in-app + push + email) — non-blocking
         (async () => {
             try {
@@ -2915,6 +3109,8 @@ app.post('/api/subjects', requireAuth, async (req, res) => {
             ['Time (UTC)', new Date().toISOString()]
         ]);
 
+        await invalidateCacheNamespaces(['subjects:user', 'subjects:public']);
+
         res.json({ subject });
     } catch (error) {
         console.error('Create subject error:', error);
@@ -2943,6 +3139,8 @@ app.put('/api/subjects/:id', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to update subject' });
         }
 
+        await invalidateCacheNamespaces(['subjects:user', 'subjects:public']);
+
         res.json({ subject });
     } catch (error) {
         console.error('Update subject error:', error);
@@ -2966,6 +3164,8 @@ app.delete('/api/subjects/:id', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to delete subject' });
         }
 
+        await invalidateCacheNamespaces(['subjects:user', 'subjects:public', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest']);
+
         res.json({ message: 'Subject deleted successfully' });
     } catch (error) {
         console.error('Delete subject error:', error);
@@ -2978,7 +3178,7 @@ app.delete('/api/subjects/:id', requireAuth, async (req, res) => {
 // =====================================================
 
 // Get reviewers for a subject
-app.get('/api/subjects/:subjectId/reviewers', requireAuth, async (req, res) => {
+app.get('/api/subjects/:subjectId/reviewers', requireAuth, cacheResponse({ namespace: 'reviewers:subject', includeUser: true, ttlSeconds: 120, extraParts: (req) => [req.params.subjectId] }), async (req, res) => {
     try {
         const { subjectId } = req.params;
 
@@ -3018,7 +3218,7 @@ app.get('/api/subjects/:subjectId/reviewers', requireAuth, async (req, res) => {
 });
 
 // Get all public reviewers
-app.get('/api/reviewers/public', requireAuth, async (req, res) => {
+app.get('/api/reviewers/public', requireAuth, cacheResponse({ namespace: 'reviewers:public-auth', ttlSeconds: 90 }), async (req, res) => {
     try {
         const { search, student } = req.query;
 
@@ -3063,7 +3263,7 @@ app.get('/api/reviewers/public', requireAuth, async (req, res) => {
 });
 
 // Public endpoint: get public reviewers for anonymous users (no auth required)
-app.get('/api/reviewers/public-guest', async (req, res) => {
+app.get('/api/reviewers/public-guest', cacheResponse({ namespace: 'reviewers:public-guest', ttlSeconds: 90 }), async (req, res) => {
     console.info('[req] GET /api/reviewers/public-guest from', req.ip, 'query:', req.query);
     try {
         const { search, student } = req.query;
@@ -3119,7 +3319,7 @@ app.get('/api/reviewers/public-guest', async (req, res) => {
 });
 
 // Subjects with at least one public reviewer (used for index page filter chips)
-app.get('/api/subjects/public', async (req, res) => {
+app.get('/api/subjects/public', cacheResponse({ namespace: 'subjects:public', ttlSeconds: 300 }), async (req, res) => {
     try {
         const { data, error } = await withTimeout(
             supabase
@@ -3473,6 +3673,8 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             }
         })();
 
+        await invalidateCacheNamespaces(['reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest', 'subjects:public']);
+
         res.json({ reviewer });
     } catch (error) {
         console.error('Create reviewer error:', error);
@@ -3481,7 +3683,7 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
 });
 
 // Get a single reviewer with user and subject info
-app.get('/api/reviewers/:id', requireAuth, async (req, res) => {
+app.get('/api/reviewers/:id', requireAuth, cacheResponse({ namespace: 'reviewers:detail', ttlSeconds: 120, extraParts: (req) => [req.params.id] }), async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -4058,6 +4260,8 @@ app.put('/api/reviewers/:id', requireAuth, async (req, res) => {
             return res.status(500).json({ error: 'Failed to update reviewer' });
         }
 
+        await invalidateCacheNamespaces(['reviewers:detail', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest', 'subjects:public']);
+
         res.json({ reviewer });
     } catch (error) {
         console.error('Update reviewer error:', error);
@@ -4080,6 +4284,8 @@ app.delete('/api/reviewers/:id', requireAuth, async (req, res) => {
             console.error('Delete reviewer error:', error);
             return res.status(500).json({ error: 'Failed to delete reviewer' });
         }
+
+        await invalidateCacheNamespaces(['reviewers:detail', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest', 'subjects:public']);
 
         res.json({ message: 'Reviewer deleted successfully' });
     } catch (error) {
@@ -4150,6 +4356,8 @@ app.put('/api/reviewers/:id/quiz', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Reviewer not found or you are not the owner' });
         }
 
+        await invalidateCacheNamespaces(['reviewers:detail', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest']);
+
         res.json({ success: true, quiz: sanitizedQuiz });
     } catch (error) {
         console.error('Save quiz error:', error);
@@ -4174,6 +4382,8 @@ app.delete('/api/reviewers/:id/quiz', requireAuth, async (req, res) => {
         if (error || !data) {
             return res.status(403).json({ error: 'Reviewer not found or you are not the owner' });
         }
+
+        await invalidateCacheNamespaces(['reviewers:detail', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest']);
 
         res.json({ success: true });
     } catch (error) {
@@ -7223,6 +7433,8 @@ app.post('/api/admin/subjects', requireAdmin, async (req, res) => {
             return res.status(500).json({ error: 'Failed to create subject' });
         }
 
+        await invalidateCacheNamespaces(['subjects:user', 'subjects:public']);
+
         res.json({ subject });
     } catch (error) {
         console.error('Admin create subject error:', error);
@@ -7253,6 +7465,8 @@ app.put('/api/admin/subjects/:id', requireAdmin, async (req, res) => {
             return res.status(500).json({ error: 'Failed to update subject' });
         }
 
+        await invalidateCacheNamespaces(['subjects:user', 'subjects:public']);
+
         res.json({ subject });
     } catch (error) {
         console.error('Admin update subject error:', error);
@@ -7274,6 +7488,8 @@ app.delete('/api/admin/subjects/:id', requireAdmin, async (req, res) => {
             console.error('Admin delete subject error:', error);
             return res.status(500).json({ error: 'Failed to delete subject' });
         }
+
+        await invalidateCacheNamespaces(['subjects:user', 'subjects:public', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest']);
 
         res.json({ message: 'Subject deleted successfully' });
     } catch (error) {
@@ -7560,6 +7776,8 @@ app.post('/api/admin/schools', requireAdmin, async (req, res) => {
             return res.status(500).json({ error: 'Failed to create school' });
         }
 
+        await invalidateCacheNamespaces(['schools:list', 'subjects:public']);
+
         res.json({ school, message: 'School created successfully' });
     } catch (error) {
         console.error('Create school error:', error);
@@ -7583,6 +7801,8 @@ app.delete('/api/admin/schools/:id', requireAdmin, async (req, res) => {
             return res.status(500).json({ error: 'Failed to delete school' });
         }
 
+        await invalidateCacheNamespaces(['schools:list', 'subjects:public']);
+
         res.json({ message: 'School deleted successfully' });
     } catch (error) {
         console.error('Delete school error:', error);
@@ -7595,7 +7815,7 @@ app.delete('/api/admin/schools/:id', requireAdmin, async (req, res) => {
 // =====================================================
 
 // Get all policies (cacheable - policies rarely change)
-app.get('/api/policies', async (req, res) => {
+app.get('/api/policies', cacheResponse({ namespace: 'policies:list', ttlSeconds: 300 }), async (req, res) => {
     try {
         const { data, error } = await supabaseAdmin
             .from('policies')
@@ -7614,7 +7834,7 @@ app.get('/api/policies', async (req, res) => {
 });
 
 // Get last updated timestamp for policies
-app.get('/api/policies/last-updated', async (req, res) => {
+app.get('/api/policies/last-updated', cacheResponse({ namespace: 'policies:last-updated', ttlSeconds: 120 }), async (req, res) => {
     try {
         const { data, error } = await supabaseAdmin
             .from('policies')
@@ -7653,6 +7873,8 @@ app.post('/api/admin/policies', requireAdmin, async (req, res) => {
 
         if (error) throw error;
 
+        await invalidateCacheNamespaces(['policies:list', 'policies:last-updated']);
+
         res.json(data);
     } catch (error) {
         console.error('Create policy error:', error);
@@ -7683,6 +7905,8 @@ app.put('/api/admin/policies/:id', requireAdmin, async (req, res) => {
 
         if (error) throw error;
 
+        await invalidateCacheNamespaces(['policies:list', 'policies:last-updated']);
+
         res.json(data);
     } catch (error) {
         console.error('Update policy error:', error);
@@ -7701,6 +7925,8 @@ app.delete('/api/admin/policies/:id', requireAdmin, async (req, res) => {
             .eq('id', id);
 
         if (error) throw error;
+
+        await invalidateCacheNamespaces(['policies:list', 'policies:last-updated']);
 
         res.json({ message: 'Policy deleted successfully' });
     } catch (error) {
