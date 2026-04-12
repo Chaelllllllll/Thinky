@@ -776,7 +776,15 @@ app.get('/api/_debug_supabase', async (req, res) => {
 // (e.g., older supabase UMD builds) rely on eval/new Function. Do NOT enable
 // this in production for security reasons.
 const isProd = process.env.NODE_ENV === 'production';
-const scriptSrcArray = ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://cdn.quilljs.com", "https://js.puter.com"];
+const scriptSrcArray = [
+    "'self'",
+    "'unsafe-inline'",
+    "https://cdn.jsdelivr.net",
+    "https://cdn.quilljs.com",
+    "https://js.puter.com",
+    // AdSense script host
+    "https://pagead2.googlesyndication.com"
+];
 if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
 // Enable gzip/brotli compression for all responses
@@ -794,12 +802,34 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            connectSrc: ["'self'", "data:", "https://cdn.jsdelivr.net", "https://js.puter.com", "https://api.puter.com", "https://auth.puter.com", "https://*.puter.com", "wss:", process.env.SUPABASE_URL].filter(Boolean),
+            connectSrc: [
+                "'self'",
+                "data:",
+                "https://cdn.jsdelivr.net",
+                "https://js.puter.com",
+                "https://api.puter.com",
+                "https://auth.puter.com",
+                "https://*.puter.com",
+                "wss:",
+                process.env.SUPABASE_URL,
+                // AdSense/Google Ads network calls
+                "https://pagead2.googlesyndication.com",
+                "https://googleads.g.doubleclick.net",
+                "https://www.google.com",
+                "https://www.googleadservices.com"
+            ].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
             scriptSrcAttr: ["'unsafe-inline'"],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
             imgSrc: ["'self'", "data:", "https:"],
+            frameSrc: [
+                "'self'",
+                // AdSense iframes
+                "https://googleads.g.doubleclick.net",
+                "https://tpc.googlesyndication.com",
+                "https://pagead2.googlesyndication.com"
+            ],
             frameAncestors: ["'none'"],
             formAction: ["'self'"],
             baseUri: ["'self'"],
@@ -1392,6 +1422,12 @@ if (process.env.DATABASE_URL && !sessionStore) {
 // This provides a reliable fallback even if a static file isn't present.
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Ensure ad crawlers can fetch ads.txt directly from site root.
+app.get('/ads.txt', (req, res) => {
+    res.type('text/plain');
+    res.sendFile(path.join(__dirname, 'public', 'ads.txt'));
+});
 
 // Return the server-side Puter API token to authenticated users only.
 // This is used by the client Puter.js instance to make requests on behalf
