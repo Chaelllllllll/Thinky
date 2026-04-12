@@ -1393,6 +1393,7 @@
                 reviewers.forEach(reviewer => {
                 const card = document.createElement('div');
                 card.className = 'reviewer-card';
+                card.dataset.reviewerId = reviewer.id;
                 card.onclick = () => showReviewerDetail(reviewer);
 
                 const contentPreview = stripHtml(reviewer.content).substring(0, 150) + '...';
@@ -1474,9 +1475,22 @@
                 window.location.href = '/login';
                 return;
             }
-            
-            // User is logged in - navigate to reviewer detail page
-            window.location.href = `/reviewer.html?id=${reviewer.id}`;
+
+            const openReviewer = () => {
+                window.location.href = `/reviewer.html?id=${reviewer.id}`;
+            };
+
+            // Show interstitial ad before opening reviewer when ad helper is available.
+            if (typeof window.showAdThenProceed === 'function') {
+                await window.showAdThenProceed(
+                    openReviewer,
+                    (window.adsConfig && window.adsConfig.interstitialSlot) || undefined
+                );
+                return;
+            }
+
+            // Fallback navigation when AdSense helper is unavailable.
+            openReviewer();
         }
 
         function closeModal() {
