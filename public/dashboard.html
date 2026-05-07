@@ -26,6 +26,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Thinky">
+    <meta name="google-adsense-account" content="ca-pub-2635010933890624">
     
     <!-- Markdown renderer + sanitizer for rich AI responses -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -44,6 +45,15 @@
             margin-bottom: 32px;
             border-radius: var(--radius-lg);
             box-shadow: var(--shadow-md);
+        }
+
+        .dashboard-ad {
+            background: var(--white);
+            padding: 14px;
+            margin-bottom: 28px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
         }
 
         .welcome-text {
@@ -540,6 +550,15 @@
             <p>Manage your subjects and reviewers</p>
         </div>
 
+        <div class="dashboard-ad">
+            <ins class="adsbygoogle"
+                style="display:block"
+                data-ad-client="ca-pub-2635010933890624"
+                data-ad-slot="2516960734"
+                data-ad-format="auto"
+                data-full-width-responsive="true"></ins>
+        </div>
+
         <!-- Stats Cards removed per request -->
 
         <!-- Subjects Section -->
@@ -762,7 +781,7 @@
                 <label class="ai-drop-zone" id="aiDropZone" for="aiFileInput" style="display:block;">
                     <i class="bi bi-cloud-arrow-up" style="font-size:2.2rem;color:var(--primary-pink);"></i>
                     <div style="margin-top:10px;font-weight:500;">Tap to browse or drop file here</div>
-                    <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:4px;">PDF, DOCX, PPT, PPTX, PNG, JPG, TXT &mdash; up to 100 MB</div>
+                    <div style="font-size:0.82rem;color:var(--dark-gray);margin-top:4px;">PDF, DOCX, PPT, PPTX, PNG, JPG, TXT &mdash; up to 10 MB</div>
                 </label>
                 <input type="file" id="aiFileInput" accept=".pdf,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,text/plain" style="display:none;" onchange="aiFileSelected(this)">
                 <div id="aiSelectedFile" style="display:none;padding:10px 12px;background:var(--light-gray);border-radius:10px;margin-top:12px;font-size:0.88rem;align-items:center;gap:8px;">
@@ -1282,6 +1301,7 @@ Answer: B</pre>
     <script src="/js/logoutHelper.js"></script>
     <script src="/js/unreadNotifications.js"></script>
     <script src="/js/moderation.js"></script>
+    <script src="/js/ads.js"></script>
 
     <!-- PWA Notification Permission Modal -->
     <!-- PWA Notification Permission Modal -->
@@ -1340,6 +1360,14 @@ Answer: B</pre>
       </div>
     </div>
     <style>.pwa-modal-backdrop.show{display:flex!important;}</style>
+        <div id="adModal" class="ad-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,0.8);align-items:center;justify-content:center;padding:20px;">
+            <div style="background:#fff;border-radius:20px;max-width:728px;width:100%;padding:16px;box-shadow:0 20px 60px rgba(0,0,0,0.3);position:relative;">
+                <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                    <button onclick="closeAdModal()" style="background:var(--light-gray);border:1px solid var(--medium-gray);border-radius:20px;padding:6px 16px;color:var(--dark-gray);font-size:0.9rem;cursor:pointer;">⨉</button>
+                </div>
+                <div class="ad-slot" style="min-height:250px;"></div>
+            </div>
+        </div>
     <script src="/js/pwa.js"></script>
 </body>
 </html>

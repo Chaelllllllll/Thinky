@@ -9,6 +9,7 @@ window.adsConfig = window.adsConfig || {
 let adModal = null;
 let adResolve = null;
 let pendingOnClose = null;
+let adObserver = null;
 
 function _getAdModal() {
     if (!adModal) adModal = document.getElementById('adModal');
@@ -32,6 +33,35 @@ function initExistingAds(root = document) {
     adUnits.forEach((unit, idx) => {
         setTimeout(() => _pushAdUnit(unit), idx * 120);
     });
+}
+
+function scheduleAdInit(root = document) {
+    const run = () => initExistingAds(root);
+    if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 1000 });
+    } else {
+        setTimeout(run, 100);
+    }
+}
+
+function observeAdSlots(root = document) {
+    if (adObserver || typeof MutationObserver === 'undefined') return;
+    const target = root.documentElement || root;
+    adObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes || []) {
+                if (!node || node.nodeType !== 1) continue;
+                if (node.matches && node.matches('ins.adsbygoogle')) {
+                    scheduleAdInit(node.parentNode || document);
+                    continue;
+                }
+                if (node.querySelector && node.querySelector('ins.adsbygoogle')) {
+                    scheduleAdInit(node);
+                }
+            }
+        }
+    });
+    adObserver.observe(target, { childList: true, subtree: true });
 }
 
 function _renderModalAd(slotId) {
@@ -107,15 +137,15 @@ function showAdThenProceed(callback, slotId = window.adsConfig.interstitialSlot 
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    if (typeof window.adsbygoogle !== 'undefined') {
-        initExistingAds(document);
-    } else {
-        // Retry after full page load in case AdSense script is still loading.
-        window.addEventListener('load', () => initExistingAds(document), { once: true });
-    }
+    observeAdSlots(document);
+    scheduleAdInit(document);
+    // Retry after full page load in case AdSense script is still loading.
+    window.addEventListener('load', () => scheduleAdInit(document), { once: true });
 });
 
 window.initExistingAds = initExistingAds;
+window.scheduleAdInit = scheduleAdInit;
+window.observeAdSlots = observeAdSlots;
 window.showAdModal = showAdModal;
 window.closeAdModal = closeAdModal;
 window.showAdThenProceed = showAdThenProceed;

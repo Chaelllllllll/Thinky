@@ -553,12 +553,13 @@ async function loadMoreReviewers(subjectId) {
             row.className = 'reviewer-row';
             row.innerHTML = `
                 <div class="reviewer-row-title">${escapeHtml(r.title)}</div>
-                <div class="reviewer-row-bottom">
+                    <div class="reviewer-row-bottom">
                     ${r.is_public ? '<span class="badge badge-success">Public</span>' : '<span class="badge badge-primary">Private</span>'}
                     <div class="reviewer-row-actions">
                         <button class="btn btn-light btn-sm" onclick="viewReviewer('${r.id}')"><i class="bi bi-eye"></i></button>
                         <button class="btn btn-light btn-sm" title="Manage Quiz" onclick="openQuizBuilder('${r.id}','${escapeAttr(r.title)}')"><i class="bi bi-patch-question"></i></button>
                         <button class="btn btn-light btn-sm" onclick="editReviewer('${r.id}','${subjectId}')"><i class="bi bi-pencil"></i></button>
+                        <button class="btn btn-light btn-sm" title="Toggle privacy" onclick="toggleReviewerPrivacy('${r.id}','${subjectId}')"><i class="bi ${r.is_public ? 'bi-shield-lock' : 'bi-shield-lock-fill'}"></i></button>
                         <button class="btn btn-danger btn-sm" onclick="deleteReviewer('${r.id}','${subjectId}')"><i class="bi bi-trash"></i></button>
                     </div>
                 </div>
@@ -1014,12 +1015,22 @@ async function saveReviewer() {
         let generationAlertShown = false;
         let generatedFlashcardsCount = 0;
         let generatedQuizCount = 0;
+        let saveGenerationProgress = null;
+
+        if (window._aiPendingFlashcards || window._aiPendingQuiz) {
+            saveGenerationProgress = startAiTextProgress(
+                saveTextEl,
+                saveSpinnerEl,
+                window._aiPendingFlashcards ? 'Generating flashcards' : 'Generating quiz',
+                'Save Reviewer'
+            );
+        }
 
         if (window._aiPendingFlashcards && pendingFlashcardsReviewerId) {
             window._aiPendingFlashcards = false;
             window._aiPendingFlashcardsData = null;
-            saveTextEl.textContent = 'Saving generated flashcards...';
             try {
+                if (saveGenerationProgress) saveGenerationProgress.setLabel('Generating flashcards');
                 const savedFlashcards = await aiGenerateAndSaveFlashcardsInline(
                     pendingFlashcardsReviewerId,
                     { title, content, isPublic }
@@ -1061,7 +1072,7 @@ async function saveReviewer() {
 
         if (window._aiPendingQuiz && pendingQuizReviewerId) {
             window._aiPendingQuiz = false;
-            saveTextEl.textContent = 'Generating quiz...';
+            if (saveGenerationProgress) saveGenerationProgress.setLabel('Generating quiz');
             try {
                 const savedQuiz = await aiGenerateAndSaveQuizInline(pendingQuizReviewerId);
                 generatedQuizCount = Array.isArray(savedQuiz.questions) ? savedQuiz.questions.length : 0;
@@ -1083,6 +1094,7 @@ async function saveReviewer() {
         // Flashcards/quiz (if selected in AI modal) are processed after save.
         // Clear the generation lock — do NOT auto-close; let the user review and close manually
         window._aiGenerating = false;
+        if (saveGenerationProgress) saveGenerationProgress.stop();
         if (!generationAlertShown) {
             if (generatedFlashcardsCount > 0 && generatedQuizCount > 0) {
                 window.showAlert('success', `Reviewer saved! ${generatedFlashcardsCount} flashcard${generatedFlashcardsCount !== 1 ? 's' : ''} and ${generatedQuizCount} quiz question${generatedQuizCount !== 1 ? 's' : ''} generated.`, 8000);
@@ -1149,8 +1161,71 @@ async function deleteReviewer(reviewerId, subjectId) {
     }
 }
 
+// Toggle reviewer privacy (make private/public). Fetches current state server-side
+// to avoid relying on possibly stale client cache, then updates UI optimistically.
+async function toggleReviewerPrivacy(reviewerId, subjectId) {
+    try {
+        // Fetch current reviewer state
+        const resp = await fetch(`/api/reviewers/${reviewerId}`, { credentials: 'include' });
+        if (!resp.ok) throw new Error('Failed to fetch reviewer');
+        const payload = await resp.json();
+        const reviewer = payload.reviewer || payload;
+        const currentlyPublic = !!reviewer.is_public;
+        const newPublic = !currentlyPublic;
+
+        // Update on server
+        const upd = await fetch(`/api/reviewers/${reviewerId}`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_public: newPublic })
+        });
+
+        if (!upd.ok) {
+            let err = 'Failed to update privacy';
+            try { const j = await upd.json(); if (j && j.error) err = j.error; } catch(e){}
+            if (window.showAlert) return window.showAlert('error', err);
+            return alert(err);
+        }
+
+        // Update local cache and UI
+        const subj = subjects.find(s => String(s.id) === String(subjectId));
+        if (subj && Array.isArray(subj.reviewers)) {
+            const idx = subj.reviewers.findIndex(r => String(r.id) === String(reviewerId));
+            if (idx >= 0) subj.reviewers[idx].is_public = newPublic;
+        }
+
+        // Update modal row badge and icon if modal open
+        const listModal = document.getElementById('reviewersListModal');
+        if (listModal && listModal.classList.contains('show')) {
+            const row = listModal.querySelector(`.reviewer-row [onclick*="'${reviewerId}'"]`)?.closest('.reviewer-row');
+            if (row) {
+                const badge = row.querySelector('.badge');
+                if (badge) badge.textContent = newPublic ? 'Public' : 'Private';
+                badge.className = newPublic ? 'badge badge-success' : 'badge badge-primary';
+                const icon = row.querySelector('.reviewer-row-actions i.bi-shield-lock, .reviewer-row-actions i.bi-shield-lock-fill');
+                if (icon) {
+                    icon.classList.remove('bi-shield-lock','bi-shield-lock-fill');
+                    icon.classList.add(newPublic ? 'bi-shield-lock' : 'bi-shield-lock-fill');
+                }
+            }
+        }
+
+        displaySubjects();
+        if (window.showAlert) window.showAlert('success', `Reviewer is now ${newPublic ? 'public' : 'private'}.`, 3000);
+    } catch (err) {
+        console.error('Failed to toggle reviewer privacy:', err);
+        if (window.showAlert) window.showAlert('error', 'Failed to update reviewer privacy. Please try again.');
+        else alert('Failed to update reviewer privacy. Please try again.');
+    }
+}
+
 async function viewReviewer(reviewerId) {
     try {
+        if (typeof window.showAdThenProceed === 'function') {
+            await window.showAdThenProceed(() => {}, window.adsConfig?.interstitialSlot || window.adsConfig?.displaySlot || '2516960734');
+        }
+
         // Find reviewer in subjects
         let reviewer = null;
         for (const subject of subjects) {
@@ -1630,7 +1705,9 @@ function qbParsePaste() {
 
 let _aiSelectedFile = null;
 const AI_AUTO_TARGET_FILE_BYTES = 8 * 1024 * 1024;
-const AI_AUTO_MAX_FILE_BYTES = 100 * 1024 * 1024;
+// Client-side hard limit for AI auto-generation uploads.
+// Keep this in sync with server's AI_MAX_UPLOAD_BYTES (10 MB).
+const AI_AUTO_MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 function aiIsCompressibleImage(file) {
     const type = (file?.type || '').toLowerCase();
@@ -1851,20 +1928,83 @@ async function aiFileSelected(input) {
     }
 }
 
+function startAiButtonProgress(btn, label = 'Generating') {
+    if (!btn) return null;
+
+    const originalHtml = btn.innerHTML;
+    const startedAt = Date.now();
+    let tick = 0;
+
+    const render = () => {
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+        const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+        const simulatedPercent = Math.min(95, 8 + (tick * 7));
+        btn.innerHTML = `<span class="spinner spinner-sm"></span> ${label} ${simulatedPercent}% · ${minutes}:${seconds}`;
+        tick += 1;
+    };
+
+    render();
+    const intervalId = setInterval(render, 1000);
+
+    return {
+        stop() {
+            clearInterval(intervalId);
+            btn.innerHTML = originalHtml;
+        }
+    };
+}
+
+function startAiTextProgress(textEl, spinnerEl, label = 'Generating', fallbackText = '') {
+    if (!textEl) return null;
+
+    const originalText = textEl.textContent;
+    const startedAt = Date.now();
+    let tick = 0;
+    let currentLabel = label;
+
+    if (spinnerEl) spinnerEl.style.display = 'inline-block';
+
+    const render = () => {
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        const minutes = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+        const seconds = String(elapsedSeconds % 60).padStart(2, '0');
+        const simulatedPercent = Math.min(95, 10 + (tick * 6));
+        textEl.textContent = `${currentLabel} ${simulatedPercent}% · ${minutes}:${seconds}`;
+        tick += 1;
+    };
+
+    render();
+    const intervalId = setInterval(render, 1000);
+
+    return {
+        setLabel(nextLabel) {
+            currentLabel = nextLabel || currentLabel;
+            render();
+        },
+        stop() {
+            clearInterval(intervalId);
+            textEl.textContent = originalText || fallbackText;
+            if (spinnerEl) spinnerEl.style.display = 'none';
+        }
+    };
+}
+
 async function aiDoGenerate() {
     if (!_aiSelectedFile) return;
     const btn = document.getElementById('aiGenerateBtn');
-    const origHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner spinner-sm"></span> Generating&hellip;';
+    const progress = startAiButtonProgress(btn, 'Generating');
 
     const wantFlashcards = document.getElementById('aiGenFlashcards')?.checked ?? true;
     const wantQuiz       = document.getElementById('aiGenQuiz')?.checked ?? false;
 
     try {
-        const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // 10 MB — must match server bodySizeLimit
+        // Use the configured client-side max so messages and checks stay consistent.
+        const MAX_UPLOAD_BYTES = AI_AUTO_MAX_FILE_BYTES;
         if (_aiSelectedFile.size > MAX_UPLOAD_BYTES) {
-            window.showAlert('error', `File is too large (${((_aiSelectedFile.size / 1024 / 1024).toFixed(1))} MB). Please upload a file under 10 MB.`);
+            const maxMb = (MAX_UPLOAD_BYTES / 1024 / 1024).toFixed(1);
+            window.showAlert('error', `File is too large (${((_aiSelectedFile.size / 1024 / 1024).toFixed(1))} MB). Please upload a file under ${maxMb} MB.`);
             return;
         }
         const formData = new FormData();
@@ -1924,8 +2064,8 @@ async function aiDoGenerate() {
         console.error('Auto generate reviewer error:', e);
         window.showAlert('error', 'Auto generation failed. Please try again.');
     } finally {
+        if (progress) progress.stop();
         btn.disabled = false;
-        btn.innerHTML = origHtml;
     }
 }
 
@@ -2021,9 +2161,8 @@ async function aiDoGenerateQuiz() {
         return;
     }
     const btn = document.querySelector('#qbAiPanel .btn-primary');
-    const origHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<span class="spinner spinner-sm"></span> Generating&hellip;';
+    const progress = startAiButtonProgress(btn, 'Generating quiz');
     try {
         const resp = await fetch('/api/ai/generate-quiz', {
             method: 'POST',
@@ -2046,8 +2185,8 @@ async function aiDoGenerateQuiz() {
         console.error('Auto generate quiz error:', e);
         window.showAlert('error', 'Failed to generate questions. Please try again.');
     } finally {
+        if (progress) progress.stop();
         btn.disabled = false;
-        btn.innerHTML = origHtml;
     }
 }
 

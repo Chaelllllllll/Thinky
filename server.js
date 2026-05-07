@@ -2769,6 +2769,151 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     }
 });
 
+// -----------------------
+// Google OAuth (Login / Signup)
+// -----------------------
+app.get('/auth/google', authLimiter, (req, res) => {
+    try {
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const base = process.env.BASE_URL || (`http://` + (req.headers.host || `localhost:${PORT}`));
+        if (!clientId) return res.status(500).send('Google OAuth not configured');
+
+        const redirectUri = `${base.replace(/\/$/, '')}/auth/google/callback`;
+        const scope = encodeURIComponent('openid email profile');
+        const state = encodeURIComponent(req.query.next || '/dashboard');
+        const nonce = Math.random().toString(36).slice(2);
+        const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${scope}&state=${state}&nonce=${nonce}&prompt=select_account`;
+        res.redirect(authUrl);
+    } catch (err) {
+        console.error('Failed to start Google OAuth', err);
+        res.status(500).send('Failed to start Google OAuth');
+    }
+});
+
+app.get('/auth/google/callback', authLimiter, async (req, res) => {
+    try {
+        const code = req.query.code;
+        const state = req.query.state || '/dashboard';
+        if (!code) return res.status(400).send('Missing code');
+
+        const clientId = process.env.GOOGLE_CLIENT_ID;
+        const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+        const base = process.env.BASE_URL || (`http://` + (req.headers.host || `localhost:${PORT}`));
+        const redirectUri = `${base.replace(/\/$/, '')}/auth/google/callback`;
+
+        if (!clientId || !clientSecret) {
+            console.error('Google client credentials missing');
+            return res.status(500).send('Google OAuth not configured');
+        }
+
+        // Exchange code for tokens
+        const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                code: String(code),
+                client_id: clientId,
+                client_secret: clientSecret,
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code'
+            })
+        });
+
+        if (!tokenResp.ok) {
+            const txt = await tokenResp.text().catch(() => '');
+            console.error('Token exchange failed', tokenResp.status, txt);
+            return res.status(500).send('Google token exchange failed');
+        }
+        const tokenJson = await tokenResp.json();
+        const accessToken = tokenJson.access_token;
+        if (!accessToken) return res.status(500).send('No access token from Google');
+
+        // Fetch userinfo
+        const meResp = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+            headers: { Authorization: `Bearer ${accessToken}` }
+        });
+        if (!meResp.ok) {
+            const txt = await meResp.text().catch(() => '');
+            console.error('Failed to fetch Google userinfo', meResp.status, txt);
+            return res.status(500).send('Failed to fetch Google user info');
+        }
+        const profile = await meResp.json();
+        // profile contains: sub, email, email_verified, name, picture, given_name, family_name, locale
+
+        // Use email as primary identifier
+        const email = (profile.email || '').toLowerCase();
+        if (!email) return res.status(400).send('Google account has no email');
+
+        // Try to find existing user by email
+        let { data: existingUser, error: selErr } = await supabaseAdmin.from('users').select('*').eq('email', email).maybeSingle();
+        if (selErr) console.error('Error querying user by email during Google OAuth', selErr);
+
+        // Helper to generate a safe username
+        async function generateUniqueUsername(baseName) {
+            baseName = String(baseName || '').toLowerCase().replace(/[^a-z0-9_]/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'user';
+            let candidate = baseName;
+            let attempt = 0;
+            while (attempt < 50) {
+                const { data: u, error: e } = await supabaseAdmin.from('users').select('id').eq('username', candidate).maybeSingle();
+                if (e) {
+                    console.error('Username lookup error', e);
+                    break;
+                }
+                if (!u) return candidate;
+                attempt += 1;
+                candidate = `${baseName}${Math.floor(1000 + Math.random() * 9000)}`.slice(0, 50);
+            }
+            return candidate + Date.now().toString().slice(-4);
+        }
+
+        let user = existingUser || null;
+        if (!user) {
+            // Create new user with data from Google profile; mark as verified
+            const preferredUsername = (profile.name || email.split('@')[0]).replace(/\s+/g, '_');
+            const username = await generateUniqueUsername(preferredUsername);
+            // Generate a random password hash for OAuth users (they don't use password login)
+            const randomPassword = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+            const passwordHash = await bcrypt.hash(randomPassword, 10);
+            const insertObj = {
+                email,
+                username,
+                password_hash: passwordHash,
+                is_verified: true,
+                profile_picture_url: profile.picture || null,
+                display_name: profile.name || null
+            };
+            const { data: newUser, error: insertErr } = await supabaseAdmin.from('users').insert([insertObj]).select().maybeSingle();
+            if (insertErr) {
+                console.error('Failed to create user from Google profile', insertErr);
+                return res.status(500).send('Failed to create user');
+            }
+            user = newUser;
+        } else {
+            // Update profile picture / display name if missing or different
+            const updates = {};
+            if (profile.picture && (!user.profile_picture_url || user.profile_picture_url !== profile.picture)) updates.profile_picture_url = profile.picture;
+            if (profile.name && (!user.display_name || user.display_name !== profile.name)) updates.display_name = profile.name;
+            if (Object.keys(updates).length > 0) {
+                try {
+                    await supabaseAdmin.from('users').update(updates).eq('id', user.id);
+                } catch (e) { console.warn('Failed to update user profile from Google', e); }
+            }
+        }
+
+        // Establish session
+        req.session.userId = user.id;
+        req.session.username = user.username;
+        req.session.role = user.role || 'student';
+
+        // Redirect to state (next) or dashboard
+        const nextUrl = String(state || '/dashboard');
+        return res.redirect(nextUrl);
+    } catch (err) {
+        console.error('Google OAuth callback error', err);
+        return res.status(500).send('Google OAuth failed');
+    }
+});
+
 // Logout
 app.post('/api/auth/logout', requireAuth, async (req, res) => {
     try {
@@ -3226,7 +3371,7 @@ app.get('/api/subjects/:subjectId/reviewers', requireAuth, cacheResponse({ names
 
         const search = (req.query.search || '').trim();
 
-        let query = supabase
+        let query = supabaseAdmin
             .from('reviewers')
             .select('*', { count: 'exact' })
             .eq('subject_id', subjectId)
@@ -6627,7 +6772,7 @@ app.post('/api/online-status', requireAuth, async (req, res) => {
 // Update current user's profile (username / display_name / email)
 app.put('/api/auth/me', requireAuth, async (req, res) => {
     try {
-        const { username, display_name, email } = req.body;
+        const { username, display_name } = req.body;
 
         const updates = {};
         if (username) {
@@ -6648,23 +6793,7 @@ app.put('/api/auth/me', requireAuth, async (req, res) => {
             updates.username = username;
         }
         if (display_name !== undefined) updates.display_name = display_name;
-        if (email) {
-            if (!isValidEmail(email)) {
-                return res.status(400).json({ error: 'Invalid email format' });
-            }
-            // Check if email is already taken
-            const { data: existingUser } = await supabase
-                .from('users')
-                .select('id')
-                .eq('email', email)
-                .neq('id', req.session.userId)
-                .single();
-            
-            if (existingUser) {
-                return res.status(400).json({ error: 'Email already in use' });
-            }
-            updates.email = email;
-        }
+        // Email changes are disabled for security — users cannot change their email through settings
 
         const { data: user, error } = await supabaseAdmin
             .from('users')
@@ -9024,18 +9153,59 @@ Return nothing outside the JSON object.`;
 
         const result = await callGemini(prompt, normalizedPdf.pdfBuffer.toString('base64'));
 
-        if (!result.title || !result.content) {
-            return res.status(500).json({ error: 'Generation returned incomplete data. Please try again.' });
+        if (!result || typeof result !== 'object') {
+            console.error('Invalid Gemini response format:', result);
+            return res.status(500).json({ error: 'Generation returned invalid format. Please try again.' });
+        }
+
+        const payload = (result.reviewer && typeof result.reviewer === 'object') ? result.reviewer : result;
+        const titleCandidates = [payload.title, payload.name, payload.subject, payload.heading, result.title, result.name];
+        const contentCandidates = [payload.content, payload.body, payload.html, payload.text, payload.markdown, result.content, result.body, result.html, result.text, result.markdown];
+
+        let title = titleCandidates.find(v => typeof v === 'string' && v.trim());
+        let content = contentCandidates.find(v => typeof v === 'string' && v.trim());
+
+        const flashcards = Array.isArray(payload.flashcards) ? payload.flashcards : (Array.isArray(result.flashcards) ? result.flashcards : []);
+
+        if (!content && Array.isArray(payload.sections) && payload.sections.length > 0) {
+            content = payload.sections.map(section => {
+                const heading = section?.heading || section?.title || '';
+                const bullets = Array.isArray(section?.bullets) ? section.bullets : [];
+                const bulletHtml = bullets.length
+                    ? `<ul>${bullets.map(item => `<li>${String(item).trim()}</li>`).join('')}</ul>`
+                    : '';
+                return `${heading ? `<h2>${String(heading).trim()}</h2>` : ''}${bulletHtml}`;
+            }).join('');
+        }
+
+        if (!title && content) {
+            const firstHeadingMatch = String(content).match(/<h[1-3][^>]*>(.*?)<\/h[1-3]>/i);
+            if (firstHeadingMatch && firstHeadingMatch[1]) {
+                title = firstHeadingMatch[1].replace(/<[^>]+>/g, '').trim();
+            }
+        }
+
+        if (!title) {
+            const baseName = String(normalizedPdf.sourceDescription || originalname || 'reviewer')
+                .replace(/^uploaded\s+/i, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+            title = baseName ? `${baseName} Reviewer` : 'Study Reviewer';
+        }
+
+        if (!content) {
+            console.error('Missing usable content in Gemini response:', { keys: Object.keys(result || {}), payloadKeys: Object.keys(payload || {}) });
+            return res.status(500).json({ error: 'Generation returned incomplete data (missing content). Please try again.' });
         }
 
         // ── Increment usage counter (fire-and-forget; don't block response) ──
         incrementAiUsage(req.session.userId, 'reviewer').catch(e => console.warn('[AI] usage increment error', e));
 
         res.json({
-            title: String(result.title).trim().slice(0, 200),
-            content: String(result.content).trim(),
-            flashcards: includeFlashcards && Array.isArray(result.flashcards)
-                ? result.flashcards.slice(0, 200)
+            title: String(title).trim().slice(0, 200),
+            content: String(content).trim(),
+            flashcards: includeFlashcards && Array.isArray(flashcards)
+                ? flashcards.slice(0, 200)
                     .map(f => ({
                         front: String(f.front || '').trim().slice(0, 300),
                         back:  String(f.back  || '').trim().slice(0, 500)
@@ -9044,16 +9214,29 @@ Return nothing outside the JSON object.`;
                 : []
         });
     } catch (error) {
-        console.error('Auto generate-reviewer error:', error);
-        notifyDiscord('🔴 Auto Generate Reviewer Failed', [
-            ['Error', error?.message || String(error)],
-            ['Stack', error?.stack || 'n/a'],
-            ['File', `${req.file?.originalname || 'n/a'} (${req.file?.mimetype || 'n/a'}, ${req.file?.size || 0} bytes)`],
-            ['Effective MIME', resolveFileMime(req.file?.originalname, req.file?.mimetype)],
-            ['User', _userLink(req)],
-            ['Time (UTC)', new Date().toISOString()]
-        ]);
-        res.status(500).json({ error: 'Failed to generate reviewer. Please try again.' });
+            console.error('Auto generate-reviewer error:', error);
+            const errorMsg = error?.message || String(error);
+            notifyDiscord('🔴 Auto Generate Reviewer Failed', [
+                ['Error', errorMsg],
+                ['Stack', error?.stack || 'n/a'],
+                ['File', `${req.file?.originalname || 'n/a'} (${req.file?.mimetype || 'n/a'}, ${req.file?.size || 0} bytes)`],
+                ['Effective MIME', resolveFileMime(req.file?.originalname, req.file?.mimetype)],
+                ['User', _userLink(req)],
+                ['Time (UTC)', new Date().toISOString()]
+            ]);
+        
+            // Return user-friendly error based on error type
+            if (errorMsg.includes('rate') || errorMsg.includes('429')) {
+                res.status(429).json({ error: 'Service is temporarily rate-limited. Please try again in a few moments.' });
+            } else if (errorMsg.includes('blocked') || errorMsg.includes('safety')) {
+                res.status(400).json({ error: 'Your content was flagged by safety filters. Please try with different content.' });
+            } else if (errorMsg.includes('malformed')) {
+                res.status(400).json({ error: 'Failed to parse generation output. Please try again.' });
+            } else if (errorMsg.includes('incomplete') || errorMsg.includes('truncated')) {
+                res.status(500).json({ error: 'Generation was incomplete or truncated. Please try again.' });
+            } else {
+                res.status(500).json({ error: 'Failed to generate reviewer. ' + (errorMsg ? `Error: ${errorMsg}` : 'Please try again.') });
+            }
     }
 });
 

@@ -414,6 +414,15 @@ textarea.form-control {
     overflow: auto;
     -webkit-overflow-scrolling: touch;
 }
+/* Ensure the homepage search input has explicit background/color in both themes */
+.search-input {
+    background: var(--white);
+    color: var(--text-dark);
+}
+body.dark .search-input {
+    background: var(--light-gray);
+    color: var(--text-dark);
+}
 .modal-helper-box .modal-footer {
     flex: 0 0 auto;
     position: sticky;

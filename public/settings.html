@@ -464,10 +464,6 @@
                             <label for="settingsUsername">Username</label>
                             <input id="settingsUsername" class="form-control" placeholder="username">
                         </div>
-                        <div class="form-group" style="margin-top:16px;">
-                            <label for="settingsEmail">Email Address</label>
-                            <input type="email" id="settingsEmail" class="form-control" placeholder="your@email.com">
-                        </div>
                     </form>
 
                     <div class="save-button-container">
@@ -660,7 +656,6 @@
                 // Update profile fields
                 document.getElementById('displayName').value = user.display_name || '';
                 document.getElementById('settingsUsername').value = user.username || '';
-                document.getElementById('settingsEmail').value = user.email || '';
                 
                 // Update avatar
                 if (user.profile_picture_url) {

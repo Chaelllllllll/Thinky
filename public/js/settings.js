@@ -184,11 +184,10 @@ async function saveCurrentTabSettings() {
 }
 
 async function saveProfileSettings() {
-    // Update profile fields including email
+    // Update profile fields (email changes disabled for security)
     const body = { 
         username: document.getElementById('settingsUsername').value.trim(), 
-        display_name: document.getElementById('displayName').value.trim(),
-        email: document.getElementById('settingsEmail').value.trim()
+        display_name: document.getElementById('displayName').value.trim()
     };
 
     // Button UX: find the appropriate save button (standalone or modal)
