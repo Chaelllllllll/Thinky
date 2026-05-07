@@ -1559,6 +1559,12 @@ function qbToggleTimer() {
 }
 
 function qbAddQuestion(data = null) {
+    const existingCount = document.querySelectorAll('#qbQuestionsList .qb-question-row').length;
+    if (existingCount >= 100) {
+        window.showAlert('error', 'Quiz cannot exceed 100 questions.');
+        return;
+    }
+
     _qbQuestionSeq++;
     const seq = _qbQuestionSeq;
     const qid = data ? (data.id || _qbGenId()) : _qbGenId();
@@ -2197,6 +2203,7 @@ function qbCollect() {
 
     const rows = document.querySelectorAll('#qbQuestionsList .qb-question-row');
     if (!rows.length) return { error: 'Add at least one question.' };
+    if (rows.length > 100) return { error: 'Quiz cannot exceed 100 questions.' };
 
     const questions = [];
     for (const row of rows) {
