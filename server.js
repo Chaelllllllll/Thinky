@@ -36,10 +36,18 @@ import { spawn } from 'child_process';
 import { writeFile, unlink } from 'fs/promises';
 import { tmpdir } from 'os';
 import crypto from 'crypto';
-import { promises as dns } from 'dns';
+import { promises as dns, setDefaultResultOrder } from 'dns';
 import nodemailer from 'nodemailer';
 import compression from 'compression';
 import webPush from 'web-push';
+
+// Prefer IPv4 first for outbound DNS resolution to avoid intermittent
+// undici/fetch failures on some Windows/network IPv6 setups.
+try {
+    setDefaultResultOrder('ipv4first');
+} catch (_) {
+    // Non-fatal on older Node/runtime variants.
+}
 
 // If a Puter API token is provided in the environment, configure the SDK.
 if (process.env.PUTER_API_TOKEN) {
@@ -3757,6 +3765,179 @@ app.post('/api/reviewers/:id/reactions', requireAuth, async (req, res) => {
     } catch (error) {
         console.error('Toggle reaction error:', error);
         res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Proxy OpenRouter chat requests for reviewer-scoped Q&A
+app.post('/api/openrouter/chat', requireAuth, async (req, res) => {
+    try {
+        const { reviewerId, question, authorName, subjectName } = req.body || {};
+        if (!reviewerId || !question) return res.status(400).json({ error: 'Missing reviewerId or question' });
+
+        // Fetch reviewer content from DB (admin client)
+        // Select all fields to be resilient to schema differences; we'll pick known text fields below.
+        const { data: reviewer, error: rvErr } = await supabaseAdmin
+            .from('reviewers')
+            .select('*')
+            .eq('id', reviewerId)
+            .maybeSingle();
+
+        if (rvErr || !reviewer) {
+            console.error('OpenRouter chat: reviewer lookup failed', rvErr || 'no row');
+            return res.status(404).json({ error: 'Reviewer not found' });
+        }
+
+        // Build a reviewer text body from available columns (tolerant to missing fields)
+        const candidateFields = ['title', 'prompt', 'summary', 'description', 'content', 'body'];
+        const parts = [];
+        for (const k of candidateFields) {
+            if (reviewer[k]) parts.push(String(reviewer[k]));
+        }
+        const reviewerText = parts.join('\n\n');
+
+        const systemPrompt = `You are the Thinky assistant.
+
+Identity & project info (hard rules):
+- If the user asks "who are you" or "what are you" or "who created you" or "developer" or "author of Thinky":
+  Answer exactly: "Hi, I am Thinky, a study platform where learners can discover, publish, and practice with educational reviewers, quizzes, and flashcards."
+- If the user asks about "who made you" / "who created you" / "developer" / "author of Thinky" / "portfolio" / "website" / "Thinky Server" / "discord invite" / "links", answer using ONLY these exact details:
+  Developer: Chael
+  Portfolio: https://johnmichaelmanlangit.netlify.app
+  Thinky Server: https://discord.gg/Xpy6dcRs
+- If the user asks about anything else outside the provided reviewer content, reply exactly: "I don't know — this question is outside the reviewer content." 
+
+
+Content rules:
+- ONLY answer questions using the provided reviewer content (except identity/project info rules above).
+- Do not hallucinate or add external information.
+- Keep answers concise and helpful.`;
+
+        const authorContext = String(authorName || reviewer?.users?.username || 'Unknown author').trim() || 'Unknown author';
+        const subjectContext = String(subjectName || reviewer?.subject_name || reviewer?.subject || 'Unknown subject').trim() || 'Unknown subject';
+        const userMessage = `Reviewer metadata:
+Author: ${authorContext}
+Subject: ${subjectContext}
+
+Reviewer content:
+${reviewerText}
+
+User question: ${String(question || '').trim()}`;
+
+        const OR_KEY = String(process.env.OPENROUTER_API || '').trim();
+        const OR_BASE_URL = String(process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').trim().replace(/\/$/, '');
+        if (!OR_KEY) return res.status(500).json({ error: 'OpenRouter API key not configured' });
+
+        let orResp = null;
+        try {
+            orResp = await fetch(`${OR_BASE_URL}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${OR_KEY}`
+                },
+                body: JSON.stringify({
+                    model: 'openrouter/free',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userMessage }
+                    ],
+                    temperature: 0.0,
+                    max_tokens: 600
+                })
+            });
+        } catch (fetchErr) {
+            console.error('OpenRouter fetch failed:', {
+                name: fetchErr && fetchErr.name,
+                message: fetchErr && fetchErr.message,
+                code: fetchErr && fetchErr.code,
+                causeCode: fetchErr && fetchErr.cause && fetchErr.cause.code ? fetchErr.cause.code : undefined,
+                causeMessage: fetchErr && fetchErr.cause && fetchErr.cause.message ? fetchErr.cause.message : undefined,
+                stack: fetchErr && fetchErr.stack ? String(fetchErr.stack).slice(0, 1000) : undefined
+            });
+            return res.status(502).json({
+                error: 'OpenRouter fetch failed',
+                detail: {
+                    name: fetchErr && fetchErr.name,
+                    message: fetchErr && fetchErr.message,
+                    code: fetchErr && fetchErr.code,
+                    causeCode: fetchErr && fetchErr.cause && fetchErr.cause.code ? fetchErr.cause.code : undefined,
+                    causeMessage: fetchErr && fetchErr.cause && fetchErr.cause.message ? fetchErr.cause.message : undefined
+                }
+            });
+        }
+
+        const orJson = await orResp.json().catch(() => null);
+        if (!orResp.ok) {
+            console.error('OpenRouter API error', orResp.status, orJson);
+            return res.status(502).json({ error: 'OpenRouter API error', detail: orJson });
+        }
+
+        // Try to extract assistant content
+        const answer = (orJson && orJson.choices && orJson.choices[0] && (orJson.choices[0].message?.content || orJson.choices[0].text)) || '';
+        res.json({ answer });
+    } catch (err) {
+        console.error('OpenRouter chat proxy error:', err && err.message ? err.message : err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Diagnostic endpoint to test connectivity to OpenRouter (requires auth)
+app.get('/api/_test_openrouter', requireAuth, async (req, res) => {
+    try {
+        const OR_KEY = String(process.env.OPENROUTER_API || '').trim();
+        const OR_BASE_URL = String(process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').trim().replace(/\/$/, '');
+        if (!OR_KEY) return res.status(500).json({ error: 'OpenRouter API key not configured' });
+
+        // DNS check
+        let dnsInfo = { ok: false, error: null };
+        try {
+            const addrs = await Promise.race([
+                dns.resolve4(new URL(OR_BASE_URL).hostname),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('dns_timeout')), 5000))
+            ]);
+            dnsInfo.ok = true;
+            dnsInfo.addrs = addrs;
+        } catch (e) {
+            dnsInfo.error = e && e.message ? e.message : String(e);
+        }
+
+        // Perform a lightweight fetch to OpenRouter with short timeout
+        let fetchResult = { ok: false, status: null, bodyPreview: null, error: null };
+        try {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), 8000);
+
+            const resp = await fetch(`${OR_BASE_URL}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${OR_KEY}`
+                },
+                body: JSON.stringify({ model: 'openrouter/free', messages: [{ role: 'system', content: 'ping' }, { role: 'user', content: 'ping' }], temperature: 0.0, max_tokens: 1 }),
+                signal: controller.signal
+            });
+            clearTimeout(id);
+            fetchResult.status = resp.status;
+            const text = await resp.text().catch(() => '');
+            fetchResult.bodyPreview = text ? text.slice(0, 2000) : '';
+            fetchResult.ok = resp.ok;
+        } catch (e) {
+            fetchResult.error = {
+                name: e && e.name,
+                message: e && e.message,
+                code: e && e.code,
+                causeCode: e && e.cause && e.cause.code ? e.cause.code : undefined,
+                causeMessage: e && e.cause && e.cause.message ? e.cause.message : undefined,
+                stack: e && e.stack ? String(e.stack).slice(0, 1000) : undefined
+            };
+        }
+
+        const result = { dns: dnsInfo, fetch: fetchResult };
+        console.info('/api/_test_openrouter result for', req.session && req.session.userId ? `user:${req.session.userId}` : 'anon', result);
+        return res.json(result);
+    } catch (e) {
+        console.error('Test OpenRouter endpoint error:', e && e.message ? e.message : e);
+        return res.status(500).json({ error: 'Test endpoint failed', detail: e && e.message ? e.message : String(e) });
     }
 });
 

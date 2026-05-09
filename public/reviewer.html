@@ -412,6 +412,16 @@
             padding: 0;
             overflow: visible;
         }
+        #darkModeFloatBtn {
+            width: 56px;
+            height: 56px;
+            font-size: 1.2rem;
+            right: 24px;
+            bottom: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
         #messageBtn:hover {
             transform: scale(1.1);
             box-shadow: var(--shadow-lg);
@@ -750,6 +760,244 @@
             </div>
         </div>
 
+        <!-- Floating Thinky Chat widget (collapsed button + panel) -->
+        <style>
+            /* Thinky chat modal styles */
+            #thinkyWidget { font-family: inherit; }
+            #thinkyToggleBtn {
+                position: fixed;
+                right: 24px;
+                bottom: 156px;
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                border: none;
+                background: var(--gradient-primary);
+                color: #fff;
+                box-shadow: 0 12px 24px rgba(233, 30, 140, 0.28);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 1.2rem;
+                cursor: pointer;
+                z-index: 12001;
+                transition: transform 0.2s ease, box-shadow 0.2s ease;
+            }
+            #thinkyToggleBtn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 16px 28px rgba(233, 30, 140, 0.34);
+            }
+            .thinky-label {
+                position: fixed;
+                right: 24px;
+                bottom: 218px;
+                z-index: 12001;
+                background: var(--gradient-primary);
+                color: var(--white);
+                font-size: 0.78rem;
+                font-weight: 700;
+                line-height: 1.25;
+                padding: 6px 10px;
+                border-radius: 999px;
+                border: 1px solid rgba(255,255,255,0.45);
+                box-shadow: 0 10px 22px rgba(233, 30, 140, 0.28);
+                max-width: 120px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                pointer-events: none;
+                opacity: 0;
+                transform: translateY(4px);
+                transition: opacity 220ms ease, transform 220ms ease;
+            }
+            .thinky-label.show { opacity: 1; transform: translateY(0); }
+            #thinkyBackdrop {
+                position: fixed;
+                inset: 0;
+                background: rgba(16, 18, 28, 0.42);
+                backdrop-filter: blur(2px);
+                z-index: 11998;
+            }
+            #thinkyBackdrop.hidden { display: none; }
+            #thinkyPanel {
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                z-index: 11999;
+                width: min(92vw, 520px);
+                height: min(76vh, 620px);
+                max-width: calc(100vw - 16px);
+                max-height: calc(100dvh - 16px);
+                display:flex;
+                flex-direction:column;
+                border-radius:16px;
+                border: 1px solid rgba(0, 0, 0, 0.06);
+                box-shadow:0 24px 60px rgba(0,0,0,0.22);
+                overflow:hidden;
+                background: var(--white);
+            }
+            #thinkyPanel.hidden { display:none; }
+            .thinky-header {
+                background: linear-gradient(90deg, #ff6b9d, #e91e8c);
+                color: #fff;
+                padding: 12px 16px;
+                display:flex;
+                align-items:center;
+                gap:10px;
+                border-bottom: 1px solid rgba(255,255,255,0.15);
+            }
+            .thinky-header .title { font-weight:700; font-size:1rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .thinky-header .controls { display:flex; gap:6px; }
+            .thinky-header .controls button {
+                width: 28px;
+                height: 28px;
+                border-radius: 8px;
+                background: rgba(255,255,255,0.14);
+                border: 1px solid rgba(255,255,255,0.2);
+                color: rgba(255,255,255,0.96);
+                cursor:pointer;
+                font-size:1rem;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .thinky-messages {
+                padding:14px;
+                display:flex;
+                flex-direction:column;
+                gap:10px;
+                overflow:auto;
+                background: linear-gradient(180deg, rgba(255,255,255,1), rgba(250,245,247,1));
+                flex:1;
+            }
+            .thinky-input-row { display:flex; gap:8px; padding:10px; border-top:1px solid rgba(0,0,0,0.06); background:var(--white); }
+            .thinky-input-row input { flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--medium-gray); font-size: 0.95rem; }
+            .thinky-input-row button { min-width:72px; }
+            body.dark #thinkyBackdrop { background: rgba(8, 10, 16, 0.62); }
+            body.dark #thinkyPanel { background: #1f232b; border-color: rgba(255,255,255,0.08); }
+            body.dark .thinky-messages { background: linear-gradient(180deg, #1f232b, #202634); }
+            body.dark .thinky-input-row { background: #1f232b; border-top-color: rgba(255,255,255,0.08); }
+            body.dark .thinky-input-row input { background: #252a36; color: #f3f5f8; border-color: rgba(255,255,255,0.12); }
+            body.dark .thinky-label {
+                background: linear-gradient(135deg, #b22d6f 0%, #8d2f7b 100%);
+                color: #fdfbff;
+                border-color: rgba(255,255,255,0.28);
+            }
+            @media (max-width: 900px) {
+                #thinkyToggleBtn { right: 16px; }
+                #messageBtn { right: 16px; }
+                #darkModeFloatBtn { right: 16px; }
+                .thinky-label { right: 16px; bottom: 218px; }
+                #thinkyPanel { width: min(94vw, 520px); }
+            }
+            @media (max-width: 640px) {
+                #thinkyToggleBtn {
+                    right: calc(12px + env(safe-area-inset-right));
+                    bottom: 156px;
+                }
+                #messageBtn {
+                    right: calc(12px + env(safe-area-inset-right));
+                    bottom: 90px;
+                }
+                #darkModeFloatBtn {
+                    right: calc(12px + env(safe-area-inset-right));
+                    bottom: calc(24px + env(safe-area-inset-bottom));
+                }
+                .thinky-label {
+                    right: calc(12px + env(safe-area-inset-right));
+                    bottom: 216px;
+                    display: block;
+                }
+                #thinkyPanel {
+                    width: min(94vw, 420px);
+                    height: min(84dvh, 640px);
+                    max-height: calc(100dvh - 16px);
+                    border-radius: 14px;
+                }
+                .thinky-input-row { padding: 8px; gap: 6px; }
+                .thinky-input-row button { min-width: 64px; padding-left: 10px; padding-right: 10px; }
+                .thinky-messages { padding: 10px; }
+                .msg-general-item { max-width: 92%; }
+            }
+            /* message bubbles */
+            .msg-general-item {
+                max-width: 86%;
+                padding: 10px 12px;
+                border-radius: 14px;
+                line-height: 1.48;
+                font-size: 0.95rem;
+                box-shadow: 0 1px 1px rgba(0,0,0,0.02);
+            }
+            .msg-self {
+                align-self: flex-end;
+                background: linear-gradient(135deg, #f7e8ef 0%, #f3e1f6 100%);
+                color: #46323e;
+                border: 1px solid rgba(233,30,99,0.12);
+                border-top-right-radius: 6px;
+            }
+            .msg-assistant {
+                align-self: flex-start;
+                background: #ffffff;
+                color: #2d2b33;
+                border: 1px solid rgba(233,30,99,0.14);
+                border-top-left-radius: 6px;
+            }
+            .thinky-typing {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+            }
+            .thinky-typing-dot {
+                width: 6px;
+                height: 6px;
+                border-radius: 50%;
+                background: rgba(160, 98, 129, 0.8);
+                animation: thinkyTypingPulse 1.1s infinite ease-in-out;
+            }
+            .thinky-typing-dot:nth-child(2) { animation-delay: 0.16s; }
+            .thinky-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+            @keyframes thinkyTypingPulse {
+                0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
+                40% { opacity: 1; transform: translateY(-2px); }
+            }
+            body.dark .msg-self {
+                color: #f5e8ef;
+                background: linear-gradient(135deg, #673850 0%, #5b355f 100%);
+                border-color: rgba(255,255,255,0.08);
+            }
+            body.dark .msg-assistant {
+                color: #f2f3f5;
+                background: #2a303d;
+                border-color: rgba(255,255,255,0.08);
+            }
+            body.dark .thinky-typing-dot {
+                background: rgba(236, 197, 219, 0.9);
+            }
+        </style>
+
+        <div id="thinkyWidget" aria-live="polite">
+            <button id="thinkyToggleBtn" aria-expanded="false" aria-controls="thinkyPanel" title="Open Thinky chat">
+                <i class="bi bi-chat-dots"></i>
+            </button>
+            <div class="thinky-label" aria-hidden="true">Thinky Chat</div>
+            <div id="thinkyBackdrop" class="hidden" aria-hidden="true"></div>
+            <div id="thinkyPanel" class="hidden" role="dialog" aria-label="Thinky assistant">
+                <div class="thinky-header">
+                    <div class="title">Thinky — Ask about this reviewer</div>
+                    <div class="controls">
+                        <button id="thinkyMinBtn" title="Minimize">_</button>
+                        <button id="thinkyCloseBtn" title="Close">×</button>
+                    </div>
+                </div>
+                <div id="thinkyMessages" class="thinky-messages" aria-live="polite"></div>
+                <div class="thinky-input-row">
+                    <input id="thinkyInput" type="text" placeholder="Ask a question about this reviewer..." aria-label="Ask Thinky" />
+                    <button id="thinkySendBtn" class="btn btn-accent">Send</button>
+                </div>
+            </div>
+        </div>
+
     <!-- Comment section -->
     <div class="comments-section" id="commentsSection">
         <div class="comments-header" id="commentsHeader">Comments</div>
@@ -826,6 +1074,9 @@
     </script>
     <script>
         let currentReviewer = null;
+        let _thinkyReviewerAuthorName = '';
+        let _thinkyReviewerSubjectName = '';
+
 
         async function loadReviewer() {
             // Require login before showing reviewer content
@@ -884,12 +1135,18 @@
             document.title = `${reviewer.title} - Thinky`;
             document.getElementById('reviewerTitle').textContent = reviewer.title;
 
-            // Determine subject name from the joined subject object
-            const subjectName = (reviewer.subjects && reviewer.subjects.name) ? reviewer.subjects.name : (reviewer.subject || 'General');
+            // Determine subject name from possible reviewer payload shapes
+            const subjectName = (reviewer.subjects && reviewer.subjects.name)
+                ? reviewer.subjects.name
+                : (reviewer.subject_name || reviewer.subject || 'General');
 
             // Default avatar and username
             let avatarUrl = '/images/default-avatar.svg';
             let displayName = 'Anonymous';
+
+            // Initialize Thinky widget context with safe defaults first
+            _thinkyReviewerAuthorName = displayName;
+            _thinkyReviewerSubjectName = subjectName;
 
             // Pull uploader id from reviewer (user_id)
             const uploaderId = reviewer.user_id || null;
@@ -910,6 +1167,10 @@
             } else if (reviewer.users && reviewer.users.username) {
                 displayName = reviewer.users.username;
             }
+
+            // Refresh Thinky context using resolved metadata
+            _thinkyReviewerAuthorName = displayName || 'Anonymous';
+            _thinkyReviewerSubjectName = subjectName || 'General';
 
             // Fill the existing meta elements (we render HTML in the template)
             const avatarEl = document.getElementById('metaAvatar');
@@ -1211,6 +1472,379 @@
                 }
             }
         }
+
+        // --- Thinky chat client ---
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Minimal, safe markdown-ish renderer for Thinky (no raw HTML passthrough)
+        // Supports: **bold**, *italic*, `inline code`, ```code blocks```, [text](url), and newlines.
+        function renderThinkyRichTextSafe(raw) {
+            const input = String(raw ?? '');
+
+
+            // Escape everything first (prevents XSS)
+            let s = escapeHtml(input);
+
+            // Code blocks first: ``` ... ```
+            s = s.replace(/<!--/g, '<!--');
+            s = s.replace(/```([\s\S]*?)```/g, (m, code) => {
+                return `<pre><code>${code}</code></pre>`;
+            });
+
+            // Inline code: `...`
+            s = s.replace(/`([^`]+?)`/g, (m, code) => {
+                return `<code>${code}</code>`;
+            });
+
+            // Bold: **text**
+            s = s.replace(/\*\*([^*]+?)\*\*/g, (m, t) => `<strong>${t}</strong>`);
+
+            // Italic: *text*
+            s = s.replace(/\*([^*]+?)\*/g, (m, t) => `<em>${t}</em>`);
+
+            // Links: [text](url)
+            s = s.replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, url) => {
+                const safeUrl = escapeHtml(url);
+                const safeText = text;
+                return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-pink); text-decoration: underline;">${safeText}</a>`;
+            });
+
+            // Auto-link plain URLs (so chat responses like "Portfolio: https://..." become clickable)
+            s = s.replace(/(https?:\/\/[^\s<]+[^\s<.,;:])(?=[\s<]|$)/g, (m, url) => {
+                const safeUrl = escapeHtml(url);
+                return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" style="color: var(--primary-pink); text-decoration: underline;">${m}</a>`;
+            });
+
+            // Newlines -> <br>
+            s = s.replace(/\r?\n/g, '<br>');
+
+            return s;
+        }
+
+        function createThinkyBubble(role) {
+            const el = document.createElement('div');
+            el.className = role === 'user' ? 'msg-general-item msg-self' : 'msg-general-item msg-assistant';
+            el.style.maxWidth = '100%';
+            el.style.wordBreak = 'break-word';
+            el.style.overflowWrap = 'anywhere';
+            el.style.whiteSpace = role === 'user' ? 'pre-wrap' : 'normal';
+
+            return el;
+        }
+
+        function appendThinkyTypingIndicator() {
+            const container = document.getElementById('thinkyMessages');
+            if (!container) return null;
+            const el = createThinkyBubble('assistant');
+            el.innerHTML = `<span class="thinky-typing" aria-label="Thinky is typing">
+                <span class="thinky-typing-dot"></span>
+                <span class="thinky-typing-dot"></span>
+                <span class="thinky-typing-dot"></span>
+            </span>`;
+            container.appendChild(el);
+            container.scrollTop = container.scrollHeight;
+            return el;
+        }
+
+        function appendThinkyMessage(role, text, { rich = false } = {}) {
+            const container = document.getElementById('thinkyMessages');
+            if (!container) return null;
+            const el = createThinkyBubble(role);
+
+            if (role === 'assistant' && rich) {
+                el.innerHTML = renderThinkyRichTextSafe(text);
+            } else {
+                el.textContent = String(text ?? '');
+                el.style.whiteSpace = 'pre-wrap';
+            }
+
+            container.appendChild(el);
+            container.scrollTop = container.scrollHeight;
+            return el;
+        }
+
+        // --- local persistence for Thinky widget (per reviewer) ---
+        const THINKY_LOCAL_KEY_PREFIX = 'thinky_local_chat_';
+        function thinkyKey(reviewerId) {
+            return `${THINKY_LOCAL_KEY_PREFIX}${String(reviewerId || 'unknown')}`;
+        }
+        function loadThinkyLocalChat(reviewerId) {
+            try {
+                const raw = localStorage.getItem(thinkyKey(reviewerId));
+                if (!raw) return [];
+                const parsed = JSON.parse(raw);
+                return Array.isArray(parsed) ? parsed : [];
+            } catch (_) {
+                return [];
+            }
+        }
+        function saveThinkyLocalChat(reviewerId, list) {
+            try {
+                localStorage.setItem(thinkyKey(reviewerId), JSON.stringify(list || []));
+            } catch (_) {}
+        }
+        function getThinkySessionList(reviewerId) {
+            const existing = loadThinkyLocalChat(reviewerId);
+            return existing;
+        }
+
+        function getThinkyGreetingReply(userText) {
+            const normalized = String(userText || '').trim().toLowerCase();
+            if (!normalized) return '';
+            const greetingRegex = /^(hi|hii|hello|hey|yo|sup|good (morning|afternoon|evening)|kumusta|kamusta|hola|bonjour)[!.?,\s]*$/i;
+            if (!greetingRegex.test(normalized)) return '';
+            const author = _thinkyReviewerAuthorName || 'the reviewer author';
+            const subject = _thinkyReviewerSubjectName || 'this subject';
+            return `Hello! I am Thinky. I can help you review key ideas from ${subject} by ${author}. Ask me anything from this reviewer.`;
+        }
+
+        // Typing animation (cancellable)
+        let _thinkyTypingJob = null;
+        function cancelThinkyTyping() {
+            if (_thinkyTypingJob && typeof _thinkyTypingJob.cancel === 'function') {
+                _thinkyTypingJob.cancel();
+            }
+            _thinkyTypingJob = null;
+        }
+
+        function startThinkyTyping({ element, fullText }) {
+            cancelThinkyTyping();
+
+            const safeText = String(fullText ?? '');
+            const renderedFull = renderThinkyRichTextSafe(safeText);
+            // Reveal progressively by rebuilding HTML from the progressively revealed raw text.
+            // (Safe: we never inject unsanitized HTML.)
+            let idx = 0;
+            const total = safeText.length;
+            let last = 0;
+
+            const job = {
+                cancel: () => {
+                    job._canceled = true;
+                },
+                _canceled: false
+            };
+            _thinkyTypingJob = job;
+
+            const container = document.getElementById('thinkyMessages');
+
+            function tick(ts) {
+                if (job._canceled) return;
+
+                // Variable speed based on time delta
+                if (!last) last = ts;
+                const dt = ts - last;
+                last = ts;
+
+                // about ~30-70 chars per second feel
+                const speed = 55;
+                idx = Math.min(total, idx + Math.max(1, Math.floor((dt / 1000) * speed)));
+
+                const partial = safeText.slice(0, idx);
+                element.innerHTML = renderThinkyRichTextSafe(partial) + `<span class="thinky-cursor">&nbsp;</span>`;
+
+                if (container) container.scrollTop = container.scrollHeight;
+
+                if (idx < total) {
+                    requestAnimationFrame(tick);
+                } else {
+                    element.innerHTML = renderedFull;
+                    _thinkyTypingJob = null;
+                }
+            }
+
+            requestAnimationFrame(tick);
+        }
+
+        // cursor styling (keep minimal)
+        (function ensureThinkyCursorStyle() {
+            if (document.getElementById('thinky-cursor-style')) return;
+            const st = document.createElement('style');
+            st.id = 'thinky-cursor-style';
+            st.textContent = `.thinky-cursor{display:inline-block;width:8px;animation:thinkyBlink 1s steps(2,end) infinite;}
+@keyframes thinkyBlink{0%,49%{opacity:0}50%,100%{opacity:1}}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;}`;
+            document.head.appendChild(st);
+        })();
+
+        async function restoreThinkyChatUIForReviewer(reviewerId) {
+            const container = document.getElementById('thinkyMessages');
+            if (!container) return;
+            container.innerHTML = '';
+            const list = getThinkySessionList(reviewerId);
+            for (const msg of list) {
+                if (!msg || !msg.role) continue;
+                if (msg.role === 'assistant') {
+                    appendThinkyMessage('assistant', msg.text || '', { rich: true });
+                } else {
+                    appendThinkyMessage('user', msg.text || '', { rich: false });
+                }
+            }
+        }
+
+        document.getElementById('thinkySendBtn').addEventListener('click', async () => {
+            const input = document.getElementById('thinkyInput');
+            const q = (input && input.value || '').trim();
+            if (!q) return;
+            if (!currentReviewer || !currentReviewer.id) {
+                window.showAlert && window.showAlert('error', 'Reviewer not loaded');
+                return;
+            }
+
+            const reviewerId = currentReviewer.id;
+            const localList = getThinkySessionList(reviewerId);
+
+            // USER message
+            appendThinkyMessage('user', q);
+            localList.push({ role: 'user', text: q, ts: Date.now() });
+            saveThinkyLocalChat(reviewerId, localList);
+
+            input.value = '';
+
+            const greetingReply = getThinkyGreetingReply(q);
+            if (greetingReply) {
+                let typingIndicatorEl = appendThinkyTypingIndicator();
+                setTimeout(() => {
+                    if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+                    typingIndicatorEl = null;
+                    const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                    startThinkyTyping({ element: assistantEl, fullText: greetingReply });
+                    localList.push({ role: 'assistant', text: greetingReply, ts: Date.now() });
+                    saveThinkyLocalChat(reviewerId, localList);
+                }, 550);
+                return;
+            }
+
+            // ASSISTANT typing indicator while waiting on API
+            let typingIndicatorEl = appendThinkyTypingIndicator();
+
+            try {
+                const resp = await fetch('/api/openrouter/chat', {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        reviewerId: reviewerId,
+                        question: q,
+                        authorName: _thinkyReviewerAuthorName,
+                        subjectName: _thinkyReviewerSubjectName
+                    })
+                });
+
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    const text = 'Sorry, I could not get an answer right now.';
+                    if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+                    typingIndicatorEl = null;
+                    const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                    startThinkyTyping({ element: assistantEl, fullText: text });
+                    localList.push({ role: 'assistant', text, ts: Date.now() });
+                    saveThinkyLocalChat(reviewerId, localList);
+                    console.error('Thinky chat error', resp.status, err);
+                    return;
+                }
+
+                const data = await resp.json();
+                const answer = data && data.answer ? data.answer : 'No response';
+
+                if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+                typingIndicatorEl = null;
+                const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                startThinkyTyping({ element: assistantEl, fullText: answer });
+
+                // Persist once fully typed (use a timeout as typing length may vary)
+                const persistDelay = Math.min(4500, 600 + answer.length * 12);
+                setTimeout(() => {
+                    localList.push({ role: 'assistant', text: answer, ts: Date.now() });
+                    saveThinkyLocalChat(reviewerId, localList);
+                }, persistDelay);
+            } catch (e) {
+                console.error('Thinky chat request failed', e);
+                const text = 'Request failed. Please try again later.';
+                if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+                typingIndicatorEl = null;
+                const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                startThinkyTyping({ element: assistantEl, fullText: text });
+                localList.push({ role: 'assistant', text, ts: Date.now() });
+                saveThinkyLocalChat(reviewerId, localList);
+            }
+        });
+
+
+        // Toggle behavior for Thinky modal
+        (function setupThinkyToggle(){
+            const panel = document.getElementById('thinkyPanel');
+            const toggle = document.getElementById('thinkyToggleBtn');
+            const close = document.getElementById('thinkyCloseBtn');
+            const min = document.getElementById('thinkyMinBtn');
+            const input = document.getElementById('thinkyInput');
+            const backdrop = document.getElementById('thinkyBackdrop');
+            const labelEl = document.querySelector('.thinky-label');
+
+            if (!toggle || !panel) return;
+            let labelInterval = null;
+            let labelHideTimeout = null;
+
+            function hideLabel() {
+                if (labelEl) labelEl.classList.remove('show');
+            }
+
+            function pulseLabel() {
+                if (!labelEl) return;
+                const isMobile = window.matchMedia && window.matchMedia('(max-width: 640px)').matches;
+                const isPanelOpen = !panel.classList.contains('hidden');
+                if (isMobile || isPanelOpen) return;
+                labelEl.classList.add('show');
+                if (labelHideTimeout) clearTimeout(labelHideTimeout);
+                labelHideTimeout = setTimeout(hideLabel, 3000);
+            }
+
+            function startLabelPulse() {
+                if (!labelEl) return;
+                if (labelInterval) clearInterval(labelInterval);
+                pulseLabel();
+                labelInterval = setInterval(pulseLabel, 10000);
+            }
+
+            function openPanel() {
+                panel.classList.remove('hidden');
+                if (backdrop) backdrop.classList.remove('hidden');
+                toggle.setAttribute('aria-expanded','true');
+                toggle.style.opacity = '0';
+                toggle.style.pointerEvents = 'none';
+                hideLabel();
+                if (input) input.focus();
+            }
+            function closePanel() {
+                panel.classList.add('hidden');
+                if (backdrop) backdrop.classList.add('hidden');
+                toggle.setAttribute('aria-expanded','false');
+                toggle.style.opacity = '1';
+                toggle.style.pointerEvents = 'auto';
+            }
+
+            toggle.addEventListener('click', () => {
+                if (panel.classList.contains('hidden')) openPanel(); else closePanel();
+            });
+            if (close) close.addEventListener('click', closePanel);
+            if (min) min.addEventListener('click', closePanel);
+            if (backdrop) backdrop.addEventListener('click', closePanel);
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && !panel.classList.contains('hidden')) closePanel();
+            });
+            window.addEventListener('resize', () => {
+                if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) hideLabel();
+            });
+
+            // open panel when user focuses input via keyboard
+            if (input) input.addEventListener('focus', openPanel);
+            startLabelPulse();
+        })();
 
         function openFlashcardsForReviewer() {
             if (!currentReviewer || !currentReviewer.flashcards || currentReviewer.flashcards.length === 0) {
