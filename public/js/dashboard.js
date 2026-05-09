@@ -414,17 +414,20 @@ async function shareSubject(subjectId) {
     const shareText = `Check out this subject on Thinky: ${subject.name}`;
 
     try {
-        if (navigator.share) {
-            await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
-            return;
-        }
-
         await navigator.clipboard.writeText(shareUrl);
         if (window.showAlert) window.showAlert('success', 'Subject link copied to clipboard!', 3500);
         else alert('Subject link copied to clipboard!');
+
+        if (navigator.share) {
+            try {
+                await navigator.share({ title: shareTitle, text: shareText, url: shareUrl });
+            } catch (shareErr) {
+                if (shareErr && shareErr.name !== 'AbortError') {
+                    console.log('Share failed:', shareErr);
+                }
+            }
+        }
     } catch (error) {
-        // Ignore user-cancelled native share. For real failures, fall back to prompt.
-        if (error && error.name === 'AbortError') return;
         try {
             await navigator.clipboard.writeText(shareUrl);
             if (window.showAlert) window.showAlert('success', 'Subject link copied to clipboard!', 3500);
@@ -969,8 +972,9 @@ async function saveReviewer() {
             const added = respData.reviewer || respData.data || respData;
             // Update currentReviewerId so any subsequent "Save Reviewer" click does a PUT (update)
             // instead of a POST (create), preventing duplicates while the modal stays open.
-            if (added.id) {
-                currentReviewerId = added.id;
+            const resolvedReviewerId = resolveSavedReviewerId(respData, currentReviewerId, title, content, subjectId);
+            if (resolvedReviewerId) {
+                currentReviewerId = resolvedReviewerId;
                 const modalTitle = document.getElementById('reviewerModalTitle');
                 if (modalTitle) modalTitle.textContent = 'Edit Reviewer';
             }
@@ -997,17 +1001,13 @@ async function saveReviewer() {
             await loadSubjects();
         }
 
-        // Capture the saved reviewer ID for deferred AI post-save actions
+        // Capture the saved reviewer ID for deferred AI post-save actions.
+        const savedReviewerId = resolveSavedReviewerId(respData, currentReviewerId, title, content, subjectId);
         let pendingFlashcardsReviewerId = null;
         let pendingQuizReviewerId = null;
         if (window._aiPendingFlashcards || window._aiPendingQuiz) {
-            if (respData) {
-                const added = respData.reviewer || respData.data || respData;
-                pendingFlashcardsReviewerId = added?.id || null;
-                pendingQuizReviewerId = added?.id || null;
-            }
-            pendingFlashcardsReviewerId = pendingFlashcardsReviewerId || currentReviewerId;
-            pendingQuizReviewerId = pendingQuizReviewerId || currentReviewerId;
+            pendingFlashcardsReviewerId = savedReviewerId;
+            pendingQuizReviewerId = savedReviewerId;
         }
 
         // Run deferred AI extras AFTER reviewer save so users can edit first.
@@ -1832,6 +1832,33 @@ function aiOpenGeneratePanel() {
             }
         })
         .catch(() => { /* non-critical */ });
+}
+
+function resolveSavedReviewerId(respData, fallbackReviewerId, title, content, subjectId) {
+    const responseId = respData?.reviewer?.id || respData?.data?.id || respData?.id || null;
+    if (responseId) return responseId;
+    if (fallbackReviewerId) return fallbackReviewerId;
+
+    try {
+        const normalizedTitle = String(title || '').trim().toLowerCase();
+        const normalizedContent = String(content || '').trim().toLowerCase();
+        const normalizedSubjectId = String(subjectId || '').trim();
+
+        for (const subj of (subjects || [])) {
+            if (normalizedSubjectId && String(subj?.id) !== normalizedSubjectId) continue;
+            for (const rv of (subj?.reviewers || [])) {
+                const rvTitle = String(rv?.title || '').trim().toLowerCase();
+                const rvContent = String(rv?.content || '').trim().toLowerCase();
+                if (normalizedTitle && rvTitle === normalizedTitle && (!normalizedContent || rvContent === normalizedContent)) {
+                    return rv.id;
+                }
+            }
+        }
+    } catch (e) {
+        // Best effort only.
+    }
+
+    return null;
 }
 
 function syncOptionCard(id) {

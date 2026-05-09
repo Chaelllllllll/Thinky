@@ -132,6 +132,44 @@ function _activityDiscord(title, fields) {
         })
     }).catch(() => {});
 }
+
+// ─── New Reviewer logger (New_Reviewer_Webhook) ───────────────────────────
+// Sends a dedicated embed when a reviewer is created.
+async function _newReviewerDiscordEmbed({ reviewerName, subjectName, author, reviewerUrl }) {
+    const rawUrl = process.env.New_Reviewer_Webhook || process.env.NEW_REVIEWER_WEBHOOK;
+    const url = String(rawUrl || '').trim();
+    if (!url) {
+        console.warn('New reviewer webhook is not configured (New_Reviewer_Webhook / NEW_REVIEWER_WEBHOOK missing).');
+        return;
+    }
+
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                embeds: [{
+                    title: 'New Reviewer Created',
+                    color: 0xff6b9d,
+                    timestamp: new Date().toISOString(),
+                    fields: [
+                        { name: 'Reviewer Name', value: String(reviewerName || 'Untitled').slice(0, 1024), inline: false },
+                        { name: 'Subject Name', value: String(subjectName || 'Unknown Subject').slice(0, 1024), inline: false },
+                        { name: 'Author', value: String(author || 'n/a').slice(0, 1024), inline: false },
+                        { name: 'Link', value: reviewerUrl ? `[View Reviewer](${reviewerUrl})` : 'n/a', inline: false }
+                    ]
+                }]
+            })
+        });
+
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            console.error('New reviewer webhook failed:', { status: resp.status, statusText: resp.statusText, body });
+        }
+    } catch (err) {
+        console.error('New reviewer webhook error:', err && err.message ? err.message : err);
+    }
+}
 // Helper: format a user link for Discord/activity logs
 function _userLink(req) {
     try {
@@ -1284,20 +1322,26 @@ const fallbackStore = sessionStore || new LightweightFallbackStore();
 
 // Create the session middleware and keep a reference so we can swap the
 // underlying store later if Postgres becomes available after startup.
+const isSessionProduction = process.env.NODE_ENV === 'production';
+const defaultSessionCookieMaxAgeMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+const configuredSessionCookieMaxAgeMs = Number.parseInt(process.env.SESSION_COOKIE_MAX_AGE_MS || `${defaultSessionCookieMaxAgeMs}`, 10);
+const sessionCookieMaxAgeMs = Number.isFinite(configuredSessionCookieMaxAgeMs) && configuredSessionCookieMaxAgeMs > 0
+    ? configuredSessionCookieMaxAgeMs
+    : defaultSessionCookieMaxAgeMs;
+
 const sessionOptions = {
     store: fallbackStore,
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    rolling: true,
+    proxy: isSessionProduction,
     cookie: {
-        // Only enable cross-site cookie attributes when running in production
-        // and a production origin is explicitly configured. This avoids
-        // setting a cookie domain that prevents cookies from being stored
-        // when running locally for development.
-        secure: (process.env.NODE_ENV === 'production' && productionOrigin) ? true : false,
+        // Production cookies must support credentialed cross-site requests.
+        secure: isSessionProduction,
         httpOnly: true,
-        sameSite: (process.env.NODE_ENV === 'production' && productionOrigin) ? 'none' : 'lax',
-        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        sameSite: isSessionProduction ? 'none' : 'lax',
+        maxAge: sessionCookieMaxAgeMs
     }
 };
 
@@ -2302,6 +2346,9 @@ app.get('/api/auth/verify', async (req, res) => {
                 req.session.userId = user.id;
                 req.session.username = user.username;
                 req.session.role = user.role;
+                await new Promise((resolve) => {
+                    req.session.save(() => resolve());
+                });
                 return res.redirect('/dashboard');
             }
 
@@ -2326,6 +2373,10 @@ app.get('/api/auth/verify', async (req, res) => {
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.role = user.role;
+
+        await new Promise((resolve) => {
+            req.session.save(() => resolve());
+        });
 
         return res.redirect('/dashboard?verified=1');
     } catch (e) {
@@ -2728,6 +2779,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
             const isLocalhostOrigin = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(originHeader);
             if (isLocalhostHost || isLocalhostOrigin) {
                 req.session.cookie.secure = false;
+                req.session.cookie.sameSite = 'lax';
                 console.info('Login from localhost detected — setting session cookie secure=false for this session');
             }
         } catch (e) {
@@ -2904,6 +2956,10 @@ app.get('/auth/google/callback', authLimiter, async (req, res) => {
         req.session.userId = user.id;
         req.session.username = user.username;
         req.session.role = user.role || 'student';
+
+        await new Promise((resolve) => {
+            req.session.save(() => resolve());
+        });
 
         // Redirect to state (next) or dashboard
         const nextUrl = String(state || '/dashboard');
@@ -3782,6 +3838,27 @@ app.post('/api/reviewers', requireAuth, async (req, res) => {
             ['Flashcards', flashcardsToSave ? String(flashcardsToSave.length) : '0'],
             ['Time (UTC)', new Date().toISOString()]
         ]);
+
+        let subjectName = 'Unknown Subject';
+        try {
+            const { data: subjectRow } = await supabaseAdmin
+                .from('subjects')
+                .select('name')
+                .eq('id', subject_id)
+                .maybeSingle();
+            if (subjectRow && subjectRow.name) subjectName = String(subjectRow.name);
+        } catch (_) {
+            // Non-fatal; keep default subject label.
+        }
+
+        // Send dedicated reviewer-created embed to New_Reviewer_Webhook channel.
+        const _reviewerBase = (process.env.PRODUCTION_URL || process.env.BASE_URL || (`http://${req.headers.host || `localhost:${PORT}`}`)).replace(/\/$/, '');
+        await _newReviewerDiscordEmbed({
+            reviewerName: reviewer.title || title,
+            subjectName,
+            author: req.session.username || 'n/a',
+            reviewerUrl: `${_reviewerBase}/reviewer.html?id=${encodeURIComponent(reviewer.id)}`
+        });
 
         // Background AI proactive moderation scan (fire-and-forget, non-blocking)
         autoModerateReviewer(reviewer.id, {

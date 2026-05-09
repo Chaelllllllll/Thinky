@@ -729,6 +729,10 @@
                 <button id="shareBtn" class="btn btn-outline btn-sm" title="Share this reviewer" onclick="shareReviewer()">
                     <i class="bi bi-share"></i>
                 </button>
+                <a id="discordInviteBtn" class="btn btn-outline btn-sm" title="Join the Thinky Discord" href="https://discord.gg/pd8vXBeH" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none;">
+                    <i class="bi bi-discord"></i>
+                    <span>Thinky Server</span>
+                </a>
             </div>
             <div style="display: flex; gap: 12px; flex-wrap: wrap;">
                 <button class="btn btn-outline" id="savePdfBtn" onclick="saveAsPdf()">
@@ -817,6 +821,7 @@
         }
         document.addEventListener('darkModeChanged', syncHljsTheme);
         document.addEventListener('DOMContentLoaded', syncHljsTheme);
+        document.addEventListener('DOMContentLoaded', updateThinkyDiscordInviteButton);
 
     </script>
     <script>
@@ -1169,26 +1174,8 @@
             if (!currentReviewer) return;
             
             const reviewerUrl = window.location.href;
-            const reviewerTitle = currentReviewer.title || 'Reviewer';
             
-            // Try to use Web Share API if available (mobile)
-            if (navigator.share) {
-                try {
-                    await navigator.share({
-                        title: reviewerTitle,
-                        text: `Check out this reviewer: ${reviewerTitle}`,
-                        url: reviewerUrl
-                    });
-                    return;
-                } catch (err) {
-                    // User cancelled share or share failed, fall back to copy
-                    if (err.name !== 'AbortError') {
-                        console.log('Share failed:', err);
-                    }
-                }
-            }
-            
-            // Fallback: Copy to clipboard
+            // Always copy first so the link is available immediately.
             try {
                 await navigator.clipboard.writeText(reviewerUrl);
                 window.showAlert('success', 'Link copied to clipboard!');
@@ -1207,6 +1194,21 @@
                     window.showAlert('error', 'Failed to copy link');
                 }
                 document.body.removeChild(textArea);
+            }
+
+            // Keep the native share sheet as an optional extra on supported devices.
+            if (navigator.share) {
+                try {
+                    await navigator.share({
+                        title: currentReviewer.title || 'Reviewer',
+                        text: `Check out this reviewer: ${currentReviewer.title || 'Reviewer'}`,
+                        url: reviewerUrl
+                    });
+                } catch (err) {
+                    if (err && err.name !== 'AbortError') {
+                        console.log('Share failed:', err);
+                    }
+                }
             }
         }
 
