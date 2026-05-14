@@ -832,8 +832,11 @@ const scriptSrcArray = [
     "https://pagead2.googlesyndication.com",
     // Google Funding Choices (consent / AdSense companion)
     "https://fundingchoicesmessages.google.com",
-    // MBID / MyBid banner loader
-    "https://js.mbidadm.com"
+    // MBID / MyBid banner loader + dynamically loaded companion scripts
+    "https://js.mbidadm.com",
+    "https://js.mbidinp.com",
+    "https://js.cabnnr.com",
+    "https://js.mbidpp.com"
 ];
 if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
@@ -872,7 +875,13 @@ app.use(helmet({
                 "https://js.mbidadm.com",
                 "https://*.mbidadm.com",
                 "https://bid.mbidtg.com",
-                "https://*.mbidtg.com"
+                "https://*.mbidtg.com",
+                "https://js.mbidinp.com",
+                "https://*.mbidinp.com",
+                "https://js.cabnnr.com",
+                "https://*.cabnnr.com",
+                "https://js.mbidpp.com",
+                "https://*.mbidpp.com"
             ].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
@@ -888,7 +897,10 @@ app.use(helmet({
                 "https://fundingchoicesmessages.google.com",
                 // MBID / third-party ad frames
                 "https://*.mbidadm.com",
-                "https://*.mbidtg.com"
+                "https://*.mbidtg.com",
+                "https://*.mbidinp.com",
+                "https://*.cabnnr.com",
+                "https://*.mbidpp.com"
             ],
             frameAncestors: ["'none'"],
             formAction: ["'self'"],
