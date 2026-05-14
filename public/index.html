@@ -332,8 +332,6 @@
             padding: 16px;
             min-height: 100px;
         }
-
-        /* Mobile: show only school icon (logo) and hide full school name */
         @media (max-width: 600px) {
             #modalSchool .school-name { display: none; }
             #modalSchool { cursor: help; }
@@ -826,7 +824,7 @@
         data-ad-format="auto"
         data-full-width-responsive="true"></ins>
 
-    <div id="mbidHomeBanner" class="thinky-mbid-slot container" style="margin-top:20px;margin-bottom:8px;text-align:center;" aria-label="Advertisement">
+    <div id="mbidHomeBanner" class="thinky-mbid-slot thinky-mbid-collapse-root container" style="margin-top:20px;margin-bottom:8px;text-align:center;" aria-label="Advertisement">
         <div data-banner-id="2021348"></div>
     </div>
 
@@ -862,8 +860,8 @@
         <!-- Subject Cards Grid (default view) -->
         <div id="subjectsGrid" class="reviewers-grid" style="display:none;"></div>
 
-        <div id="mbidAfterSubjects" class="thinky-mbid-slot thinky-mbid-card" style="display:none;margin:24px 0;text-align:center;" aria-label="Advertisement">
-            <div data-banner-id="2021349"></div>
+        <div id="mbidAfterSubjects" class="thinky-mbid-slot thinky-mbid-card thinky-mbid-collapse-root" style="display:none;margin:24px 0;text-align:center;" aria-label="Advertisement">
+            <div data-banner-id="2021348"></div>
         </div>
 
         <!-- Reviewer view header (back button + subject label) -->
@@ -872,7 +870,7 @@
             <span id="currentSubjectLabel" style="font-weight:700;font-size:1.05rem;"></span>
         </div>
 
-        <div id="mbidAboveReviewers" class="thinky-mbid-slot thinky-mbid-card" style="display:none;margin:20px 0;text-align:center;" aria-label="Advertisement">
+        <div id="mbidAboveReviewers" class="thinky-mbid-slot thinky-mbid-card thinky-mbid-collapse-root" style="display:none;margin:20px 0;text-align:center;" aria-label="Advertisement">
             <div data-banner-id="2021348"></div>
         </div>
 
@@ -939,6 +937,18 @@
             if (aboveReviewers) {
                 const showAbove = v === 'subject-detail' || v === 'reviewers';
                 aboveReviewers.style.display = showAbove ? 'block' : 'none';
+            }
+            if (typeof window.wireThinkyMbidCollapseIfNeeded === 'function') {
+                if (afterSubjects && afterSubjects.style.display === 'block') {
+                    afterSubjects.classList.remove('thinky-mbid--collapsed', 'thinky-mbid--filled');
+                    delete afterSubjects.dataset.mbidCollapseArmed;
+                    window.wireThinkyMbidCollapseIfNeeded(afterSubjects);
+                }
+                if (aboveReviewers && aboveReviewers.style.display === 'block') {
+                    aboveReviewers.classList.remove('thinky-mbid--collapsed', 'thinky-mbid--filled');
+                    delete aboveReviewers.dataset.mbidCollapseArmed;
+                    window.wireThinkyMbidCollapseIfNeeded(aboveReviewers);
+                }
             }
             try {
                 queueMicrotask(() => {
@@ -1752,9 +1762,13 @@
                 <div style="font-weight:700;font-size:1.1rem;color:var(--text-dark);margin-bottom:8px;">Advertisement</div>
                 <button onclick="closeAdModal()" style="background:var(--light-gray);border:1px solid var(--medium-gray);border-radius:20px;padding:6px 16px;color:var(--dark-gray);font-size:0.9rem;cursor:pointer;">⨉</button>
             </div>
-            <div class="ad-slot" style="padding:20px;text-align:center;min-height:250px;display:flex;align-items:center;justify-content:center;">
-                <!-- AdSense unit will be pushed here -->
-                <div style="color:var(--dark-gray);font-style:italic;">Loading ad...</div>
+            <div class="ad-slot thinky-ad-modal-slot" style="padding:20px;text-align:center;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;">
+                <p id="adModalPlaceholder" style="color:var(--dark-gray);font-style:italic;margin:0;">Loading ad…</p>
+                <div id="adModalMbidMount" style="display:none;width:100%;min-height:200px;">
+                    <div id="adModalMbidBanner" data-banner-id="2021349"></div>
+                </div>
+                <div id="adModalAdsenseMount" style="display:none;width:100%;min-height:200px;"></div>
+                <p id="adModalNoFillHint" class="ad-modal-no-fill-hint">No ad loaded — you can close this window to open the reviewer.</p>
             </div>
         </div>
     </div>

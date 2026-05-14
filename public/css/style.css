@@ -2970,3 +2970,23 @@ body.dark hr { border-color: var(--medium-gray); }
 /* ── Dark mode: floating dark mode button icon ── */
 #darkModeFloatBtn { color: #fff; }
 
+/* ── MBID: hide empty placement shells after fill check ── */
+.thinky-mbid-collapse-root.thinky-mbid--collapsed {
+    display: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+.thinky-ad-modal-slot .ad-modal-no-fill-hint {
+    display: none;
+    font-size: 0.85rem;
+    color: var(--dark-gray);
+    margin-top: 12px;
+    line-height: 1.4;
+}
+.thinky-ad-modal-slot.thinky-mbid-modal--show-hint .ad-modal-no-fill-hint {
+    display: block;
+}
+

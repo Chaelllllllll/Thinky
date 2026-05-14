@@ -13,6 +13,7 @@ let adModal = null;
 let adResolve = null;
 let pendingOnClose = null;
 let adObserver = null;
+let _modalHintTimer = null;
 
 function ensureMbidScript() {
     const pid = window.adsConfig && window.adsConfig.mbidPublisherId;
@@ -27,9 +28,72 @@ function ensureMbidScript() {
     document.head.appendChild(s);
 }
 
+function _nudgeMbid() {
+    try {
+        window.dispatchEvent(new Event('resize'));
+    } catch (_) {}
+}
+
+function _nudgeMbidDelayedChain() {
+    [0, 100, 350, 900, 2000].forEach((ms) => setTimeout(() => _nudgeMbid(), ms));
+}
+
 function _getAdModal() {
     if (!adModal) adModal = document.getElementById('adModal');
     return adModal;
+}
+
+function _mbidInnerHasCreative(inner) {
+    if (!inner) return false;
+    if (inner.querySelector('iframe[src], iframe[srcdoc]')) return true;
+    if (inner.querySelector('canvas')) return true;
+    const img = inner.querySelector('img[src]');
+    if (img && img.naturalWidth > 1) return true;
+    return false;
+}
+
+/**
+ * Hides MBID shell when no iframe/creative appears (avoids large empty white cards).
+ * Skips nodes inside #adModal (modal uses a hint instead).
+ */
+function wireThinkyMbidCollapseIfNeeded(rootEl) {
+    if (!rootEl || rootEl.closest('#adModal')) return;
+    if (rootEl.dataset.mbidCollapseArmed === '1') return;
+    rootEl.dataset.mbidCollapseArmed = '1';
+
+    const inner = rootEl.querySelector('[data-banner-id]');
+    if (!inner) return;
+
+    const markFilled = () => {
+        rootEl.classList.remove('thinky-mbid--collapsed');
+        rootEl.classList.add('thinky-mbid--filled');
+    };
+
+    const maybeCollapse = () => {
+        if (rootEl.classList.contains('thinky-mbid--filled')) return;
+        if (_mbidInnerHasCreative(inner)) {
+            markFilled();
+            return;
+        }
+        rootEl.classList.add('thinky-mbid--collapsed');
+    };
+
+    if (_mbidInnerHasCreative(inner)) {
+        markFilled();
+        return;
+    }
+
+    const m = new MutationObserver(() => {
+        if (_mbidInnerHasCreative(inner)) {
+            markFilled();
+            m.disconnect();
+        }
+    });
+    m.observe(inner, { childList: true, subtree: true });
+    setTimeout(() => {
+        m.disconnect();
+        maybeCollapse();
+    }, 3200);
 }
 
 function _pushAdUnit(insEl) {
@@ -44,8 +108,6 @@ function _pushAdUnit(insEl) {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
         insEl.dataset.adInit = '1';
     } catch (err) {
-        // Mark done so scheduleAdInit / MutationObserver retries do not call push again
-        // (avoids "All ins elements ... already have ads" from duplicate pushes).
         insEl.dataset.adInit = 'error';
         const msg = err && err.message ? err.message : String(err);
         if (!msg.includes('already have ads')) {
@@ -54,7 +116,6 @@ function _pushAdUnit(insEl) {
     }
 }
 
-// Push any ad units currently present in the document.
 function initExistingAds(root = document) {
     const adUnits = root.querySelectorAll('ins.adsbygoogle:not([data-ad-init])');
     adUnits.forEach((unit, idx) => {
@@ -96,17 +157,41 @@ function observeAdSlots(root = document) {
 function _renderModalAd(slotId) {
     const modal = _getAdModal();
     if (!modal) return null;
-    const slotWrap = modal.querySelector('.ad-slot');
+    const slotWrap = modal.querySelector('.thinky-ad-modal-slot') || modal.querySelector('.ad-slot');
     if (!slotWrap) return null;
+
+    const ph = modal.querySelector('#adModalPlaceholder');
+    const mbHost = modal.querySelector('#adModalMbidMount');
+    const asHost = modal.querySelector('#adModalAdsenseMount');
+    const bannerEl = modal.querySelector('#adModalMbidBanner');
 
     const mbidSecondary = window.adsConfig && window.adsConfig.mbidSecondaryBannerId;
     if (mbidSecondary) {
         ensureMbidScript();
-        slotWrap.innerHTML =
-            '<div class="thinky-mbid-interstitial" data-banner-id="' +
-            String(mbidSecondary).replace(/[^0-9]/g, '') +
-            '"></div>';
-        return slotWrap.querySelector('[data-banner-id]');
+        const id = String(mbidSecondary).replace(/[^0-9]/g, '');
+        if (bannerEl) bannerEl.setAttribute('data-banner-id', id);
+        if (ph) ph.style.display = 'none';
+        if (asHost) {
+            asHost.style.display = 'none';
+            asHost.innerHTML = '';
+        }
+        if (mbHost) mbHost.style.display = 'block';
+        return bannerEl;
+    }
+
+    if (ph) ph.style.display = 'none';
+    if (mbHost) mbHost.style.display = 'none';
+    if (asHost) {
+        asHost.style.display = 'block';
+        asHost.innerHTML = [
+            '<ins class="adsbygoogle"',
+            'style="display:block"',
+            `data-ad-client="${window.adsConfig.clientId}"`,
+            `data-ad-slot="${slotId || window.adsConfig.interstitialSlot || window.adsConfig.displaySlot}"`,
+            'data-ad-format="auto"',
+            'data-full-width-responsive="true"></ins>'
+        ].join(' ');
+        return asHost.querySelector('ins.adsbygoogle');
     }
 
     slotWrap.innerHTML = [
@@ -121,12 +206,20 @@ function _renderModalAd(slotId) {
     return slotWrap.querySelector('ins.adsbygoogle');
 }
 
-// Show ad modal and wait for user close.
 function showAdModal(slotId, onClose) {
     const modal = _getAdModal();
     if (!modal) return false;
 
     pendingOnClose = typeof onClose === 'function' ? onClose : null;
+    const slot = modal.querySelector('.thinky-ad-modal-slot');
+    if (slot) {
+        slot.classList.remove('thinky-mbid-modal--show-hint');
+    }
+    if (_modalHintTimer) {
+        clearTimeout(_modalHintTimer);
+        _modalHintTimer = null;
+    }
+
     const adUnit = _renderModalAd(slotId || window.adsConfig.interstitialSlot);
 
     modal.style.display = 'flex';
@@ -139,12 +232,28 @@ function showAdModal(slotId, onClose) {
         setTimeout(() => _pushAdUnit(adUnit), 220);
     }
 
+    _nudgeMbidDelayedChain();
+
+    const mbidInner = modal.querySelector('#adModalMbidBanner');
+    if (mbidInner && window.adsConfig && window.adsConfig.mbidSecondaryBannerId) {
+        _modalHintTimer = setTimeout(() => {
+            if (_mbidInnerHasCreative(mbidInner)) return;
+            slot && slot.classList.add('thinky-mbid-modal--show-hint');
+        }, 2400);
+    }
+
     return true;
 }
 
 function closeAdModal(callback) {
     const modal = _getAdModal();
+    if (_modalHintTimer) {
+        clearTimeout(_modalHintTimer);
+        _modalHintTimer = null;
+    }
     if (modal) {
+        const slot = modal.querySelector('.thinky-ad-modal-slot');
+        if (slot) slot.classList.remove('thinky-mbid-modal--show-hint');
         modal.style.display = 'none';
         modal.setAttribute('aria-hidden', 'true');
         modal.onclick = null;
@@ -158,7 +267,6 @@ function closeAdModal(callback) {
     adResolve = null;
 }
 
-// Promise-based helper for actions that should run after an interstitial ad.
 function showAdThenProceed(callback, slotId = window.adsConfig.interstitialSlot || window.adsConfig.displaySlot) {
     return new Promise((resolve) => {
         adResolve = resolve;
@@ -179,12 +287,15 @@ document.addEventListener('DOMContentLoaded', () => {
     ensureMbidScript();
     observeAdSlots(document);
     scheduleAdInit(document);
-    // Retry after full page load in case AdSense script is still loading.
+    document.querySelectorAll('.thinky-mbid-collapse-root').forEach((el) => {
+        if (el.closest('#adModal')) return;
+        const cs = getComputedStyle(el);
+        if (cs.display === 'none' || cs.visibility === 'hidden') return;
+        wireThinkyMbidCollapseIfNeeded(el);
+    });
     window.addEventListener('load', () => {
         scheduleAdInit(document);
-        try {
-            window.dispatchEvent(new Event('resize'));
-        } catch (_) {}
+        _nudgeMbidDelayedChain();
     }, { once: true });
 });
 
@@ -195,3 +306,5 @@ window.showAdModal = showAdModal;
 window.closeAdModal = closeAdModal;
 window.showAdThenProceed = showAdThenProceed;
 window.ensureMbidScript = ensureMbidScript;
+window.wireThinkyMbidCollapseIfNeeded = wireThinkyMbidCollapseIfNeeded;
+window.nudgeThinkyMbid = _nudgeMbidDelayedChain;
