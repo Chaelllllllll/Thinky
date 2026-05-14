@@ -6,7 +6,6 @@ RENAME COLUMN content TO comment;
 ALTER TABLE post_comments
 ADD COLUMN IF NOT EXISTS reply_to UUID REFERENCES post_comments(id) ON DELETE CASCADE;
 
--- Create post_comment_reactions table
 CREATE TABLE IF NOT EXISTS post_comment_reactions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     comment_id UUID NOT NULL REFERENCES post_comments(id) ON DELETE CASCADE,
