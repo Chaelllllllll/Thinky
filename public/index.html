@@ -105,6 +105,7 @@
     <link rel="stylesheet" href="/css/style.css">
 
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2635010933890624" crossorigin="anonymous"></script>
+    <script async src="https://js.mbidadm.com/static/scripts.js" data-admpid="440759"></script>
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/flashcards.js"></script>
@@ -322,6 +323,14 @@
         }
         .thinky-mbid-slot > [data-banner-id] {
             min-height: 50px;
+        }
+        .thinky-mbid-card {
+            background: var(--white);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--medium-gray);
+            box-shadow: var(--shadow-sm);
+            padding: 16px;
+            min-height: 100px;
         }
 
         /* Mobile: show only school icon (logo) and hide full school name */
@@ -853,7 +862,7 @@
         <!-- Subject Cards Grid (default view) -->
         <div id="subjectsGrid" class="reviewers-grid" style="display:none;"></div>
 
-        <div id="mbidBetweenSubjectReviewer" class="thinky-mbid-slot" style="display:none;margin:20px 0;text-align:center;" aria-label="Advertisement">
+        <div id="mbidAfterSubjects" class="thinky-mbid-slot thinky-mbid-card" style="display:none;margin:24px 0;text-align:center;" aria-label="Advertisement">
             <div data-banner-id="2021349"></div>
         </div>
 
@@ -861,6 +870,10 @@
         <div id="reviewerViewHeader" style="display:none;margin-bottom:16px;align-items:center;gap:12px;">
             <button class="btn btn-outline btn-sm" onclick="backToSubjects()"><i class="bi bi-arrow-left"></i> All Subjects</button>
             <span id="currentSubjectLabel" style="font-weight:700;font-size:1.05rem;"></span>
+        </div>
+
+        <div id="mbidAboveReviewers" class="thinky-mbid-slot thinky-mbid-card" style="display:none;margin:20px 0;text-align:center;" aria-label="Advertisement">
+            <div data-banner-id="2021348"></div>
         </div>
 
         <!-- Reviewers Grid -->
@@ -912,12 +925,26 @@
         window._currentView = 'subjects'; // 'subjects' | 'subject-detail' | 'reviewers'
         window._allSubjectsData = [];
 
-        function syncMbidBetweenStrip() {
-            const el = document.getElementById('mbidBetweenSubjectReviewer');
-            if (!el) return;
+        function syncMbidListSlots() {
+            const afterSubjects = document.getElementById('mbidAfterSubjects');
+            const aboveReviewers = document.getElementById('mbidAboveReviewers');
             const v = window._currentView;
-            const show = v === 'subject-detail' || v === 'reviewers';
-            el.style.display = show ? 'block' : 'none';
+            const subjectsGrid = document.getElementById('subjectsGrid');
+            if (afterSubjects && subjectsGrid) {
+                const subsLoaded = subjectsGrid.children && subjectsGrid.children.length > 0;
+                const subsShown = subsLoaded && subjectsGrid.style.display !== 'none';
+                const showAfter = v === 'subjects' && subsShown;
+                afterSubjects.style.display = showAfter ? 'block' : 'none';
+            }
+            if (aboveReviewers) {
+                const showAbove = v === 'subject-detail' || v === 'reviewers';
+                aboveReviewers.style.display = showAbove ? 'block' : 'none';
+            }
+            try {
+                queueMicrotask(() => {
+                    window.dispatchEvent(new Event('resize'));
+                });
+            } catch (_) {}
         }
 
         // Load reviewers on page load
@@ -977,7 +1004,7 @@
                     btn.disabled = false;
                 }
             });
-            syncMbidBetweenStrip();
+            syncMbidListSlots();
         });
 
         async function loadReviewersInitial() {
@@ -1078,7 +1105,7 @@
                     grid.appendChild(card);
                 });
                 grid.style.display = 'grid';
-                syncMbidBetweenStrip();
+                syncMbidListSlots();
 
                 // Check URL for subject parameter and auto-select it AFTER subjects are loaded
                 (function() {
@@ -1126,7 +1153,7 @@
                 grid.style.display = 'none';
                 document.getElementById('loadingState').style.display = 'block';
                 document.getElementById('emptyState').style.display = 'none';
-                syncMbidBetweenStrip();
+                syncMbidListSlots();
                 loadMorePublicReviewers().then(() => {
                     window.removeEventListener('scroll', _publicReviewersScrollHandler);
                     window.addEventListener('scroll', _publicReviewersScrollHandler);
@@ -1152,7 +1179,7 @@
             grid.style.display = 'none';
             document.getElementById('loadingState').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
-            syncMbidBetweenStrip();
+            syncMbidListSlots();
             loadMorePublicReviewers().then(() => {
                 window.removeEventListener('scroll', _publicReviewersScrollHandler);
                 window.addEventListener('scroll', _publicReviewersScrollHandler);
@@ -1174,7 +1201,7 @@
             const grid = document.getElementById('subjectsGrid');
             Array.from(grid.children).forEach(c => c.style.display = '');
             grid.style.display = 'grid';
-            syncMbidBetweenStrip();
+            syncMbidListSlots();
         }
 
         function filterSubjectCards(term) {
@@ -1190,7 +1217,7 @@
             });
             grid.style.display = 'grid';
             document.getElementById('emptyState').style.display = visible === 0 ? 'block' : 'none';
-            syncMbidBetweenStrip();
+            syncMbidListSlots();
         }
 
         function _publicReviewersScrollHandler() {
@@ -1247,7 +1274,7 @@
             document.getElementById('reviewersGrid').innerHTML = '';
             document.getElementById('loadingState').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
-            syncMbidBetweenStrip();
+            syncMbidListSlots();
             await loadMorePublicReviewers();
         }
 
@@ -1270,7 +1297,7 @@
                         document.getElementById('loadingState').style.display = 'none';
                         document.getElementById('emptyState').style.display = 'block';
                         paging.finished = true;
-                        syncMbidBetweenStrip();
+                        syncMbidListSlots();
                         return;
                     }
                     throw new Error('Failed to load reviewers');
@@ -1287,7 +1314,7 @@
                     document.getElementById('emptyState').style.display = 'block';
                     document.getElementById('reviewersGrid').style.display = 'none';
                     paging.finished = true;
-                    syncMbidBetweenStrip();
+                    syncMbidListSlots();
                     return;
                 }
 
@@ -1303,7 +1330,7 @@
                 if (paging.offset === 0) {
                     document.getElementById('loadingState').style.display = 'none';
                     document.getElementById('emptyState').style.display = 'block';
-                    syncMbidBetweenStrip();
+                    syncMbidListSlots();
                 }
             } finally {
                 paging.loading = false;
@@ -1475,13 +1502,13 @@
                 if (append) return;
                 grid.style.display = 'none';
                 document.getElementById('emptyState').style.display = 'block';
-                syncMbidBetweenStrip();
+                syncMbidListSlots();
                 return;
             }
 
             grid.style.display = 'grid';
             document.getElementById('emptyState').style.display = 'none';
-            syncMbidBetweenStrip();
+            syncMbidListSlots();
 
                 reviewers.forEach(reviewer => {
                 const card = document.createElement('div');

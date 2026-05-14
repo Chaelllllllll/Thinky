@@ -18,6 +18,7 @@ function ensureMbidScript() {
     const pid = window.adsConfig && window.adsConfig.mbidPublisherId;
     if (!pid) return;
     if (document.querySelector('script[data-thinky-mbid="1"]')) return;
+    if (document.querySelector('script[src*="js.mbidadm.com/static/scripts.js"]')) return;
     const s = document.createElement('script');
     s.async = true;
     s.src = 'https://js.mbidadm.com/static/scripts.js';
@@ -32,13 +33,24 @@ function _getAdModal() {
 }
 
 function _pushAdUnit(insEl) {
-    if (!insEl || insEl.dataset.adInit === '1') return;
-    if (typeof window.adsbygoogle === 'undefined') return;
+    if (!insEl) return;
+    const st = insEl.dataset.adInit;
+    if (st === '1' || st === 'error') return;
+    if (typeof window.adsbygoogle === 'undefined') {
+        delete insEl.dataset.adInit;
+        return;
+    }
     try {
         (window.adsbygoogle = window.adsbygoogle || []).push({});
         insEl.dataset.adInit = '1';
     } catch (err) {
-        console.warn('AdSense push failed:', err);
+        // Mark done so scheduleAdInit / MutationObserver retries do not call push again
+        // (avoids "All ins elements ... already have ads" from duplicate pushes).
+        insEl.dataset.adInit = 'error';
+        const msg = err && err.message ? err.message : String(err);
+        if (!msg.includes('already have ads')) {
+            console.warn('AdSense push failed:', err);
+        }
     }
 }
 
@@ -46,6 +58,8 @@ function _pushAdUnit(insEl) {
 function initExistingAds(root = document) {
     const adUnits = root.querySelectorAll('ins.adsbygoogle:not([data-ad-init])');
     adUnits.forEach((unit, idx) => {
+        if (unit.dataset.adInit) return;
+        unit.dataset.adInit = 'pending';
         setTimeout(() => _pushAdUnit(unit), idx * 120);
     });
 }
@@ -166,7 +180,12 @@ document.addEventListener('DOMContentLoaded', () => {
     observeAdSlots(document);
     scheduleAdInit(document);
     // Retry after full page load in case AdSense script is still loading.
-    window.addEventListener('load', () => scheduleAdInit(document), { once: true });
+    window.addEventListener('load', () => {
+        scheduleAdInit(document);
+        try {
+            window.dispatchEvent(new Event('resize'));
+        } catch (_) {}
+    }, { once: true });
 });
 
 window.initExistingAds = initExistingAds;

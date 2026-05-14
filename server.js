@@ -829,7 +829,11 @@ const scriptSrcArray = [
     "https://cdn.quilljs.com",
     "https://js.puter.com",
     // AdSense script host
-    "https://pagead2.googlesyndication.com"
+    "https://pagead2.googlesyndication.com",
+    // Google Funding Choices (consent / AdSense companion)
+    "https://fundingchoicesmessages.google.com",
+    // MBID / MyBid banner loader
+    "https://js.mbidadm.com"
 ];
 if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
@@ -862,7 +866,13 @@ app.use(helmet({
                 "https://pagead2.googlesyndication.com",
                 "https://googleads.g.doubleclick.net",
                 "https://www.google.com",
-                "https://www.googleadservices.com"
+                "https://www.googleadservices.com",
+                "https://fundingchoicesmessages.google.com",
+                // MBID banner / beacon endpoints
+                "https://js.mbidadm.com",
+                "https://*.mbidadm.com",
+                "https://bid.mbidtg.com",
+                "https://*.mbidtg.com"
             ].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
@@ -874,7 +884,11 @@ app.use(helmet({
                 // AdSense iframes
                 "https://googleads.g.doubleclick.net",
                 "https://tpc.googlesyndication.com",
-                "https://pagead2.googlesyndication.com"
+                "https://pagead2.googlesyndication.com",
+                "https://fundingchoicesmessages.google.com",
+                // MBID / third-party ad frames
+                "https://*.mbidadm.com",
+                "https://*.mbidtg.com"
             ],
             frameAncestors: ["'none'"],
             formAction: ["'self'"],
