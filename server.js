@@ -822,23 +822,43 @@ app.get('/api/_debug_supabase', async (req, res) => {
 // (e.g., older supabase UMD builds) rely on eval/new Function. Do NOT enable
 // this in production for security reasons.
 const isProd = process.env.NODE_ENV === 'production';
+
+// MBID loads additional bundles from partner hosts; include wildcards (CSP Level 3)
+// so future paths on the same subdomains stay allowed without growing the header.
+const mbidScriptHosts = [
+    'https://js.mbidadm.com',
+    'https://*.mbidadm.com',
+    'https://js.mbidinp.com',
+    'https://*.mbidinp.com',
+    'https://js.cabnnr.com',
+    'https://*.cabnnr.com',
+    'https://js.mbidpp.com',
+    'https://*.mbidpp.com'
+];
+
 const scriptSrcArray = [
     "'self'",
     "'unsafe-inline'",
-    "https://cdn.jsdelivr.net",
-    "https://cdn.quilljs.com",
-    "https://js.puter.com",
+    'https://cdn.jsdelivr.net',
+    'https://cdn.quilljs.com',
+    'https://js.puter.com',
     // AdSense script host
-    "https://pagead2.googlesyndication.com",
+    'https://pagead2.googlesyndication.com',
     // Google Funding Choices (consent / AdSense companion)
-    "https://fundingchoicesmessages.google.com",
-    // MBID / MyBid banner loader + dynamically loaded companion scripts
-    "https://js.mbidadm.com",
-    "https://js.mbidinp.com",
-    "https://js.cabnnr.com",
-    "https://js.mbidpp.com"
+    'https://fundingchoicesmessages.google.com',
+    ...mbidScriptHosts
 ];
 if (!isProd) scriptSrcArray.push("'unsafe-eval'");
+
+const mbidWorkerSrc = [
+    "'self'",
+    "'blob:'",
+    'https://*.mbidadm.com',
+    'https://*.mbidinp.com',
+    'https://*.cabnnr.com',
+    'https://*.mbidpp.com',
+    'https://*.mbidtg.com'
+];
 
 // Enable gzip/brotli compression for all responses
 app.use(compression({
@@ -885,9 +905,12 @@ app.use(helmet({
             ].filter(Boolean),
             styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.jsdelivr.net", "https://fonts.googleapis.com", "https://cdn.quilljs.com"],
             scriptSrc: scriptSrcArray,
+            // Dynamically injected <script src=…> (e.g. MBID loaders) — mirror script-src
+            scriptSrcElem: scriptSrcArray,
             scriptSrcAttr: ["'unsafe-inline'"],
             fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
             imgSrc: ["'self'", "data:", "https:"],
+            workerSrc: mbidWorkerSrc,
             frameSrc: [
                 "'self'",
                 // AdSense iframes
