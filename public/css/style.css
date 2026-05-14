@@ -172,6 +172,18 @@ p {
     box-shadow: var(--shadow-md);
 }
 
+.btn-danger {
+    background: #dc3545;
+    color: var(--white);
+    box-shadow: var(--shadow-sm);
+}
+
+.btn-danger:hover {
+    background: #c82333;
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
 .btn-outline {
     background: transparent;
     color: var(--primary-pink);
@@ -2513,6 +2525,263 @@ body.dark .reaction-pill:hover {
 body.dark .reaction-pill.user-reacted {
     border-color: var(--primary-pink);
 }
+
+/* =====================================================
+   Post Modal (Professional)
+   ===================================================== */
+
+#postModal .post-modal-card {
+    border: 1px solid rgba(255, 158, 180, 0.18);
+    background: linear-gradient(180deg, rgba(255, 158, 180, 0.05), rgba(255, 255, 255, 0));
+}
+
+#postModal .post-modal-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--medium-gray);
+    background: linear-gradient(90deg, rgba(255, 158, 180, 0.12), rgba(255, 212, 224, 0.05));
+}
+
+#postModal .post-modal-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+#postModal .post-modal-title {
+    font-size: 1.35rem;
+    font-weight: 800;
+    line-height: 1.25;
+    margin: 0;
+}
+
+#postModal .post-modal-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+#postModal .post-modal-author {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+#postModal .post-modal-author img {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 2px solid rgba(255, 158, 180, 0.18);
+}
+
+#postModal .post-modal-author .name {
+    font-weight: 700;
+    color: var(--text-dark);
+}
+
+#postModal .post-modal-author .time {
+    color: var(--dark-gray);
+    font-size: 0.85rem;
+}
+
+#postModal .post-modal-content {
+    padding: 18px;
+}
+
+#postModal #postModalContent {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.75;
+    font-size: 1rem;
+    color: var(--text-dark);
+}
+
+#postModal .post-modal-reactions {
+    margin-top: 14px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+#postModal .comments-section {
+    margin-top: 18px;
+    padding-top: 14px;
+}
+
+#postModal .comments-header {
+    font-weight: 800;
+    color: var(--text-dark);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+#postModal .comment-compose-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px;
+    border: 1px solid rgba(230, 220, 224, 0.95);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.6);
+}
+
+#postModal .comment-avatar {
+    width: 44px;
+    height: 44px;
+    border-radius: 999px;
+    object-fit: cover;
+    border: 2px solid rgba(255, 158, 180, 0.18);
+    flex-shrink: 0;
+}
+
+#postModal .comment-input-wrap {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    width: 100%;
+}
+
+#postModal #postCommentInput {
+    flex: 1;
+    resize: none;
+    min-height: 46px;
+    max-height: 140px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1.5px solid var(--medium-gray);
+    outline: none;
+    font-family: inherit;
+    background: var(--white);
+}
+
+#postModal #postCommentInput:focus {
+    border-color: var(--primary-pink);
+    box-shadow: 0 0 0 3px rgba(255, 158, 180, 0.12);
+}
+
+#postModal .comment-send-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 999px;
+    border: none;
+    background: linear-gradient(90deg, var(--primary-pink), var(--primary-pink-light));
+    color: white;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 22px rgba(255, 105, 150, 0.14);
+    transition: transform 0.15s ease;
+}
+
+#postModal .comment-send-btn:hover {
+    transform: translateY(-1px);
+}
+
+#postModal .comments-empty {
+    padding: 18px;
+    border-radius: 14px;
+    border: 1px dashed rgba(255, 158, 180, 0.4);
+    background: rgba(255, 158, 180, 0.06);
+    color: var(--dark-gray);
+    text-align: center;
+    margin-top: 14px;
+}
+
+#postModal .comment-item {
+    display: flex;
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(230, 220, 224, 0.55);
+}
+
+#postModal .comment-item:last-child {
+    border-bottom: none;
+}
+
+#postModal .comment-body {
+    flex: 1;
+    min-width: 0;
+}
+
+#postModal .comment-bubble {
+    background: rgba(248, 244, 246, 0.95);
+    border: 1px solid rgba(230, 220, 224, 0.8);
+    border-radius: 14px;
+    padding: 12px;
+}
+
+#postModal .comment-user {
+    font-weight: 800;
+    margin-bottom: 6px;
+    color: var(--text-dark);
+}
+
+#postModal .comment-text {
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.6;
+}
+
+#postModal .comment-footer {
+    margin-top: 8px;
+    font-size: 0.82rem;
+    color: var(--dark-gray);
+}
+
+#postModal .reaction-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1.5px solid rgba(230, 220, 224, 0.9);
+    background: rgba(248, 244, 246, 0.95);
+    color: var(--text-dark);
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    user-select: none;
+}
+
+#postModal .reaction-pill:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 158, 180, 0.9);
+}
+
+#postModal .reaction-pill.user-reacted {
+    border-color: var(--primary-pink);
+    background: rgba(255, 158, 180, 0.10);
+}
+
+#postModal .reaction-pill span:last-child {
+    font-weight: 700;
+    color: var(--primary-pink-dark);
+}
+
+/* Dark mode for post modal */
+body.dark #postModal .comment-bubble {
+    background: rgba(68, 56, 72, 0.25);
+    border-color: var(--medium-gray);
+}
+
+body.dark #postModal .comment-compose-row {
+    background: rgba(46, 40, 49, 0.25);
+    border-color: var(--medium-gray);
+}
+
+body.dark #postModal #postCommentInput {
+    background: var(--light-gray);
+    border-color: var(--medium-gray);
+}
+
 
 /* ── Comment section dark mode ── */
 body.dark .comment-bubble {

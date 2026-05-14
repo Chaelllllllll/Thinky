@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post - Thinky</title>
+    <link rel="shortcut icon" href="./images/logo.png" type="image/x-icon">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#e91e8c">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Thinky">
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-dark.min.css" id="hljs-theme-dark" media="not all">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/styles/atom-one-light.min.css" id="hljs-theme-light" media="all">
+    <script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.9.0/highlight.min.js"></script>
+    <style>
+        body { background: linear-gradient(180deg, #fff7fa 0%, #f7f4f8 100%); }
+        .post-detail-container {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .post-shell {
+            background: var(--white);
+            border-radius: 24px;
+            box-shadow: 0 24px 80px rgba(17, 24, 39, 0.12);
+            overflow: hidden;
+            border: 1px solid rgba(233, 30, 140, 0.10);
+        }
+        .post-header {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            gap:12px;
+            padding: 18px 22px;
+            border-bottom: 1px solid rgba(233, 30, 140, 0.10);
+            background: linear-gradient(180deg, rgba(255, 245, 248, 0.95), rgba(255,255,255,0.98));
+        }
+        .post-header-left { display:flex; align-items:center; gap:12px; min-width:0; }
+        .post-back-btn {
+            display:inline-flex; align-items:center; justify-content:center; gap:8px;
+            width:40px; height:40px; border-radius:999px; border:1px solid rgba(233, 30, 140, 0.14);
+            background:#fff; color:var(--primary-pink); box-shadow: var(--shadow-sm);
+        }
+        .post-title-wrap { min-width:0; }
+        .post-title { margin:0; font-size:1.4rem; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .post-date { color: var(--dark-gray); font-size: 0.92rem; margin-top: 4px; }
+        .post-body {
+            display:flex;
+            flex-direction:column;
+        }
+        .post-left, .post-right { min-width:0; }
+        .post-left {
+            padding: 22px;
+            border-bottom: 1px solid rgba(233, 30, 140, 0.10);
+            background: linear-gradient(180deg, #fff 0%, #fffdfd 100%);
+        }
+        .post-author {
+            display:flex; align-items:center; gap:12px; margin-bottom:16px;
+        }
+        .post-author img {
+            width:48px; height:48px; border-radius:999px; object-fit:cover; flex:0 0 48px;
+            border: 2px solid rgba(233, 30, 140, 0.14);
+        }
+        .post-author-name { font-weight:700; color: var(--text-dark); }
+        .post-author-handle { color: var(--dark-gray); font-size: 0.92rem; }
+        .post-caption-label {
+            margin: 14px 0 10px;
+            font-size: 0.82rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--dark-gray);
+            font-weight: 700;
+        }
+        .post-content-card {
+            padding: 20px;
+            border-radius: 20px;
+            border: 1px solid rgba(233, 30, 140, 0.10);
+            background: #fff;
+            box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
+            line-height: 1.8;
+            word-break: break-word;
+        }
+        .post-actions {
+            margin-top: 16px;
+            padding: 12px 14px;
+            background: transparent;
+            border: none;
+            border-radius: 16px;
+            display:flex;
+            gap:8px;
+            flex-wrap:nowrap;
+            align-items:center;
+            justify-content:space-between;
+        }
+        .heart-btn {
+            background: transparent;
+            border: 2px solid var(--medium-gray);
+            border-radius: 999px;
+            padding: 0 12px;
+            height: 36px;
+            min-height: 36px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--dark-gray);
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .heart-btn.hearted {
+            background: rgba(255, 158, 180, 0.08);
+            border-color: var(--primary-pink);
+            color: var(--primary-pink);
+        }
+        .comments-panel {
+            background: #fff;
+            border: 1px solid rgba(233, 30, 140, 0.10);
+            border-radius: 20px;
+            box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
+            padding: 16px;
+            display:flex;
+            flex-direction:column;
+            height: 100%;
+            min-height: 560px;
+        }
+        .comments-header {
+            margin-bottom: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            color: var(--text-dark);
+        }
+        .comments-list {
+            flex: 1;
+            overflow-y: auto;
+            display:flex;
+            flex-direction:column;
+            gap:12px;
+            padding-right: 4px;
+        }
+        .comments-empty {
+            color: var(--dark-gray);
+            padding: 12px 0;
+        }
+        .comment-item {
+            display:flex;
+            gap:12px;
+            align-items:flex-start;
+        }
+        .comment-avatar { width:40px; height:40px; border-radius:999px; object-fit:cover; flex:0 0 40px; }
+        .comment-body { min-width:0; flex:1; }
+        .comment-bubble {
+            background: #fff;
+            border: 1px solid rgba(233, 30, 140, 0.10);
+            border-radius: 16px;
+            padding: 12px 14px;
+            box-shadow: 0 4px 12px rgba(17, 24, 39, 0.04);
+        }
+        .comment-user { font-weight: 700; margin-bottom: 4px; }
+        .comment-text { line-height: 1.6; word-break: break-word; }
+        .comment-footer { margin-top: 4px; color: var(--dark-gray); font-size: 0.82rem; display: flex; gap: 12px; align-items: center; }
+        .comment-reaction-btn, .comment-reply-btn, .comment-delete-btn {
+            background: none;
+            border: none;
+            color: var(--dark-gray);
+            cursor: pointer;
+            font-size: 0.8rem;
+            padding: 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: color 0.2s;
+        }
+        .comment-reaction-btn:hover, .comment-reply-btn:hover { color: var(--primary-pink); }
+        .comment-delete-btn { color: var(--danger); }
+        .comment-delete-btn:hover { opacity: 0.7; }
+        .comment-heart-btn.reacted { color: var(--primary-pink); }
+        .comment-reply-item { opacity: 0.95; }
+        .comment-replies { margin-top: 8px; }
+        .comment-reply-composer { margin-top: 12px; }
+        .reply-input { font-family: inherit; }
+        .reply-send-btn { box-shadow: var(--shadow-sm); }
+        .reply-send-btn:hover { opacity: 0.9; }
+        .reply-cancel-btn:hover { background: #f5f5f5; }
+        .comment-compose-row {
+            display:flex;
+            gap:12px;
+            margin-top: 16px;
+            align-items:flex-start;
+            padding-top: 16px;
+            border-top: 1px solid rgba(233, 30, 140, 0.10);
+        }
+        .comment-input-wrap {
+            flex:1;
+            display:flex;
+            gap:8px;
+            align-items:flex-end;
+            min-width:0;
+        }
+        .comment-input-wrap textarea {
+            flex:1;
+            min-height: 56px;
+            border-radius: 16px;
+            border: 1px solid var(--medium-gray);
+            resize: vertical;
+            padding: 14px 16px;
+            font-family: inherit;
+            font-size: 0.95rem;
+        }
+        .comment-send-btn {
+            width: 46px;
+            height: 46px;
+            border-radius: 999px;
+            border: none;
+            background: var(--gradient-primary);
+            color: white;
+            box-shadow: var(--shadow-sm);
+        }
+        .post-loading {
+            padding: 60px 20px;
+            text-align:center;
+            color: var(--dark-gray);
+        }
+        .post-error {
+            padding: 60px 20px;
+            text-align:center;
+            color: var(--danger);
+        }
+        .share-actions {
+            display:flex;
+            gap:8px;
+            align-items:center;
+            flex-wrap:wrap;
+        }
+        @media (max-width: 900px) {
+            .post-body { min-height: auto; }
+            .comments-panel { min-height: 420px; }
+        }
+        @media (max-width: 600px) {
+            .post-detail-container { padding: 12px; }
+            .post-shell { border-radius: 18px; }
+            .post-header,
+            .post-left,
+            .post-right { padding-left: 16px; padding-right: 16px; }
+            .post-title { font-size: 1.15rem; }
+            .comment-input-wrap { flex-direction: column; align-items: stretch; }
+            .comment-send-btn { align-self: flex-end; }
+        }
+    </style>
+</head>
+<body>
+    <div class="post-detail-container">
+        <div class="post-shell">
+            <div class="post-header">
+                <div class="post-header-left">
+                    <button class="post-back-btn" id="postBackBtn" type="button" aria-label="Go back"><i class="bi bi-arrow-left"></i></button>
+                    <div class="post-title-wrap">
+                        <h1 class="post-title" id="postTitle">Post</h1>
+                        <div class="post-date" id="postDate"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="postLoading" class="post-loading">Loading post...</div>
+            <div id="postMain" style="display:none;">
+                <div class="post-body">
+                    <div class="post-left">
+                        <div class="post-author" id="postAuthor"></div>
+                        <div class="post-content-card" id="postContent"></div>
+                        <div class="post-actions" id="postReactionBar">
+                            <button class="heart-btn" id="postHeartBtn" type="button" aria-label="Heart post">
+                                <i class="bi bi-heart" id="postHeartIcon"></i>
+                                <span id="postHeartCount">0</span>
+                            </button>
+                            <button class="btn btn-outline btn-sm" id="postShareBtnInline" type="button">Share</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="post-right" style="padding: 0 22px 22px;">
+                    <div class="comments-panel">
+                        <div class="comments-header" id="postCommentsHeader">Comments</div>
+                        <div class="comment-compose-row">
+                            <img id="postCommentAvatar" src="/images/default-avatar.svg" alt="your avatar" class="comment-avatar" onerror="this.src='/images/default-avatar.svg'">
+                            <div class="comment-input-wrap">
+                                <textarea id="postCommentInput" placeholder="Add a comment..." maxlength="1000"></textarea>
+                                <button class="comment-send-btn" id="postCommentSendBtn" type="button" title="Post comment"><i class="bi bi-send-fill"></i></button>
+                            </div>
+                        </div>
+                        <div class="comments-list" id="postCommentsList"></div>
+                    </div>
+                </div>
+            </div>
+            <div id="postError" class="post-error" style="display:none;">Post not found.</div>
+        </div>
+    </div>
+
+    <script src="/js/alerts.js"></script>
+    <script src="/js/utils.js"></script>
+    <script src="/js/post.js"></script>
+</body>
+</html>

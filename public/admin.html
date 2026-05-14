@@ -15,6 +15,8 @@
     
     <!-- Custom CSS -->
     <link rel="stylesheet" href="/css/style.css">
+    <!-- Quill rich text editor -->
+    <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet">
     
     <style>
         body {
@@ -252,6 +254,14 @@
                 <i class="bi bi-robot"></i>
                 <span>Automated Reviews</span>
                 <span id="aiActionsBadge" class="sidebar-badge" style="display:none;">0</span>
+            </a>
+            <a href="#" onclick="showPostsSection(); return false;" class="sidebar-link">
+                <i class="bi bi-megaphone-fill"></i>
+                <span>Posts</span>
+            </a>
+            <a href="#" onclick="showBroadcastModal(); return false;" class="sidebar-link">
+                <i class="bi bi-send-check"></i>
+                <span>Broadcast Message</span>
             </a>
             <!-- Removed non-admin links: My Dashboard, Chat, Public Reviewers -->
             <div style="margin-top: auto; padding-top: 24px;">
@@ -566,11 +576,96 @@
                 </div>
             </div>
         </div>
+
+        <!-- Posts Section -->
+        <div id="postsTab" class="tab-content">
+            <div class="data-table">
+                <div class="table-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+                    <h3 style="margin:0;"><i class="bi bi-megaphone-fill"></i> Posts</h3>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button class="btn btn-primary btn-sm" onclick="showCreatePostModal()"><i class="bi bi-plus-circle"></i> New Post</button>
+                        <button class="btn btn-light btn-sm" onclick="loadPosts()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+                    </div>
+                </div>
+                <div style="padding:20px;overflow-x:auto;">
+                    <table id="postsTable">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Content Preview</th>
+                                <th>Author</th>
+                                <th>Created</th>
+                                <th>Reactions</th>
+                                <th>Comments</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="postsTableBody">
+                            <tr><td colspan="7" style="text-align:center;padding:40px;">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/js/alerts.js"></script>
     <script src="/js/modalAlerts.js"></script>
+    <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
     <script src="/js/admin.js"></script>
+    
+    <!-- Create Post Modal -->
+    <div id="createPostModal" class="modal">
+        <div class="modal-content" style="max-width:800px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Create New Post</h3>
+                <button class="modal-close" onclick="closeCreatePostModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="postTitle">Post Title</label>
+                    <input type="text" id="postTitle" class="form-control" placeholder="Enter post title" maxlength="500">
+                </div>
+                <div class="form-group">
+                    <label for="postEditor">Post Content</label>
+                    <div id="postEditor" style="height:220px;background:white;border:1px solid var(--medium-gray);border-radius:8px;overflow:hidden;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeCreatePostModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="submitPost()">Create Post</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Broadcast Message Modal -->
+    <div id="broadcastModal" class="modal">
+        <div class="modal-content" style="max-width:700px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Broadcast Message</h3>
+                <button class="modal-close" onclick="closeBroadcastModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin:0 0 15px;color:var(--dark-gray);font-size:0.9rem;">Send a verified Thinky message to all users. This appears in their private messages as read-only.</p>
+                <div class="form-group">
+                    <label for="broadcastMessageInput">Message</label>
+                    <textarea id="broadcastMessageInput" class="form-control" maxlength="1000" rows="6" placeholder="Write your announcement as Thinky..."></textarea>
+                    <small style="color:var(--dark-gray);">Max 1000 characters</small>
+                </div>
+                
+                <div style="margin-top:24px;border-top:1px solid var(--border-color);padding-top:16px;">
+                    <h5 style="margin-bottom:12px;font-weight:600;">Recent Broadcasts</h5>
+                    <div id="broadcastsList" style="max-height:300px;overflow-y:auto;border:1px solid var(--border-color);border-radius:6px;">
+                        <p style="color:#999;text-align:center;padding:16px;">No broadcasts sent yet</p>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-light" onclick="closeBroadcastModal()">Cancel</button>
+                <button class="btn btn-primary" id="broadcastSendBtn" onclick="submitBroadcast()">Send to All Users</button>
+            </div>
+        </div>
+    </div>
     
     <!-- Add/Edit Policy Modal -->
     <div id="policyModal" class="modal">

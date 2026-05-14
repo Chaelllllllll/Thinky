@@ -115,6 +115,7 @@
             .reviewer-follow-prompt, #followPromptModal, #loginModal,
             #reportModal, #flashcardModal, #quizModal,
             .toast-container, .alert-container, #cookieBanner,
+            .thinky-mbid-slot,
             #reviewerMeta, #reviewerDate { display: none !important; }
             .reviewer-detail-container { max-width: 100%; padding: 0; }
             .reviewer-header {
@@ -689,6 +690,10 @@
             <i class="bi bi-arrow-left"></i> Back
         </a>
 
+        <div class="thinky-mbid-slot" style="margin:0 0 16px;text-align:center;" aria-label="Advertisement">
+            <div data-banner-id="2021348"></div>
+        </div>
+
         <div class="reviewer-header">
             <div class="reviewer-header-top">
                 <h1 id="reviewerTitle" class="reviewer-title"></h1>
@@ -728,6 +733,9 @@
                 data-ad-slot="2516960734"
                 data-ad-format="auto"
                 data-full-width-responsive="true"></ins>
+            <div class="thinky-mbid-slot" style="margin-top:16px;text-align:center;" aria-label="Advertisement">
+                <div data-banner-id="2021349"></div>
+            </div>
         </div>
 
         <div class="reviewer-actions">
@@ -862,6 +870,9 @@
                 align-items: center;
                 justify-content: center;
             }
+            .thinky-header .controls button:hover {
+                background: rgba(255,255,255,0.24);
+            }
             .thinky-messages {
                 padding:14px;
                 display:flex;
@@ -957,6 +968,18 @@
             }
             .thinky-typing-dot:nth-child(2) { animation-delay: 0.16s; }
             .thinky-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+            .thinky-msg-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+            .thinky-retry-btn {
+                border: 1px solid rgba(233,30,99,0.28);
+                background: rgba(255,255,255,0.8);
+                color: var(--primary-pink-dark);
+                font-size: 0.76rem;
+                font-weight: 600;
+                border-radius: 999px;
+                padding: 4px 10px;
+                cursor: pointer;
+                line-height: 1.2;
+            }
             @keyframes thinkyTypingPulse {
                 0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
                 40% { opacity: 1; transform: translateY(-2px); }
@@ -974,6 +997,11 @@
             body.dark .thinky-typing-dot {
                 background: rgba(236, 197, 219, 0.9);
             }
+            body.dark .thinky-retry-btn {
+                background: rgba(255,255,255,0.06);
+                color: #ffd9ea;
+                border-color: rgba(255,255,255,0.18);
+            }
         </style>
 
         <div id="thinkyWidget" aria-live="polite">
@@ -986,6 +1014,7 @@
                 <div class="thinky-header">
                     <div class="title">Thinky — Ask about this reviewer</div>
                     <div class="controls">
+                        <button id="thinkyClearBtn" title="Delete conversation"><i class="bi bi-trash"></i></button>
                         <button id="thinkyMinBtn" title="Minimize">_</button>
                         <button id="thinkyCloseBtn" title="Close">×</button>
                     </div>
@@ -1550,7 +1579,7 @@
             return el;
         }
 
-        function appendThinkyMessage(role, text, { rich = false } = {}) {
+        function appendThinkyMessage(role, text, { rich = false, retryQuestion = '' } = {}) {
             const container = document.getElementById('thinkyMessages');
             if (!container) return null;
             const el = createThinkyBubble(role);
@@ -1560,6 +1589,18 @@
             } else {
                 el.textContent = String(text ?? '');
                 el.style.whiteSpace = 'pre-wrap';
+            }
+
+            if (role === 'assistant' && retryQuestion) {
+                const actions = document.createElement('div');
+                actions.className = 'thinky-msg-actions';
+                const retryBtn = document.createElement('button');
+                retryBtn.className = 'thinky-retry-btn';
+                retryBtn.type = 'button';
+                retryBtn.textContent = 'Try again';
+                retryBtn.addEventListener('click', () => regenerateThinkyResponse(retryQuestion));
+                actions.appendChild(retryBtn);
+                el.appendChild(actions);
             }
 
             container.appendChild(el);
@@ -1587,9 +1628,33 @@
                 localStorage.setItem(thinkyKey(reviewerId), JSON.stringify(list || []));
             } catch (_) {}
         }
+        function clearThinkyLocalChat(reviewerId) {
+            try {
+                localStorage.removeItem(thinkyKey(reviewerId));
+            } catch (_) {}
+        }
         function getThinkySessionList(reviewerId) {
             const existing = loadThinkyLocalChat(reviewerId);
             return existing;
+        }
+
+        function buildThinkyWelcomeMessage() {
+            const author = _thinkyReviewerAuthorName || 'the reviewer author';
+            const subject = _thinkyReviewerSubjectName || 'this subject';
+            return `Hello! I am Thinky.
+
+I can help you understand key ideas from ${subject} by ${author}.
+
+You can also join the Thinky Server here: https://discord.gg/Xpy6dcRs`;
+        }
+
+        function ensureThinkyWelcomeIfEmpty(reviewerId) {
+            const list = getThinkySessionList(reviewerId);
+            if (Array.isArray(list) && list.length > 0) return list;
+            const welcome = buildThinkyWelcomeMessage();
+            const seeded = [{ role: 'assistant', text: welcome, ts: Date.now() }];
+            saveThinkyLocalChat(reviewerId, seeded);
+            return seeded;
         }
 
         function getThinkyGreetingReply(userText) {
@@ -1600,6 +1665,66 @@
             const author = _thinkyReviewerAuthorName || 'the reviewer author';
             const subject = _thinkyReviewerSubjectName || 'this subject';
             return `Hello! I am Thinky. I can help you review key ideas from ${subject} by ${author}. Ask me anything from this reviewer.`;
+        }
+
+        function buildThinkyConversationHistory(list) {
+            if (!Array.isArray(list)) return [];
+            return list
+                .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.text === 'string' && m.text.trim())
+                .slice(-12)
+                .map((m) => ({
+                    role: m.role,
+                    content: String(m.text).slice(0, 1500)
+                }));
+        }
+
+        async function requestThinkyAnswer({ reviewerId, question, history }) {
+            const resp = await fetch('/api/openrouter/chat', {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    reviewerId,
+                    question,
+                    authorName: _thinkyReviewerAuthorName,
+                    subjectName: _thinkyReviewerSubjectName,
+                    conversationHistory: history
+                })
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                const e = new Error('Thinky API error');
+                e.status = resp.status;
+                e.detail = err;
+                throw e;
+            }
+            const data = await resp.json();
+            return data && data.answer ? data.answer : 'No response';
+        }
+
+        async function regenerateThinkyResponse(retryQuestion) {
+            if (!currentReviewer || !currentReviewer.id || !retryQuestion) return;
+            const reviewerId = currentReviewer.id;
+            const localList = getThinkySessionList(reviewerId);
+            let typingIndicatorEl = appendThinkyTypingIndicator();
+            try {
+                const history = buildThinkyConversationHistory(localList);
+                const answer = await requestThinkyAnswer({ reviewerId, question: retryQuestion, history });
+                if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+                typingIndicatorEl = null;
+                const assistantEl = appendThinkyMessage('assistant', '', { rich: true, retryQuestion });
+                startThinkyTyping({ element: assistantEl, fullText: answer });
+                localList.push({ role: 'assistant', text: answer, ts: Date.now(), retryQuestion });
+                saveThinkyLocalChat(reviewerId, localList);
+            } catch (e) {
+                if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
+                typingIndicatorEl = null;
+                const text = 'Request failed. Please try again later.';
+                const assistantEl = appendThinkyMessage('assistant', '', { rich: true, retryQuestion });
+                startThinkyTyping({ element: assistantEl, fullText: text });
+                localList.push({ role: 'assistant', text, ts: Date.now(), retryQuestion });
+                saveThinkyLocalChat(reviewerId, localList);
+            }
         }
 
         // Typing animation (cancellable)
@@ -1671,15 +1796,15 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
             document.head.appendChild(st);
         })();
 
-        async function restoreThinkyChatUIForReviewer(reviewerId) {
+        function restoreThinkyChatUIForReviewer(reviewerId) {
             const container = document.getElementById('thinkyMessages');
             if (!container) return;
             container.innerHTML = '';
-            const list = getThinkySessionList(reviewerId);
+            const list = ensureThinkyWelcomeIfEmpty(reviewerId);
             for (const msg of list) {
                 if (!msg || !msg.role) continue;
                 if (msg.role === 'assistant') {
-                    appendThinkyMessage('assistant', msg.text || '', { rich: true });
+                    appendThinkyMessage('assistant', msg.text || '', { rich: true, retryQuestion: msg.retryQuestion || '' });
                 } else {
                     appendThinkyMessage('user', msg.text || '', { rich: false });
                 }
@@ -1711,9 +1836,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
                 setTimeout(() => {
                     if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
                     typingIndicatorEl = null;
-                    const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                    const assistantEl = appendThinkyMessage('assistant', '', { rich: true, retryQuestion: q });
                     startThinkyTyping({ element: assistantEl, fullText: greetingReply });
-                    localList.push({ role: 'assistant', text: greetingReply, ts: Date.now() });
+                    localList.push({ role: 'assistant', text: greetingReply, ts: Date.now(), retryQuestion: q });
                     saveThinkyLocalChat(reviewerId, localList);
                 }, 550);
                 return;
@@ -1723,54 +1848,29 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
             let typingIndicatorEl = appendThinkyTypingIndicator();
 
             try {
-                const resp = await fetch('/api/openrouter/chat', {
-                    method: 'POST',
-                    credentials: 'include',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        reviewerId: reviewerId,
-                        question: q,
-                        authorName: _thinkyReviewerAuthorName,
-                        subjectName: _thinkyReviewerSubjectName
-                    })
-                });
-
-
-                if (!resp.ok) {
-                    const err = await resp.json().catch(() => ({}));
-                    const text = 'Sorry, I could not get an answer right now.';
-                    if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
-                    typingIndicatorEl = null;
-                    const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
-                    startThinkyTyping({ element: assistantEl, fullText: text });
-                    localList.push({ role: 'assistant', text, ts: Date.now() });
-                    saveThinkyLocalChat(reviewerId, localList);
-                    console.error('Thinky chat error', resp.status, err);
-                    return;
-                }
-
-                const data = await resp.json();
-                const answer = data && data.answer ? data.answer : 'No response';
+                const history = buildThinkyConversationHistory(localList.slice(0, -1));
+                const answer = await requestThinkyAnswer({ reviewerId, question: q, history });
 
                 if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
                 typingIndicatorEl = null;
-                const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                const assistantEl = appendThinkyMessage('assistant', '', { rich: true, retryQuestion: q });
                 startThinkyTyping({ element: assistantEl, fullText: answer });
 
-                // Persist once fully typed (use a timeout as typing length may vary)
-                const persistDelay = Math.min(4500, 600 + answer.length * 12);
-                setTimeout(() => {
-                    localList.push({ role: 'assistant', text: answer, ts: Date.now() });
-                    saveThinkyLocalChat(reviewerId, localList);
-                }, persistDelay);
+                // Persist immediately so history is available even if user closes quickly.
+                localList.push({ role: 'assistant', text: answer, ts: Date.now(), retryQuestion: q });
+                saveThinkyLocalChat(reviewerId, localList);
             } catch (e) {
-                console.error('Thinky chat request failed', e);
+                if (e && e.status) {
+                    console.error('Thinky chat error', e.status, e.detail || {});
+                } else {
+                    console.error('Thinky chat request failed', e);
+                }
                 const text = 'Request failed. Please try again later.';
                 if (typingIndicatorEl && typingIndicatorEl.parentNode) typingIndicatorEl.parentNode.removeChild(typingIndicatorEl);
                 typingIndicatorEl = null;
-                const assistantEl = appendThinkyMessage('assistant', '', { rich: true });
+                const assistantEl = appendThinkyMessage('assistant', '', { rich: true, retryQuestion: q });
                 startThinkyTyping({ element: assistantEl, fullText: text });
-                localList.push({ role: 'assistant', text, ts: Date.now() });
+                localList.push({ role: 'assistant', text, ts: Date.now(), retryQuestion: q });
                 saveThinkyLocalChat(reviewerId, localList);
             }
         });
@@ -1782,6 +1882,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
             const toggle = document.getElementById('thinkyToggleBtn');
             const close = document.getElementById('thinkyCloseBtn');
             const min = document.getElementById('thinkyMinBtn');
+            const clear = document.getElementById('thinkyClearBtn');
             const input = document.getElementById('thinkyInput');
             const backdrop = document.getElementById('thinkyBackdrop');
             const labelEl = document.querySelector('.thinky-label');
@@ -1818,6 +1919,9 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
                 toggle.style.opacity = '0';
                 toggle.style.pointerEvents = 'none';
                 hideLabel();
+                if (currentReviewer && currentReviewer.id) {
+                    restoreThinkyChatUIForReviewer(currentReviewer.id);
+                }
                 if (input) input.focus();
             }
             function closePanel() {
@@ -1833,6 +1937,12 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
             });
             if (close) close.addEventListener('click', closePanel);
             if (min) min.addEventListener('click', closePanel);
+            if (clear) clear.addEventListener('click', () => {
+                if (!currentReviewer || !currentReviewer.id) return;
+                clearThinkyLocalChat(currentReviewer.id);
+                restoreThinkyChatUIForReviewer(currentReviewer.id);
+                if (window.showAlert) window.showAlert('success', 'Conversation deleted.');
+            });
             if (backdrop) backdrop.addEventListener('click', closePanel);
             document.addEventListener('keydown', (e) => {
                 if (e.key === 'Escape' && !panel.classList.contains('hidden')) closePanel();
@@ -2023,6 +2133,7 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
             const userId = c.user && c.user.id;
             const timeStr = formatCommentTime(c.created_at);
             const pinnedBadge = c.is_pinned ? `<div class="pinned-badge"><i class="bi bi-pin-angle-fill"></i> Pinned</div>` : '';
+            const verifiedBadge = (c.user && (c.user.is_admin || c.user.role === 'admin')) ? '<i class="bi bi-check-circle-fill" style="font-size:0.6rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>' : '';
             
             // Make avatar and username clickable if user exists
             const avatarHtml = userId 
@@ -2030,8 +2141,8 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation M
                 : `<img src="${avatar}" class="comment-avatar" alt="avatar" onerror="this.src='/images/default-avatar.svg'">`;
             
             const userNameHtml = userId
-                ? `<div class="comment-user clickable-username" onclick="window.location.href='/user.html?user=${userId}'" style="cursor:pointer;">${name}</div>`
-                : `<div class="comment-user">${name}</div>`;
+                ? `<div class="comment-user clickable-username" onclick="window.location.href='/user.html?user=${userId}'" style="cursor:pointer;display:flex;align-items:center;gap:4px;">${name}${verifiedBadge}</div>`
+                : `<div class="comment-user" style="display:flex;align-items:center;gap:4px;">${name}${verifiedBadge}</div>`;
             
             const repliesHtml = (c.replies && c.replies.length)
                 ? `<div class="replies-list">${c.replies.map(r => renderCommentNode(r, true)).join('')}</div>` : '';

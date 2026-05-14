@@ -1,15 +1,30 @@
-// public/js/ads.js - shared AdSense helpers for Thinky pages
+// public/js/ads.js - shared AdSense + MBID helpers for Thinky pages
 
 window.adsConfig = window.adsConfig || {
     clientId: 'ca-pub-2635010933890624',
     interstitialSlot: '2516960734',
-    displaySlot: '2516960734'
+    displaySlot: '2516960734',
+    mbidPublisherId: '440759',
+    mbidInlineBannerId: '2021348',
+    mbidSecondaryBannerId: '2021349'
 };
 
 let adModal = null;
 let adResolve = null;
 let pendingOnClose = null;
 let adObserver = null;
+
+function ensureMbidScript() {
+    const pid = window.adsConfig && window.adsConfig.mbidPublisherId;
+    if (!pid) return;
+    if (document.querySelector('script[data-thinky-mbid="1"]')) return;
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://js.mbidadm.com/static/scripts.js';
+    s.setAttribute('data-admpid', String(pid));
+    s.setAttribute('data-thinky-mbid', '1');
+    document.head.appendChild(s);
+}
 
 function _getAdModal() {
     if (!adModal) adModal = document.getElementById('adModal');
@@ -70,11 +85,21 @@ function _renderModalAd(slotId) {
     const slotWrap = modal.querySelector('.ad-slot');
     if (!slotWrap) return null;
 
+    const mbidSecondary = window.adsConfig && window.adsConfig.mbidSecondaryBannerId;
+    if (mbidSecondary) {
+        ensureMbidScript();
+        slotWrap.innerHTML =
+            '<div class="thinky-mbid-interstitial" data-banner-id="' +
+            String(mbidSecondary).replace(/[^0-9]/g, '') +
+            '"></div>';
+        return slotWrap.querySelector('[data-banner-id]');
+    }
+
     slotWrap.innerHTML = [
         '<ins class="adsbygoogle"',
         'style="display:block"',
         `data-ad-client="${window.adsConfig.clientId}"`,
-        `data-ad-slot="${slotId}"`,
+        `data-ad-slot="${slotId || window.adsConfig.interstitialSlot || window.adsConfig.displaySlot}"`,
         'data-ad-format="auto"',
         'data-full-width-responsive="true"></ins>'
     ].join(' ');
@@ -96,7 +121,7 @@ function showAdModal(slotId, onClose) {
         if (e.target === modal) closeAdModal();
     };
 
-    if (adUnit) {
+    if (adUnit && adUnit.matches && adUnit.matches('ins.adsbygoogle')) {
         setTimeout(() => _pushAdUnit(adUnit), 220);
     }
 
@@ -137,6 +162,7 @@ function showAdThenProceed(callback, slotId = window.adsConfig.interstitialSlot 
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+    ensureMbidScript();
     observeAdSlots(document);
     scheduleAdInit(document);
     // Retry after full page load in case AdSense script is still loading.
@@ -149,3 +175,4 @@ window.observeAdSlots = observeAdSlots;
 window.showAdModal = showAdModal;
 window.closeAdModal = closeAdModal;
 window.showAdThenProceed = showAdThenProceed;
+window.ensureMbidScript = ensureMbidScript;

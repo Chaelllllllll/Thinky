@@ -1639,6 +1639,7 @@ async function loadPrivateContacts() {
                     username: person.username || 'User',
                     displayName: person.display_name || person.username || 'User',
                     avatar: person.profile_picture_url || '/images/default-avatar.svg',
+                    role: person.role || null,
                     relation: person.relation || '',
                     lastMessage: null,
                     lastTime: null
@@ -1660,6 +1661,7 @@ async function loadPrivateContacts() {
                         username: msg.username || (msg.users && msg.users.username) || 'User',
                         displayName: msg.username || 'User',
                         avatar: (msg.users && msg.users.profile_picture_url) || '/images/default-avatar.svg',
+                        role: (msg.users && msg.users.role) || null,
                         relation: 'conversation',
                         lastMessage: msg.message || null,
                         lastTime: msg.created_at || null
@@ -1672,6 +1674,13 @@ async function loadPrivateContacts() {
         }
 
         const contacts = Array.from(contactMap.values()).sort((a, b) => {
+            // Pin Thinky at the top
+            const isThinkyA = String(a.username || '').toLowerCase() === 'thinky';
+            const isThinkyB = String(b.username || '').toLowerCase() === 'thinky';
+            if (isThinkyA && !isThinkyB) return -1;
+            if (!isThinkyA && isThinkyB) return 1;
+            
+            // Sort rest by last message time, then by name
             if (a.lastTime && b.lastTime) return new Date(b.lastTime) - new Date(a.lastTime);
             if (a.lastTime) return -1;
             if (b.lastTime) return 1;
@@ -1701,16 +1710,18 @@ function buildPrivateContactRow(c) {
     const time = c.lastTime ? formatTime(c.lastTime) : '';
     const unread = messageButtonState.unreadPerUser[c.userId] || 0;
     const uid = escapeHtml(String(c.userId));
+    const isThinky = String(c.username || '').toLowerCase() === 'thinky';
+    const verifiedBadge = c.role === 'admin' ? '<i class="bi bi-check-circle-fill" style="font-size:0.65rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>' : '';
     return `
         <div class="msg-conv-item msg-private-contact" data-user-id="${uid}">
             <img src="${escapeHtml(c.avatar)}" alt="${escapeHtml(c.displayName)}" class="msg-conv-avatar msg-private-profile-link msg-private-open-profile" data-user-id="${uid}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'">
             <div class="msg-conv-info">
-                <div class="msg-conv-name msg-private-profile-link msg-private-open-profile" data-user-id="${uid}">${escapeHtml(c.displayName)}</div>
+                <div class="msg-conv-name msg-private-profile-link msg-private-open-profile" data-user-id="${uid}">${escapeHtml(c.displayName)}${verifiedBadge}</div>
                 <div class="msg-conv-preview">${preview}</div>
                 ${time ? `<div class="msg-private-meta"><span>${escapeHtml(time)}</span></div>` : ''}
             </div>
             <div class="msg-private-side">
-                ${c.relation ? `<span class="msg-private-relation">${escapeHtml(relationLabel(c.relation))}</span>` : ''}
+                ${isThinky ? '<i class="bi bi-pin-fill" style="font-size:0.85rem;color:var(--primary-pink);" title="Pinned"></i>' : (c.relation ? `<span class="msg-private-relation">${escapeHtml(relationLabel(c.relation))}</span>` : '')}
                 ${unread > 0 ? `<span class="msg-private-unread">${unread > 99 ? '99+' : unread}</span>` : ''}
             </div>
         </div>
@@ -2062,6 +2073,7 @@ function renderPrivateConversationShell() {
     const list = document.getElementById('msgPrivateList');
     const user = messageButtonState.activePrivateUser;
     if (!list || !user) return;
+    const isThinkyThread = String(user.username || '').toLowerCase() === 'thinky';
 
     list.innerHTML = `
         <div class="msg-private-chat-wrap">
@@ -2071,7 +2083,7 @@ function renderPrivateConversationShell() {
                 </button>
                 <img src="${escapeHtml(user.avatar)}" class="msg-private-head-avatar msg-private-profile-link" id="msgPrivateHeaderProfile" data-user-id="${escapeHtml(String(user.userId))}" alt="${escapeHtml(user.displayName)}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'">
                 <div style="min-width:0;flex:1;">
-                    <div class="msg-private-head-name msg-private-profile-link" id="msgPrivateHeaderName" data-user-id="${escapeHtml(String(user.userId))}">${escapeHtml(user.displayName)}</div>
+                    <div class="msg-private-head-name msg-private-profile-link" id="msgPrivateHeaderName" data-user-id="${escapeHtml(String(user.userId))}" style="display:flex;align-items:center;gap:4px;">${escapeHtml(user.displayName)}${user.role === 'admin' ? '<i class="bi bi-check-circle-fill" style="font-size:0.65rem;color:var(--primary-pink);" title="Verified Admin"></i>' : ''}</div>
                     <div class="msg-private-meta">${escapeHtml(relationLabel(user.relation))}</div>
                 </div>
             </div>
@@ -2080,12 +2092,12 @@ function renderPrivateConversationShell() {
                 <div class="msg-private-empty">Loading conversation...</div>
             </div>
 
-            <div class="msg-private-reply-banner" id="msgPrivateReplyBanner">
+            <div class="msg-private-reply-banner" id="msgPrivateReplyBanner" style="${isThinkyThread ? 'display:none;' : ''}">
                 <div class="msg-private-reply-text" id="msgPrivateReplyText"></div>
                 <button class="msg-private-reply-cancel" id="msgPrivateReplyCancel" aria-label="Cancel reply">✕</button>
             </div>
 
-            <div class="msg-private-composer">
+            <div class="msg-private-composer" style="${isThinkyThread ? 'display:none;' : ''}">
                 <input
                     id="msgPrivateComposerInput"
                     class="msg-private-input"
@@ -2097,6 +2109,7 @@ function renderPrivateConversationShell() {
                     <i class="bi bi-send-fill"></i>
                 </button>
             </div>
+            ${isThinkyThread ? `<div style="padding:10px 14px;border-top:1px solid rgba(0,0,0,0.06);font-size:0.82rem;color:var(--dark-gray);text-align:center;">This is a Thinky broadcast channel. Replies are disabled.</div>` : ''}
         </div>
     `;
 
@@ -2136,7 +2149,7 @@ function renderPrivateConversationShell() {
     const sendBtn = document.getElementById('msgPrivateComposerSend');
     const replyCancelBtn = document.getElementById('msgPrivateReplyCancel');
 
-    if (sendBtn) sendBtn.addEventListener('click', sendPrivateMessageFromModal);
+    if (!isThinkyThread && sendBtn) sendBtn.addEventListener('click', sendPrivateMessageFromModal);
     if (replyCancelBtn) {
         replyCancelBtn.addEventListener('click', () => {
             messageButtonState.privateReplyTo = null;
@@ -2144,7 +2157,7 @@ function renderPrivateConversationShell() {
             renderPrivateReplyBanner();
         });
     }
-    if (input) {
+    if (!isThinkyThread && input) {
         input.addEventListener('keydown', (event) => {
             if (event.key === 'Enter' && !event.shiftKey) {
                 event.preventDefault();
@@ -2283,6 +2296,8 @@ function renderPrivateConversationMessages(options = {}) {
 
     body.innerHTML = msgs.map((msg) => {
         const isSelf = messageButtonState.currentUser && String(msg.user_id) === String(messageButtonState.currentUser.id);
+        const isThinkySystem = !isSelf && String(msg.username || '').toLowerCase() === 'thinky';
+        const isAdminUser = msg.users && msg.users.role === 'admin';
         const safeMessage = escapeHtml(msg.message || '');
         const senderUsername = escapeHtml(msg.username || (messageButtonState.activePrivateUser && messageButtonState.activePrivateUser.username) || 'User');
         const partnerAvatar = (messageButtonState.activePrivateUser && messageButtonState.activePrivateUser.avatar)
@@ -2301,13 +2316,16 @@ function renderPrivateConversationMessages(options = {}) {
             replyPreview = `<div class="msg-private-reply-preview msg-goto-reply" data-scroll-to-msg="${escapeHtml(String(msg.reply_to || rt.id || ''))}" data-section="private" style="font-size:0.75rem;opacity:0.85;margin-bottom:6px;border-left:2px solid rgba(255,158,180,0.7);padding-left:7px;">${rtUser}: ${rtText.substring(0, 80)}${rtText.length > 80 ? '...' : ''}</div>`;
         }
 
-        const actionsMenu = buildModalActionsMenu(msgId, 'private', !!isSelf, true, isSelf ? 'left' : 'right');
+        const actionsMenu = isThinkySystem ? '' : buildModalActionsMenu(msgId, 'private', !!isSelf, true, isSelf ? 'left' : 'right');
+        const senderLabel = isAdminUser
+            ? `${senderUsername} <i class="bi bi-check-circle-fill" style="font-size:0.65rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>`
+            : (isThinkySystem ? `${senderUsername} <span style="display:inline-flex;align-items:center;gap:4px;font-size:0.72rem;font-weight:600;color:#1d71ff;margin-left:6px;"><i class="bi bi-patch-check-fill"></i> Verified</span>` : senderUsername);
         const bubbleMarkup = `
             <div class="msg-private-bubble ${isSelf ? 'self' : 'other'}">
-                ${!isSelf ? `<div class="msg-private-author">${senderUsername}</div>` : ''}
+                ${!isSelf ? `<div class="msg-private-author">${senderLabel}</div>` : ''}
                 ${replyPreview}
                 <div>${safeMessage}</div>
-                ${buildModalReactionMarkup(msg, 'private')}
+                ${isThinkySystem ? '' : buildModalReactionMarkup(msg, 'private')}
             </div>`;
         const rowMain = isSelf
             ? `${actionsMenu}${bubbleMarkup}`
@@ -2490,9 +2508,10 @@ function renderGeneralChat(options = {}) {
     const rows = (messageButtonState.generalMessages || []).map((msg) => {
         const isSelf = messageButtonState.currentUser && String(msg.user_id) === String(messageButtonState.currentUser.id);
         const isAnon = isAnonymousGeneralMessage(msg);
+        const isAdminUser = msg.users && msg.users.role === 'admin';
         const displayNameRaw = isAnon ? (msg.username || 'Anonymous') : (msg.username || 'User');
         const displayName = escapeHtml(displayNameRaw);
-        const anonBadge = '';
+        const verifiedBadge = !isAnon && isAdminUser ? '<i class="bi bi-check-circle-fill" style="font-size:0.65rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>' : '';
         const msgId = escapeHtml(String(msg.id || ''));
 
         let replyPreview = '';
@@ -2510,7 +2529,7 @@ function renderGeneralChat(options = {}) {
             : (((msg.users && msg.users.profile_picture_url) || (isSelf ? (messageButtonState.currentUser && messageButtonState.currentUser.profile_picture_url) : null) || '/images/default-avatar.svg'));
         const messageBubble = `
             <div class="msg-private-bubble ${isSelf ? 'self' : 'other'}">
-                ${!isSelf ? `<div class="msg-private-author">${displayName}${anonBadge}</div>` : ''}
+                ${!isSelf ? `<div class="msg-private-author">${displayName}${verifiedBadge}</div>` : ''}
                 ${replyPreview}
                 <div style="white-space:pre-wrap;">${safeMessage}</div>
                 ${buildModalReactionMarkup(msg, 'general')}

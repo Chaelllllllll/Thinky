@@ -30,6 +30,7 @@ let reviewers = [];
 let messages = [];
 let subjects = [];
 let currentUser = null;
+let postQuill = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     loadCommunityPolicies(); // Load policies first
@@ -68,7 +69,59 @@ document.addEventListener('DOMContentLoaded', () => {
         // update moderation badge if present
         try { updateModerationBadge(); } catch (e) {}
     }, 30000);
+    const broadcastBtn = document.getElementById('broadcastSendBtn');
+    if (broadcastBtn) {
+        broadcastBtn.addEventListener('click', sendThinkyBroadcast);
+    }
+
+    // Initialize Quill editor for admin post creation if present
+    try {
+        const editorEl = document.getElementById('postEditor');
+        if (editorEl && window.Quill) {
+            postQuill = new Quill('#postEditor', {
+                theme: 'snow',
+                modules: { toolbar: [['bold','italic','underline'], [{ 'list': 'ordered'}, { 'list': 'bullet' }], ['link','image']] }
+            });
+        }
+    } catch (e) { console.warn('Quill init failed', e); }
 });
+
+async function sendThinkyBroadcast() {
+    const input = document.getElementById('broadcastMessageInput');
+    const btn = document.getElementById('broadcastSendBtn');
+    if (!input || !btn) return;
+    const message = String(input.value || '').trim();
+    if (!message) {
+        window.showAlert('Please enter a message first.', 'error');
+        return;
+    }
+    const ok = await window.showConfirm('Send this Thinky verified message to all users?', 'Confirm Broadcast');
+    if (!ok) return;
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-hourglass-split"></i> Sending...';
+    try {
+        const resp = await fetch('/api/admin/messages/broadcast', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            window.showAlert(data.error || 'Failed to send broadcast.', 'error');
+            return;
+        }
+        input.value = '';
+        window.showAlert(`Broadcast sent to ${data.sent || 0} users.`, 'success');
+    } catch (err) {
+        console.error('Broadcast send failed:', err);
+        window.showAlert('Failed to send broadcast.', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = original;
+    }
+}
 
 // Update the moderation badge in the sidebar with open message reports count
 async function updateModerationBadge() {
@@ -1969,3 +2022,238 @@ document.addEventListener('click', (e) => {
         closeAnalyticsModal();
     }
 });
+
+// ============================================================
+// POSTS MANAGEMENT FUNCTIONS
+// ============================================================
+
+function showPostsSection() {
+    // Hide all tab contents
+    document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+    
+    // Show posts tab
+    const postsTab = document.getElementById('postsTab');
+    if (postsTab) {
+        postsTab.classList.add('active');
+        loadPosts();
+    }
+}
+
+async function loadPosts() {
+    try {
+        const response = await fetch('/api/admin/posts?limit=20&offset=0');
+        if (!response.ok) throw new Error('Failed to load posts');
+        
+        const result = await response.json();
+        const posts = result.posts || [];
+        
+        const tbody = document.getElementById('postsTableBody');
+        if (!tbody) return;
+        
+        if (posts.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;">No posts yet</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = posts.map(post => {
+            const author = post.users?.username || 'Unknown';
+            const createdDate = new Date(post.created_at).toLocaleDateString();
+            const contentPreview = (post.content || '').substring(0, 50) + (post.content?.length > 50 ? '...' : '');
+            const reactionCount = (post.reactions?.length || 0);
+            const commentCount = (post.comments?.length || 0);
+            
+            return `
+                <tr>
+                    <td>${escapeHtml(post.title)}</td>
+                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(contentPreview)}</td>
+                    <td>${escapeHtml(author)}</td>
+                    <td>${createdDate}</td>
+                    <td>${reactionCount}</td>
+                    <td>${commentCount}</td>
+                    <td>
+                        <a href="/post.html?id=${encodeURIComponent(post.id)}" target="_blank" class="btn btn-sm btn-light">
+                            <i class="bi bi-eye"></i> View
+                        </a>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading posts:', error);
+        window.showAlert('Failed to load posts', 'error');
+    }
+}
+
+function showCreatePostModal() {
+    const modal = document.getElementById('createPostModal');
+    if (!modal) return;
+    modal.classList.add('show');
+    // focus editor if available
+    setTimeout(() => { try { if (postQuill) postQuill.focus(); } catch(e){} }, 60);
+}
+
+function closeCreatePostModal() {
+    const modal = document.getElementById('createPostModal');
+    if (modal) modal.classList.remove('show');
+    const title = document.getElementById('postTitle'); if (title) title.value = '';
+    if (postQuill) {
+        try { postQuill.setContents([{ insert: '\n' }]); } catch (e) { postQuill.root.innerHTML = ''; }
+    } else {
+        const content = document.getElementById('postContent'); if (content) content.value = '';
+    }
+}
+
+async function submitPost() {
+    try {
+        const title = document.getElementById('postTitle').value.trim();
+        const content = postQuill ? (postQuill.root.innerHTML || '').trim() : (document.getElementById('postContent')?.value || '').trim();
+        
+        if (!title) {
+            window.showAlert('Please enter a post title', 'error');
+            return;
+        }
+        
+        if (!content || content === '<p><br></p>') {
+            window.showAlert('Please enter post content', 'error');
+            return;
+        }
+        
+        // Confirm before sending to all users
+        const confirmSend = await window.showConfirm(
+            `Send this post to all users?\n\nTitle: ${title}\n\nThis will be delivered via email and notifications.`,
+            'Confirm Post'
+        );
+        
+        if (!confirmSend) return;
+        
+        const response = await fetch('/api/admin/posts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ title, content, format: 'html' })
+        });
+        
+        if (!response.ok) throw new Error('Failed to create post');
+        
+        const result = await response.json();
+        
+        window.showAlert('Post created and sent to all users!', 'success');
+        closeCreatePostModal();
+        loadPosts();
+    } catch (error) {
+        console.error('Error creating post:', error);
+        window.showAlert('Failed to create post: ' + (error.message || 'Unknown error'), 'error');
+    }
+}
+
+// ============================================================
+// BROADCAST MESSAGE FUNCTIONS
+// ============================================================
+
+function showBroadcastModal() {
+    document.getElementById('broadcastModal').classList.add('show');
+    loadBroadcasts();
+}
+
+function closeBroadcastModal() {
+    document.getElementById('broadcastModal').classList.remove('show');
+    document.getElementById('broadcastMessageInput').value = '';
+}
+
+async function submitBroadcast() {
+    try {
+        const message = document.getElementById('broadcastMessageInput').value.trim();
+        
+        if (!message) {
+            window.showAlert('Please enter a broadcast message', 'error');
+            return;
+        }
+        
+        // Confirm before sending to all users
+        const confirmSend = await window.showConfirm(
+            `Send this broadcast message to all users?\n\n"${message}"\n\nThis will appear in their private messages.`,
+            'Confirm Broadcast'
+        );
+        
+        if (!confirmSend) return;
+        
+        const response = await fetch('/api/admin/messages/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message })
+        });
+        
+        if (!response.ok) throw new Error('Failed to send broadcast');
+        
+        window.showAlert('Broadcast message sent to all users!', 'success');
+        document.getElementById('broadcastMessageInput').value = '';
+        loadBroadcasts();
+    } catch (error) {
+        console.error('Error sending broadcast:', error);
+        window.showAlert('Failed to send broadcast: ' + (error.message || 'Unknown error'), 'error');
+    }
+}
+
+async function loadBroadcasts() {
+    try {
+        const response = await fetch('/api/admin/messages/broadcast');
+        if (!response.ok) throw new Error('Failed to load broadcasts');
+        
+        const result = await response.json();
+        const broadcasts = result.broadcasts || [];
+        
+        const broadcastList = document.getElementById('broadcastsList');
+        if (!broadcastList) return;
+        
+        if (broadcasts.length === 0) {
+            broadcastList.innerHTML = '<p style="color:#999;text-align:center;padding:16px;">No broadcasts sent yet</p>';
+            return;
+        }
+        
+        broadcastList.innerHTML = broadcasts.map(b => {
+            const sentDate = new Date(b.created_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+            const preview = (b.message || '').substring(0, 80) + (b.message?.length > 80 ? '...' : '');
+            
+            return `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:1px solid var(--border-color);">
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:0.9rem;color:var(--dark-gray);">${escapeHtml(preview)}</div>
+                        <div style="font-size:0.8rem;color:#999;margin-top:4px;">${sentDate}</div>
+                    </div>
+                    <button class="btn btn-sm btn-danger" onclick="deleteBroadcast('${b.id}')" style="margin-left:12px;">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </div>
+            `;
+        }).join('');
+    } catch (error) {
+        console.error('Error loading broadcasts:', error);
+    }
+}
+
+async function deleteBroadcast(broadcastId) {
+    try {
+        const confirmDelete = await window.showConfirm(
+            'Delete this broadcast message for all users? This will remove it from all private messages.',
+            'Confirm Delete'
+        );
+        
+        if (!confirmDelete) return;
+        
+        const response = await fetch(`/api/admin/messages/broadcast/${encodeURIComponent(broadcastId)}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) throw new Error('Failed to delete broadcast');
+        
+        window.showAlert('Broadcast message deleted for all users!', 'success');
+        loadBroadcasts();
+    } catch (error) {
+        console.error('Error deleting broadcast:', error);
+        window.showAlert('Failed to delete broadcast: ' + (error.message || 'Unknown error'), 'error');
+    }
+}

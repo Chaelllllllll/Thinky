@@ -525,7 +525,10 @@
                         <img id="userAvatar" src="/images/default-avatar.svg" alt="avatar" class="avatar-lg">
                     </div>
                     <div style="flex:1;min-width:0;">
-                        <h1 id="userDisplayName" style="margin:0;font-size:1.5rem;">User</h1>
+                        <h1 id="userDisplayName" style="margin:0;font-size:1.5rem;display:flex;align-items:center;gap:8px;">
+                            <span id="userDisplayNameText">User</span>
+                            <i id="userVerifiedBadge" class="bi bi-check-circle-fill" style="font-size:0.9rem;color:var(--primary-pink);display:none;" title="Verified Admin"></i>
+                        </h1>
                         <div id="userHandle">@<span id="userUsername">username</span></div>
                         <div style="display:flex;gap:16px;margin-top:8px;font-size:0.9rem;color:var(--dark-gray);">
                             <div style="cursor:pointer;" onclick="openFollowListModal('followers')"><strong id="followerCount">0</strong> Followers</div>
@@ -540,21 +543,9 @@
 
                 <hr style="margin:16px 0;">
                 <div class="user-h2-search" style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
-                    <h2 id="userReviewersHeading" style="margin:0;">Subjects</h2>
+                    <h2 id="userReviewersHeading" style="margin:0;">Posts</h2>
                     <div class="user-search" style="min-width:240px;max-width:520px;">
-                        <input id="userSearch" class="form-control" placeholder="Search this user's reviewers...">
-                    </div>
-                </div>
-                <!-- Filter buttons -->
-                <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
-                    <button id="filterAllReviewers" class="btn btn-sm btn-outline" style="flex-shrink:0;flex:1 1 auto;">Reviewers</button>
-                    <button id="filterSubjects" class="btn btn-sm btn-primary" style="flex-shrink:0;flex:1 1 auto;">Subjects</button>
-                </div>
-                <!-- Subject pills (hidden by default) -->
-                <div id="subjectPills" style="display:none;margin-bottom:12px;">
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                        <span style="font-weight:500;color:var(--dark-gray);font-size:0.9rem;">Subjects:</span>
-                        <div id="subjectPillsContainer" style="display:flex;gap:8px;flex-wrap:wrap;"></div>
+                        <input id="userSearch" class="form-control" placeholder="Search this user's posts...">
                     </div>
                 </div>
                 <div id="userReviewers" class="reviewers-grid" style="margin-top:12px;"></div>
@@ -608,8 +599,7 @@
         </div>
     </div>
 
-
-
+    <!-- Post Detail Modal -->
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/utils.js"></script>

@@ -1,6 +1,7 @@
 (function(){
     const params = new URLSearchParams(window.location.search);
     let userId = params.get('user');
+    const postIdFromUrl = params.get('postId');
     
     // Support @username format in URL (e.g., ?user=@username)
     if (!userId) {
@@ -34,6 +35,7 @@
     let selectedSubject = null;
     let allReviewersData = [];
     let _profileUsername = ''; // Store the profile owner's username for sharing
+    let _currentPost = null;
 
     async function fetchUser() {
         try {
@@ -47,11 +49,20 @@
             
             // Render display name and Developer badge if applicable
             const displayName = user.display_name || user.username || '';
+            const displayNameText = document.getElementById('userDisplayNameText');
+            const verifiedBadge = document.getElementById('userVerifiedBadge');
+            
             if (user.is_dev) {
-                displayNameEl.innerHTML = `${escapeHtml(displayName)} <span class="badge badge-dev" style="margin-left:8px;">Developer</span>`;
+                displayNameText.innerHTML = `${escapeHtml(displayName)} <span class="badge badge-dev" style="margin-left:8px;">Developer</span>`;
             } else {
-                displayNameEl.textContent = displayName;
+                displayNameText.textContent = displayName;
             }
+            
+            // Show verified badge for admin users
+            if (user.role === 'admin') {
+                verifiedBadge.style.display = 'inline-block';
+            }
+            
             usernameEl.textContent = user.username;
             
             // Display follower counts
@@ -228,6 +239,31 @@
         return d;
     }
 
+    function makePostCard(post) {
+        const d = document.createElement('div');
+        d.className = 'reviewer-card';
+        const title = escapeHtml(post.title || 'Untitled');
+        const preview = escapeHtml(stripHtml(post.content || '').substring(0, 220));
+        const author = escapeHtml(post.users?.username || post.users?.display_name || '');
+        const date = post.created_at ? new Date(post.created_at).toLocaleDateString() : '';
+        d.innerHTML = `
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                    <div style="min-width:0;">
+                        <div style="font-weight:700;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${title}</div>
+                        <div style="font-size:0.85rem;color:var(--dark-gray);">by ${author} · ${date}</div>
+                    </div>
+                    <div style="flex-shrink:0;display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-sm btn-light" onclick="event.stopPropagation(); window.location.href='/post.html?id=${encodeURIComponent(post.id)}';">View</button>
+                    </div>
+                </div>
+                <div style="color:var(--text-dark);line-height:1.6;">${preview}${(preview.length? '...' : '')}</div>
+            </div>
+        `;
+        d.addEventListener('click', () => { window.location.href = `/post.html?id=${encodeURIComponent(post.id)}`; });
+        return d;
+    }
+
     function updateCard(btn, count, reacted) {
         if (!btn) return;
         const icon = btn.querySelector('i');
@@ -248,29 +284,19 @@
         loadingEl.style.display = 'block';
         loadMoreWrap.style.display = 'none';
         try {
-            const resp = await fetch(`/api/users/${encodeURIComponent(userId)}/reviewers?limit=${limit}&offset=${offset}&search=${encodeURIComponent(currentQuery)}`);
-            if (!resp.ok) throw new Error('Failed');
+            const resp = await fetch(`/api/posts?user=${encodeURIComponent(userId)}&limit=${limit}&offset=${offset}&search=${encodeURIComponent(currentQuery)}`);
+                if (!resp.ok) throw new Error('Failed to load posts');
             const data = await resp.json();
-            const reviewers = data.reviewers || [];
-            
-            // Store all reviewers data for subject filtering
-            allReviewersData = allReviewersData.concat(reviewers);
-            
-            // Filter based on selected subject if in subject view mode
-            const displayReviewers = selectedSubject 
-                ? reviewers.filter(rv => rv.subjects?.name === selectedSubject)
-                : reviewers;
-            
-            displayReviewers.forEach(rv => reviewersContainer.appendChild(makeCard(rv)));
-            offset += reviewers.length;
-            if (reviewers.length < limit) {
-                finished = true;
-            }
-            if (!finished) {
-                loadMoreWrap.style.display = 'block';
-            }
+            const posts = data.posts || data.items || [];
+
+            // append posts
+            posts.forEach(p => reviewersContainer.appendChild(makePostCard(p)));
+            offset += posts.length;
+            if (posts.length < limit) finished = true;
+            if (!finished) loadMoreWrap.style.display = 'block';
         } catch (e) {
-            console.error('Failed to load reviewers', e);
+            console.error('Failed to load posts', e);
+            if (!reviewersContainer.innerHTML) reviewersContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--dark-gray);">Failed to load posts</div>';
         } finally {
             loading = false;
             loadingEl.style.display = 'none';
@@ -318,10 +344,10 @@
         subjectPills.style.display = 'block';
         
         // Update button states
-        document.getElementById('filterAllReviewers').classList.remove('btn-primary');
-        document.getElementById('filterAllReviewers').classList.add('btn-outline');
-        document.getElementById('filterSubjects').classList.remove('btn-outline');
-        document.getElementById('filterSubjects').classList.add('btn-primary');
+        const fAll = document.getElementById('filterAllReviewers');
+        const fSub = document.getElementById('filterSubjects');
+        if (fAll) { fAll.classList.remove('btn-primary'); fAll.classList.add('btn-outline'); }
+        if (fSub) { fSub.classList.remove('btn-outline'); fSub.classList.add('btn-primary'); }
     }
 
     function filterBySubject(subject) {
@@ -359,10 +385,10 @@
         if (heading) heading.textContent = 'Reviewers';
 
         // Update button states
-        document.getElementById('filterAllReviewers').classList.remove('btn-outline');
-        document.getElementById('filterAllReviewers').classList.add('btn-primary');
-        document.getElementById('filterSubjects').classList.remove('btn-primary');
-        document.getElementById('filterSubjects').classList.add('btn-outline');
+        const fAll2 = document.getElementById('filterAllReviewers');
+        const fSub2 = document.getElementById('filterSubjects');
+        if (fAll2) { fAll2.classList.remove('btn-outline'); fAll2.classList.add('btn-primary'); }
+        if (fSub2) { fSub2.classList.remove('btn-primary'); fSub2.classList.add('btn-outline'); }
         
         // Re-render all reviewers
         reviewersContainer.innerHTML = '';
@@ -402,8 +428,8 @@
         const subjectList = Object.values(subjectMap).sort((a, b) => a.name.localeCompare(b.name));
 
         document.getElementById('subjectPills').style.display = 'none';
-        document.getElementById('filterAllReviewers').classList.remove('btn-primary');
-        document.getElementById('filterAllReviewers').classList.add('btn-outline');
+        const fAll3 = document.getElementById('filterAllReviewers');
+        if (fAll3) { fAll3.classList.remove('btn-primary'); fAll3.classList.add('btn-outline'); }
         document.getElementById('filterSubjects').classList.remove('btn-outline');
         document.getElementById('filterSubjects').classList.add('btn-primary');
         loadMoreWrap.style.display = 'none';
@@ -494,14 +520,14 @@
     // Wire interactions
     loadMoreBtn.addEventListener('click', loadMore);
     searchInput.addEventListener('input', debounce(resetAndSearch, 400));
-    // Search button removed; input event handles searches
-    
-    // Wire filter buttons
-    document.getElementById('filterAllReviewers').addEventListener('click', showAllReviewers);
-    document.getElementById('filterSubjects').addEventListener('click', showSubjectCards);
+    // initial: load posts for this user
+    fetchUser().then(() => { resetAndSearch(); });
 
-    // initial
-    fetchUser().then(loadAllAndShowSubjectsCards);
+    if (postIdFromUrl) {
+        window.addEventListener('load', () => {
+            window.location.href = `/post.html?id=${encodeURIComponent(postIdFromUrl)}`;
+        });
+    }
 
     // Share user subject function
     function shareUserSubject(userId, subjectId, subjectName) {
@@ -669,6 +695,12 @@
         const m = document.getElementById('reviewerModal');
         if (m) m.classList.remove('show');
     }
+
+    function openPostModal(postId) {
+        window.location.href = `/post.html?id=${encodeURIComponent(postId)}`;
+    }
+
+    window.openPostModal = openPostModal;
 
     // Render heart button state
     function renderHeartButton(id, count = 0, reacted = false) {
@@ -965,11 +997,12 @@
         const btnHtml = (!isMe && window._flLoggedInId)
             ? `<button class="btn btn-sm ${u.is_following ? 'btn-outline' : 'btn-primary'}" style="margin-left:auto;flex-shrink:0;min-width:80px;" data-following="${u.is_following ? '1' : '0'}" onclick="toggleFollowInModal(this,'${escapeHtml(String(u.id))}')">${u.is_following ? 'Unfollow' : 'Follow'}</button>`
             : '';
+        const verifiedBadge = u.role === 'admin' ? '<i class="bi bi-check-circle-fill" style="font-size:0.65rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>' : '';
         row.innerHTML = `
             <a href="/user.html?user=${escapeHtml(String(u.id))}" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;flex:1;min-width:0;">
                 <img src="${escapeHtml(u.profile_picture_url || '/images/default-avatar.svg')}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;">
                 <div style="min-width:0;">
-                    <div style="font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(u.display_name || u.username)}</div>
+                    <div style="font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;">${escapeHtml(u.display_name || u.username)}${verifiedBadge}</div>
                     <div style="font-size:0.8rem;color:var(--dark-gray);">@${escapeHtml(u.username)}</div>
                 </div>
             </a>

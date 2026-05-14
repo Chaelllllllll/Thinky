@@ -838,6 +838,7 @@ function displayMessages(preserveScroll = false) {
     container.innerHTML = messages.map(msg => {
         const isSelf = currentUser && String(msg.user_id) === String(currentUser.id);
         const isAnonMsg = isAnonymousGeneralMessage(msg);
+        const isAdminUser = msg.users && msg.users.role === 'admin';
         // For anonymous messages, use a generic incognito/ghost avatar
         const avatarUrl = isAnonMsg ? '/images/default-avatar.svg' : ((msg.users && msg.users.profile_picture_url) ? msg.users.profile_picture_url : '/images/default-avatar.svg');
         const safeUsername = escapeHtml(msg.username || 'User');
@@ -864,7 +865,7 @@ function displayMessages(preserveScroll = false) {
             <div class="msg-row">
                 ${!isSelf ? `<img src="${escapeHtml(avatarUrl)}" alt="${safeUsername}" class="msg-avatar" onerror="this.onerror=null;this.src='/images/default-avatar.svg'">` : ''}
                 <div class="msg-body">
-                    ${!isSelf ? `<div class="msg-header"><span class="msg-author">${safeUsername}</span>${isAnonMsg ? '<span style="font-size:0.7rem;margin-left:6px;color:var(--primary-pink);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">anonymous</span>' : ''}</div>` : ''}
+                    ${!isSelf ? `<div class="msg-header"><span class="msg-author">${safeUsername}</span>${isAdminUser ? '<i class="bi bi-check-circle-fill" style="font-size:0.65rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>' : ''}${isAnonMsg ? '<span style="font-size:0.7rem;margin-left:6px;color:var(--primary-pink);font-weight:600;text-transform:uppercase;letter-spacing:0.05em;">anonymous</span>' : ''}</div>` : ''}
                     ${replyBlock}
                     <div class="msg-bubble ${isSelf ? 'right' : 'left'}">${safeMessage}</div>
                     ${buildMessageReactionMarkup(msg)}

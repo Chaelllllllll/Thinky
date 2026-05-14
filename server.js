@@ -1892,6 +1892,31 @@ function renderEmailTemplate(name, vars) {
                 </table>
             </body></html>`;
         }
+        if (name === 'admin_post') {
+            const { adminName = 'Admin', postTitle = '', postContent = '', postLink = '#' } = vars;
+            return `<!doctype html>
+            <html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/></head>
+            <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#f8f6f8;margin:0;padding:0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8f6f8;padding:24px 0;">
+                    <tr><td align="center">
+                        <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,0.06);">
+                            <tr><td style="padding:28px 36px;text-align:center;background:linear-gradient(90deg,#ff9eb4,#ffd4e0);color:#fff;font-weight:700;font-size:20px;">New Post from Thinky</td></tr>
+                            <tr><td style="padding:28px 36px;color:#333;">
+                                <p style="margin:0 0 12px 0;font-size:16px;">Hi there,</p>
+                                <p style="margin:0 0 18px 0;color:#555;"><strong>${escapeHtml(adminName)}</strong> just posted:</p>
+                                <div style="background:#f8f6f8;border-left:4px solid #ff9eb4;padding:16px;border-radius:6px;margin:12px 0;">
+                                    <h3 style="margin:0 0 8px 0;color:#333;font-size:18px;">${escapeHtml(postTitle)}</h3>
+                                    <p style="margin:0;color:#555;line-height:1.6;">${escapeHtml(postContent).replace(/\n/g, '<br>')}</p>
+                                </div>
+                                <div style="margin:18px 0;text-align:center;"><a href="${escapeHtml(postLink)}" style="display:inline-block;padding:12px 20px;border-radius:8px;background:linear-gradient(90deg,#ff6b9d,#ff9eb4);color:#fff;font-weight:700;font-size:16px;text-decoration:none;">View Post</a></div>
+                                <p style="color:#888;font-size:13px;margin:18px 0 0 0;">You can comment and react to this post on Thinky.</p>
+                            </td></tr>
+                            <tr><td style="padding:18px 36px;background:#faf5f7;color:#999;font-size:12px;text-align:center;">© ${new Date().getFullYear()} Thinky — All rights reserved</td></tr>
+                        </table>
+                    </td></tr>
+                </table>
+            </body></html>`;
+        }
         // default simple template
         return `<div style="font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial;">${escapeHtml(vars.message || subject || '')}</div>`;
 }
@@ -3771,7 +3796,7 @@ app.post('/api/reviewers/:id/reactions', requireAuth, async (req, res) => {
 // Proxy OpenRouter chat requests for reviewer-scoped Q&A
 app.post('/api/openrouter/chat', requireAuth, async (req, res) => {
     try {
-        const { reviewerId, question, authorName, subjectName } = req.body || {};
+        const { reviewerId, question, authorName, subjectName, conversationHistory } = req.body || {};
         if (!reviewerId || !question) return res.status(400).json({ error: 'Missing reviewerId or question' });
 
         // Fetch reviewer content from DB (admin client)
@@ -3814,14 +3839,23 @@ Content rules:
 
         const authorContext = String(authorName || reviewer?.users?.username || 'Unknown author').trim() || 'Unknown author';
         const subjectContext = String(subjectName || reviewer?.subject_name || reviewer?.subject || 'Unknown subject').trim() || 'Unknown subject';
-        const userMessage = `Reviewer metadata:
+        const contextMessage = `Reviewer metadata:
 Author: ${authorContext}
 Subject: ${subjectContext}
 
 Reviewer content:
 ${reviewerText}
-
-User question: ${String(question || '').trim()}`;
+`;
+        const historyMessages = Array.isArray(conversationHistory)
+            ? conversationHistory
+                .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+                .slice(-12)
+                .map((m) => ({
+                    role: m.role,
+                    content: String(m.content).slice(0, 1500)
+                }))
+            : [];
+        const userQuestionMessage = `User question: ${String(question || '').trim()}`;
 
         const OR_KEY = String(process.env.OPENROUTER_API || '').trim();
         const OR_BASE_URL = String(process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1').trim().replace(/\/$/, '');
@@ -3839,7 +3873,9 @@ User question: ${String(question || '').trim()}`;
                     model: 'openrouter/free',
                     messages: [
                         { role: 'system', content: systemPrompt },
-                        { role: 'user', content: userMessage }
+                        { role: 'user', content: contextMessage },
+                        ...historyMessages,
+                        { role: 'user', content: userQuestionMessage }
                     ],
                     temperature: 0.0,
                     max_tokens: 600
@@ -4207,7 +4243,7 @@ app.get('/api/users/:id', async (req, res) => {
         
         let query = supabase
             .from('users')
-            .select('id, username, display_name, profile_picture_url, created_at, follower_count, following_count');
+            .select('id, username, display_name, profile_picture_url, created_at, follower_count, following_count, role');
         
         if (isUsername) {
             query = query.eq('username', id);
@@ -4296,13 +4332,13 @@ app.get('/api/users/me/social', requireAuth, async (req, res) => {
         // Fetch people who follow the current user
         const { data: followersData, error: followersError } = await supabaseAdmin
             .from('followers')
-            .select('follower_id, users:follower_id (id, username, display_name, profile_picture_url)')
+            .select('follower_id, users:follower_id (id, username, display_name, profile_picture_url, role)')
             .eq('following_id', userId);
 
         // Fetch people the current user follows
         const { data: followingData, error: followingError } = await supabaseAdmin
             .from('followers')
-            .select('following_id, users:following_id (id, username, display_name, profile_picture_url)')
+            .select('following_id, users:following_id (id, username, display_name, profile_picture_url, role)')
             .eq('follower_id', userId);
 
         if (followersError || followingError) {
@@ -4318,14 +4354,14 @@ app.get('/api/users/me/social', requireAuth, async (req, res) => {
             const u = row.users;
             if (u && !seen.has(u.id)) {
                 seen.add(u.id);
-                people.push({ id: u.id, username: u.username, display_name: u.display_name, profile_picture_url: u.profile_picture_url, relation: 'follower' });
+                people.push({ id: u.id, username: u.username, display_name: u.display_name, profile_picture_url: u.profile_picture_url, role: u.role, relation: 'follower' });
             }
         }
         for (const row of (followingData || [])) {
             const u = row.users;
             if (u && !seen.has(u.id)) {
                 seen.add(u.id);
-                people.push({ id: u.id, username: u.username, display_name: u.display_name, profile_picture_url: u.profile_picture_url, relation: 'following' });
+                people.push({ id: u.id, username: u.username, display_name: u.display_name, profile_picture_url: u.profile_picture_url, role: u.role, relation: 'following' });
             } else if (u && seen.has(u.id)) {
                 // Mark mutual
                 const existing = people.find(p => p.id === u.id);
@@ -5986,7 +6022,7 @@ app.get('/api/messages/private-inbox', requireAuth, async (req, res) => {
 
         let q = supabaseAdmin
             .from('messages')
-            .select('*, users:user_id (username, profile_picture_url)')
+            .select('*, users:user_id (username, profile_picture_url, role)')
             .eq('chat_type', 'private')
             .eq('recipient_id', req.session.userId)
             .order('created_at', { ascending: false })
@@ -6266,10 +6302,10 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
             const hiddenAt = hidden ? new Date(hidden.hidden_at) : null;
 
             // Build queries with optional before parameter for pagination
-            let sentQuery = supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
+            let sentQuery = supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url, role)')
                 .eq('user_id', req.session.userId).eq('recipient_id', other)
                 .order('created_at', { ascending: false }).limit(limit);
-            let receivedQuery = supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url)')
+            let receivedQuery = supabaseAdmin.from('messages').select('*, users:user_id (username, profile_picture_url, role)')
                 .eq('user_id', other).eq('recipient_id', req.session.userId)
                 .order('created_at', { ascending: false }).limit(limit);
             
@@ -6336,7 +6372,7 @@ app.get('/api/messages/:chatType', requireAuth, async (req, res) => {
             const since = req.query.since || null;
             let q = supabaseAdmin
             .from('messages')
-            .select('*, users:user_id (username, profile_picture_url)')
+            .select('*, users:user_id (username, profile_picture_url, role)')
             .eq('chat_type', chatType)
             .order('created_at', { ascending: false })
             .limit(limit);
@@ -6496,6 +6532,38 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
 
         if (!message || !chat_type) {
             return res.status(400).json({ error: 'Message and chat type are required' });
+        }
+
+        if (chat_type === 'private' && reply_to) {
+            const { data: targetReplyMsg } = await supabaseAdmin
+                .from('messages')
+                .select('id, chat_type, username, recipient_id, user_id')
+                .eq('id', reply_to)
+                .maybeSingle();
+            if (targetReplyMsg && String(targetReplyMsg.chat_type) === 'private' && String(targetReplyMsg.username || '').toLowerCase() === 'thinky') {
+                return res.status(403).json({ error: 'Replies to Thinky system messages are disabled' });
+            }
+        }
+        if (chat_type === 'private' && recipient_id) {
+            const { data: recipientUser } = await supabaseAdmin
+                .from('users')
+                .select('role')
+                .eq('id', recipient_id)
+                .maybeSingle();
+            if (recipientUser && recipientUser.role === 'admin') {
+                const { data: thinkyThreadMessage } = await supabaseAdmin
+                    .from('messages')
+                    .select('id')
+                    .eq('user_id', recipient_id)
+                    .eq('recipient_id', req.session.userId)
+                    .eq('chat_type', 'private')
+                    .eq('username', 'Thinky')
+                    .limit(1)
+                    .maybeSingle();
+                if (thinkyThreadMessage) {
+                    return res.status(403).json({ error: 'Replies to Thinky broadcast messages are disabled' });
+                }
+            }
         }
 
         // Check if user is muted or banned
@@ -6761,6 +6829,177 @@ app.post('/api/messages', requireAuth, messageLimiter, async (req, res) => {
         res.json({ message: newMessage });
     } catch (error) {
         console.error('Send message error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Admin broadcast to all users via private messages as "Thinky"
+app.post('/api/admin/messages/broadcast', requireAdmin, async (req, res) => {
+    try {
+        const rawMessage = typeof req.body?.message === 'string' ? req.body.message : '';
+        let cleanMessage = String(rawMessage || '').trim();
+        if (!cleanMessage) return res.status(400).json({ error: 'Message is required' });
+        if (cleanMessage.length > 1000) cleanMessage = cleanMessage.slice(0, 1000);
+        cleanMessage = cleanMessage.replace(/<[^>]*>/g, '').replace(/[\x00-\x1F\x7F]/g, '');
+
+        const senderId = req.session.userId;
+        const { data: users, error: usersErr } = await supabaseAdmin
+            .from('users')
+            .select('id')
+            .neq('id', senderId);
+        if (usersErr) {
+            console.error('Broadcast users fetch error:', usersErr);
+            return res.status(500).json({ error: 'Failed to fetch users' });
+        }
+        const recipientIds = (users || []).map((u) => u.id).filter(Boolean);
+        if (recipientIds.length === 0) return res.json({ success: true, sent: 0 });
+
+        // 1. Create broadcast_messages record
+        const { data: broadcastData, error: broadcastErr } = await supabaseAdmin
+            .from('broadcast_messages')
+            .insert({ admin_id: senderId, message: cleanMessage })
+            .select('id')
+            .single();
+        if (broadcastErr) {
+            console.error('Broadcast record error:', broadcastErr);
+            return res.status(500).json({ error: 'Failed to create broadcast record' });
+        }
+        const broadcastId = broadcastData.id;
+
+        // 2. Insert messages and track them
+        const nowIso = new Date().toISOString();
+        const rows = recipientIds.map((uid) => ({
+            user_id: senderId,
+            recipient_id: uid,
+            username: 'Thinky',
+            message: cleanMessage,
+            chat_type: 'private',
+            created_at: nowIso
+        }));
+
+        let inserted = [];
+        for (let i = 0; i < rows.length; i += 500) {
+            const chunk = rows.slice(i, i + 500);
+            const { data, error } = await supabaseAdmin
+                .from('messages')
+                .insert(chunk)
+                .select('id, recipient_id, user_id, username, message, chat_type, created_at');
+            if (error) {
+                console.error('Broadcast message insert error:', error);
+                return res.status(500).json({ error: 'Failed to send broadcast' });
+            }
+            if (Array.isArray(data)) inserted.push(...data);
+        }
+
+        // 3. Track mappings for deletion later
+        const mappings = inserted.map(msg => ({ broadcast_id: broadcastId, message_id: msg.id }));
+        for (let i = 0; i < mappings.length; i += 500) {
+            const chunk = mappings.slice(i, i + 500);
+            const { error: mapErr } = await supabaseAdmin
+                .from('broadcast_message_mappings')
+                .insert(chunk);
+            if (mapErr) {
+                console.error('Broadcast mapping error:', mapErr);
+                // Don't fail the entire request, just log it
+            }
+        }
+
+        // 4. In-app notifications + browser push
+        await Promise.allSettled(
+            recipientIds.map((uid) => createNotification({
+                userId: uid,
+                type: 'message',
+                title: 'Thinky verified update',
+                message: cleanMessage.length > 120 ? `${cleanMessage.slice(0, 120)}...` : cleanMessage,
+                link: `/chat.html?with=${encodeURIComponent(senderId)}`,
+                relatedUserId: senderId,
+                relatedItemId: null
+            }))
+        );
+
+        // 5. Realtime socket delivery for online recipients
+        const byRecipient = new Map(inserted.map((m) => [String(m.recipient_id), m]));
+        for (const [uid, sockets] of _wsClientsByUserId.entries()) {
+            const msg = byRecipient.get(String(uid));
+            if (!msg) continue;
+            const payload = { type: 'new_message', message: msg };
+            for (const s of sockets || []) {
+                try {
+                    if (s && s.readyState === 1) s.send(JSON.stringify(payload));
+                } catch (_) {}
+            }
+        }
+
+        res.json({ success: true, sent: recipientIds.length, broadcastId });
+    } catch (err) {
+        console.error('Admin broadcast error:', err && err.message ? err.message : err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Delete broadcast message for everyone
+app.delete('/api/admin/messages/broadcast/:broadcastId', requireAdmin, async (req, res) => {
+    try {
+        const broadcastId = req.params.broadcastId;
+
+        // 1. Get all message IDs associated with this broadcast
+        const { data: mappings, error: mapErr } = await supabaseAdmin
+            .from('broadcast_message_mappings')
+            .select('message_id')
+            .eq('broadcast_id', broadcastId);
+        if (mapErr) {
+            console.error('Get broadcast mappings error:', mapErr);
+            return res.status(500).json({ error: 'Failed to retrieve broadcast messages' });
+        }
+
+        const messageIds = (mappings || []).map(m => m.message_id);
+
+        // 2. Delete all messages
+        if (messageIds.length > 0) {
+            const { error: msgErr } = await supabaseAdmin
+                .from('messages')
+                .delete()
+                .in('id', messageIds);
+            if (msgErr) {
+                console.error('Delete messages error:', msgErr);
+                return res.status(500).json({ error: 'Failed to delete broadcast messages' });
+            }
+        }
+
+        // 3. Delete the broadcast record (cascade will delete mappings)
+        const { error: broadcastErr } = await supabaseAdmin
+            .from('broadcast_messages')
+            .delete()
+            .eq('id', broadcastId);
+        if (broadcastErr) {
+            console.error('Delete broadcast error:', broadcastErr);
+            return res.status(500).json({ error: 'Failed to delete broadcast' });
+        }
+
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Delete broadcast error:', err && err.message ? err.message : err);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get list of broadcasts for admin
+app.get('/api/admin/messages/broadcast', requireAdmin, async (req, res) => {
+    try {
+        const { data: broadcasts, error } = await supabaseAdmin
+            .from('broadcast_messages')
+            .select('id, message, created_at')
+            .order('created_at', { ascending: false })
+            .limit(20);
+        
+        if (error) {
+            console.error('Get broadcasts error:', error);
+            return res.status(500).json({ error: 'Failed to load broadcasts' });
+        }
+
+        res.json({ broadcasts: broadcasts || [] });
+    } catch (err) {
+        console.error('Get broadcasts error:', err && err.message ? err.message : err);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -8355,6 +8594,572 @@ app.delete('/api/admin/policies/:id', requireAdmin, async (req, res) => {
     } catch (error) {
         console.error('Delete policy error:', error);
         res.status(500).json({ error: 'Failed to delete policy' });
+    }
+});
+
+// =====================================================
+// ADMIN POSTS ROUTES
+// =====================================================
+
+// Create a new post and send to all users via email and notifications
+app.post('/api/admin/posts', requireAdmin, async (req, res) => {
+    try {
+        const { title, content } = req.body;
+        
+        if (!title || !String(title).trim()) {
+            return res.status(400).json({ error: 'Post title is required' });
+        }
+        
+        if (!content || !String(content).trim()) {
+            return res.status(400).json({ error: 'Post content is required' });
+        }
+        
+        const cleanTitle = String(title).trim().slice(0, 500);
+        const cleanContent = String(content).trim().slice(0, 5000);
+        
+        // Get current admin user info
+        const { data: adminUser } = await supabaseAdmin
+            .from('users')
+            .select('id, username')
+            .eq('id', req.session.userId)
+            .single();
+        
+        // Create post record
+        const { data: post, error: postErr } = await supabaseAdmin
+            .from('posts')
+            .insert([{
+                user_id: req.session.userId,
+                title: cleanTitle,
+                content: cleanContent
+            }])
+            .select()
+            .single();
+        
+        if (postErr || !post) {
+            console.error('Failed to create post:', postErr);
+            return res.status(500).json({ error: 'Failed to create post' });
+        }
+        
+        res.json({ ok: true, postId: post.id, message: 'Post created and will be sent to all users' });
+        
+        // Fire-and-forget: send email and notifications to all users (non-blocking)
+        (async () => {
+            try {
+                // Get all user emails
+                const { data: allUsers } = await supabaseAdmin
+                    .from('users')
+                    .select('id, email, username')
+                    .eq('is_verified', true);
+                
+                if (!allUsers || allUsers.length === 0) {
+                    console.warn('No verified users found for post distribution');
+                    return;
+                }
+                
+                const postLink = `${(process.env.PRODUCTION_URL || process.env.BASE_URL || '').replace(/\/$/, '')}/post.html?id=${encodeURIComponent(post.id)}`;
+                
+                // Send email to all users in parallel batches
+                const batchSize = 50;
+                for (let i = 0; i < allUsers.length; i += batchSize) {
+                    const batch = allUsers.slice(i, i + batchSize);
+                    await Promise.allSettled(
+                        batch.map(user => 
+                            sendTemplatedEmail({
+                                to: user.email,
+                                subject: `${cleanTitle}`,
+                                template: 'admin_post',
+                                skipDomainValidation: true,
+                                variables: {
+                                    adminName: adminUser?.username || 'Thinky Admin',
+                                    postTitle: cleanTitle,
+                                    postContent: cleanContent,
+                                    postLink
+                                }
+                            })
+                        )
+                    );
+                }
+                
+                console.info(`Post emails sent to ${allUsers.length} users`);
+                
+                // Create notifications for all users
+                for (let i = 0; i < allUsers.length; i += batchSize) {
+                    const batch = allUsers.slice(i, i + batchSize);
+                    await Promise.allSettled(
+                        batch.map(user =>
+                            createNotification({
+                                userId: user.id,
+                                type: 'admin_post',
+                                title: `${cleanTitle}`,
+                                message: cleanContent.slice(0, 100) + (cleanContent.length > 100 ? '...' : ''),
+                                link: '/post.html?id=' + encodeURIComponent(post.id),
+                                relatedItemId: post.id
+                            })
+                        )
+                    );
+                }
+                
+                console.info(`Post notifications created for ${allUsers.length} users`);
+                
+                // Send push notifications (fire-and-forget, parallel)
+                await Promise.allSettled(
+                    allUsers.map(user =>
+                        sendPushToUser(user.id, JSON.stringify({
+                            title: `${cleanTitle}`,
+                            body: cleanContent.slice(0, 100),
+                            badge: '/images/logo.png',
+                            icon: '/images/logo.png',
+                            tag: 'admin_post',
+                            data: { postId: post.id, link: '/post.html?id=' + encodeURIComponent(post.id) }
+                        }))
+                    )
+                );
+                
+                console.info('Post push notifications sent to all users');
+                
+            } catch (err) {
+                console.error('Error distributing post to users:', err && err.message ? err.message : err);
+            }
+        })();
+        
+    } catch (error) {
+        console.error('Create post error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get all posts (admin only)
+app.get('/api/admin/posts', requireAdmin, async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+        
+        const { data: posts, count, error } = await supabaseAdmin
+            .from('posts')
+            .select('*', { count: 'exact' })
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+        
+        if (error) {
+            console.error('Get posts error:', error);
+            return res.status(500).json({ error: 'Failed to fetch posts' });
+        }
+        
+        // Fetch user data for each post
+        const enrichedPosts = await Promise.all((posts || []).map(async (post) => {
+            try {
+                const { data: user } = await supabaseAdmin
+                    .from('users')
+                    .select('id, username, display_name, profile_picture_url')
+                    .eq('id', post.user_id)
+                    .single();
+                return { ...post, users: user };
+            } catch (e) {
+                return { ...post, users: null };
+            }
+        }));
+        
+        res.json({ posts: enrichedPosts, count: count || 0, limit, offset });
+    } catch (error) {
+        console.error('Get posts error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get public posts for a user (profile/user pages)
+app.get('/api/posts', async (req, res) => {
+    try {
+        const userId = String(req.query.user || req.query.userId || '').trim();
+        if (!userId) {
+            return res.status(400).json({ error: 'User id is required' });
+        }
+
+        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+        const search = String(req.query.search || '').trim();
+
+        let query = supabaseAdmin
+            .from('posts')
+            .select('*', { count: 'exact' })
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+
+        if (search) {
+            query = query.or(`title.ilike.%${search}%,content.ilike.%${search}%`);
+        }
+
+        const { data: posts, count, error } = await query;
+
+        if (error) {
+            console.error('Get public posts error:', error);
+            return res.status(500).json({ error: 'Failed to fetch posts' });
+        }
+
+        const enrichedPosts = await Promise.all((posts || []).map(async (post) => {
+            try {
+                const { data: user } = await supabaseAdmin
+                    .from('users')
+                    .select('id, username, display_name, profile_picture_url')
+                    .eq('id', post.user_id)
+                    .single();
+                return { ...post, users: user };
+            } catch (e) {
+                return { ...post, users: null };
+            }
+        }));
+
+        res.json({ posts: enrichedPosts, count: count || 0, limit, offset });
+    } catch (error) {
+        console.error('Get public posts error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get a single post with reactions and comments
+app.get('/api/posts/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const { data: post, error } = await supabaseAdmin
+            .from('posts')
+            .select('*')
+            .eq('id', id)
+            .single();
+        
+        if (error || !post) {
+            return res.status(404).json({ error: 'Post not found' });
+        }
+        
+        // Get post author
+        const { data: author } = await supabaseAdmin
+            .from('users')
+            .select('id, username, display_name, profile_picture_url')
+            .eq('id', post.user_id)
+            .single();
+        
+        // Get reactions
+        const { data: reactions } = await supabaseAdmin
+            .from('post_reactions')
+            .select('*')
+            .eq('post_id', id);
+        
+        // Get comments
+        const { data: commentRows } = await supabaseAdmin
+            .from('post_comments')
+            .select('*')
+            .eq('post_id', id)
+            .order('created_at', { ascending: false });
+        
+        // Enrich comments with user data and reactions
+        const enrichedComments = await Promise.all((commentRows || []).map(async (comment) => {
+            try {
+                const { data: commentUser } = await supabaseAdmin
+                    .from('users')
+                    .select('id, username, display_name, profile_picture_url')
+                    .eq('id', comment.user_id)
+                    .single();
+                
+                // Get reactions for this comment
+                const { data: reactions } = await supabaseAdmin
+                    .from('post_comment_reactions')
+                    .select('*')
+                    .eq('comment_id', comment.id);
+                
+                return { ...comment, users: commentUser, reactions: reactions || [] };
+            } catch (e) {
+                return { ...comment, users: null, reactions: [] };
+            }
+        }));
+        
+        // Organize comments into threads (top-level and replies)
+        const topLevelComments = [];
+        const commentMap = {};
+        
+        for (const comment of enrichedComments) {
+            commentMap[comment.id] = { ...comment, replies: [] };
+            if (!comment.reply_to) {
+                topLevelComments.push(commentMap[comment.id]);
+            } else if (commentMap[comment.reply_to]) {
+                commentMap[comment.reply_to].replies.push(commentMap[comment.id]);
+            }
+        }
+        
+        res.json({ 
+            post: { ...post, users: author, reactions: reactions || [], comments: topLevelComments || [] }
+        });
+    } catch (error) {
+        console.error('Get post error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Add reaction to post (requires auth)
+app.post('/api/posts/:id/reactions', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { reaction_type = 'heart' } = req.body;
+        
+        // Check if already reacted
+        const { data: existing } = await supabaseAdmin
+            .from('post_reactions')
+            .select('id')
+            .eq('post_id', id)
+            .eq('user_id', req.session.userId)
+            .eq('reaction_type', reaction_type)
+            .single();
+        
+        if (existing) {
+            // Remove reaction
+            await supabaseAdmin
+                .from('post_reactions')
+                .delete()
+                .eq('id', existing.id);
+            
+            return res.json({ reacted: false });
+        }
+        
+        // Add reaction
+        const { error } = await supabaseAdmin
+            .from('post_reactions')
+            .insert([{
+                post_id: id,
+                user_id: req.session.userId,
+                reaction_type
+            }]);
+        
+        if (error) {
+            console.error('Add reaction error:', error);
+            return res.status(500).json({ error: 'Failed to add reaction' });
+        }
+        
+        res.json({ reacted: true });
+    } catch (error) {
+        console.error('Add reaction error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Add comment to post (requires auth)
+app.post('/api/posts/:id/comments', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { comment } = req.body;
+        
+        if (!comment || !String(comment).trim()) {
+            return res.status(400).json({ error: 'Comment text is required' });
+        }
+        
+        const cleanComment = String(comment).trim().slice(0, 1000);
+        
+        const { data: newComment, error } = await supabaseAdmin
+            .from('post_comments')
+            .insert([{
+                post_id: id,
+                user_id: req.session.userId,
+                comment: cleanComment
+            }])
+            .select('*, users:user_id(id, username, display_name, profile_picture_url)')
+            .single();
+        
+        if (error) {
+            console.error('Add comment error:', error);
+            return res.status(500).json({ error: 'Failed to add comment' });
+        }
+        
+        res.json({ comment: newComment });
+    } catch (error) {
+        console.error('Add comment error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// Get comments for a post
+app.get('/api/posts/:id/comments', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+        const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+        
+        const { data: commentRows, count, error } = await supabaseAdmin
+            .from('post_comments')
+            .select('*', { count: 'exact' })
+            .eq('post_id', id)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + limit - 1);
+        
+        if (error) {
+            console.error('Get comments error:', error);
+            return res.status(500).json({ error: 'Failed to fetch comments' });
+        }
+        
+        // Enrich each comment with user data
+        const comments = await Promise.all((commentRows || []).map(async (comment) => {
+            try {
+                const { data: user } = await supabaseAdmin
+                    .from('users')
+                    .select('id, username, display_name, profile_picture_url')
+                    .eq('id', comment.user_id)
+                    .single();
+                return { ...comment, users: user };
+            } catch (e) {
+                return { ...comment, users: null };
+            }
+        }));
+        
+        res.json({ comments, count: count || 0, limit, offset });
+    } catch (error) {
+        console.error('Get comments error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/posts/:id/comments/:commentId/reactions — auth required
+app.post('/api/posts/:id/comments/:commentId/reactions', requireAuth, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        const { reaction_type } = req.body;
+        
+        if (!reaction_type) {
+            return res.status(400).json({ error: 'Reaction type is required' });
+        }
+        
+        // Check if reaction already exists
+        const { data: existing } = await supabaseAdmin
+            .from('post_comment_reactions')
+            .select('id')
+            .eq('comment_id', commentId)
+            .eq('user_id', req.session.userId)
+            .eq('reaction_type', reaction_type)
+            .single();
+        
+        if (existing) {
+            // Remove reaction if it exists
+            const { error: deleteError } = await supabaseAdmin
+                .from('post_comment_reactions')
+                .delete()
+                .eq('id', existing.id);
+            
+            if (deleteError) {
+                return res.status(500).json({ error: 'Failed to toggle reaction' });
+            }
+            
+            res.json({ removed: true });
+        } else {
+            // Add reaction
+            const { data: newReaction, error } = await supabaseAdmin
+                .from('post_comment_reactions')
+                .insert([{
+                    comment_id: commentId,
+                    user_id: req.session.userId,
+                    reaction_type: reaction_type
+                }])
+                .select()
+                .single();
+            
+            if (error) {
+                return res.status(500).json({ error: 'Failed to add reaction' });
+            }
+            
+            res.json({ reaction: newReaction });
+        }
+    } catch (error) {
+        console.error('Comment reaction error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// POST /api/posts/:id/comments/:commentId/replies — auth required
+app.post('/api/posts/:id/comments/:commentId/replies', requireAuth, async (req, res) => {
+    try {
+        const { id, commentId } = req.params;
+        const { comment } = req.body;
+        
+        if (!comment || !String(comment).trim()) {
+            return res.status(400).json({ error: 'Reply text is required' });
+        }
+        
+        const cleanComment = String(comment).trim().slice(0, 1000);
+        
+        // Verify parent comment exists
+        const { data: parentComment } = await supabaseAdmin
+            .from('post_comments')
+            .select('id, post_id')
+            .eq('id', commentId)
+            .single();
+        
+        if (!parentComment || parentComment.post_id !== id) {
+            return res.status(404).json({ error: 'Parent comment not found' });
+        }
+        
+        const { data: newReply, error } = await supabaseAdmin
+            .from('post_comments')
+            .insert([{
+                post_id: id,
+                user_id: req.session.userId,
+                comment: cleanComment,
+                reply_to: commentId
+            }])
+            .select('*, users:user_id(id, username, display_name, profile_picture_url)')
+            .single();
+        
+        if (error) {
+            console.error('Add reply error:', error);
+            return res.status(500).json({ error: 'Failed to add reply' });
+        }
+        
+        res.json({ reply: newReply });
+    } catch (error) {
+        console.error('Add reply error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// DELETE /api/posts/:id/comments/:commentId — auth required, owner or admin only
+app.delete('/api/posts/:id/comments/:commentId', requireAuth, async (req, res) => {
+    try {
+        const { id, commentId } = req.params;
+        
+        // Get comment
+        const { data: comment } = await supabaseAdmin
+            .from('post_comments')
+            .select('*')
+            .eq('id', commentId)
+            .eq('post_id', id)
+            .single();
+        
+        if (!comment) {
+            return res.status(404).json({ error: 'Comment not found' });
+        }
+        
+        // Check if user is owner or admin
+        const { data: userData } = await supabaseAdmin
+            .from('users')
+            .select('is_admin, is_dev')
+            .eq('id', req.session.userId)
+            .single();
+        
+        const isOwner = comment.user_id === req.session.userId;
+        const isAdmin = userData?.is_admin || userData?.is_dev;
+        
+        if (!isOwner && !isAdmin) {
+            return res.status(403).json({ error: 'Not authorized to delete this comment' });
+        }
+        
+        // Delete comment (cascade will delete replies and reactions)
+        const { error } = await supabaseAdmin
+            .from('post_comments')
+            .delete()
+            .eq('id', commentId);
+        
+        if (error) {
+            return res.status(500).json({ error: 'Failed to delete comment' });
+        }
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete comment error:', error);
+        res.status(500).json({ error: 'Server error' });
     }
 });
 

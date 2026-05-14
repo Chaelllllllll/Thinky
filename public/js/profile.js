@@ -8,8 +8,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (!resp.ok) return window.location.href = '/login';
         const { user } = await resp.json();
 
-        document.getElementById('profileName').textContent = user.display_name || user.username;
+        const profileNameText = document.getElementById('profileNameText');
+        const profileVerifiedBadge = document.getElementById('profileVerifiedBadge');
+        
+        profileNameText.textContent = user.display_name || user.username;
         document.getElementById('profileUsername').textContent = `@${user.username}`;
+        
+        // Show verified badge for admin users
+        if (user.role === 'admin') {
+            profileVerifiedBadge.style.display = 'inline-block';
+        }
         
         // Store user id for follow list modal (profile page: logged-in user IS the profile user)
         window._flFollowListUserId = user.id;
@@ -29,148 +37,66 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (placeholder) placeholder.style.display = 'none';
             }
 
-        // Load user's public reviewers
-        const rresp = await fetch(`/api/reviewers/public?student=${user.id}`, { credentials: 'include' });
-        if (!rresp.ok) return;
-        const rdata = await rresp.json();
-        const reviewers = (rdata.reviewers || []).map(rv => {
-            // Normalize user object (API may return `users` or `user`)
-            const userObj = rv.users || rv.user || null;
-            return Object.assign({}, rv, { _displayUser: userObj });
-        });
+        // Load user's posts and render them (profile page shows posts)
         const container = document.getElementById('myReviewers');
-        if (reviewers.length === 0) {
-            container.innerHTML = '<div class="empty-state" style="padding:20px;">No public reviewers yet.</div>';
-            return;
-        }
+        const searchInput = document.getElementById('profileSearch');
+        let posts = [];
 
-        // Group reviewers by subject
-        const subjectMap = {};
-        reviewers.forEach(rv => {
-            const key = rv.subject_id || '__none__';
-            const name = rv.subjects?.name || 'General';
-            if (!subjectMap[key]) subjectMap[key] = { id: key, name, reviewers: [] };
-            subjectMap[key].reviewers.push(rv);
-        });
-        const subjectList = Object.values(subjectMap).sort((a, b) => a.name.localeCompare(b.name));
-        const profileAvatarSrc = escapeHtml(user.profile_picture_url || '/images/default-avatar.svg');
-        const profileUname = escapeHtml(user.username || '');
-        const profileH2 = container.closest('.profile-card').querySelector('h2');
-
-        function renderSubjectCards() {
-            if (profileH2) profileH2.textContent = 'Subjects';
-            container.innerHTML = subjectList.map(sub => `
-                <div class="reviewer-card" data-subkey="${escapeHtml(sub.id)}" style="cursor:pointer;display:flex;flex-direction:column;justify-content:space-between;min-height:220px;">
-                    <div style="display:flex;align-items:center;gap:12px;padding-bottom:12px;">
-                        <div style="width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,var(--primary-pink),#ffb3c8);display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                            <i class="bi bi-journal-bookmark" style="color:white;font-size:1.2rem;"></i>
-                        </div>
-                        <div>
-                            <div style="font-weight:700;font-size:1.05rem;">${escapeHtml(sub.name)}</div>
-                            <div style="font-size:0.8rem;color:var(--dark-gray);">${sub.reviewers.length} reviewer${sub.reviewers.length !== 1 ? 's' : ''}</div>
-                        </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:4px;padding-top:12px;border-top:1px solid var(--medium-gray);justify-content:space-between;">
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <img src="${profileAvatarSrc}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
-                            <span style="font-size:0.875rem;color:var(--dark-gray);">@${profileUname}</span>
-                        </div>
-                        <button class="share-subject-btn" style="background:transparent;border:none;color:var(--primary-pink);cursor:pointer;padding:4px 8px;border-radius:6px;transition:all 0.2s;display:flex;align-items:center;gap:4px;font-size:0.875rem;font-weight:500;" title="Share subject"><i class="bi bi-share"></i> Share</button>
-                    </div>
-                </div>`).join('');
-            container.querySelectorAll('[data-subkey]').forEach(el => {
-                el.addEventListener('click', (e) => {
-                    if (e.target.closest('.share-subject-btn')) {
-                        e.stopPropagation();
-                        return;
-                    }
-                    const sub = subjectList.find(s => s.id === el.dataset.subkey);
-                    if (sub) renderSubjectReviewers(sub);
-                });
-                
-                // Wire share button
-                const shareBtn = el.querySelector('.share-subject-btn');
-                if (shareBtn) {
-                    shareBtn.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        const sub = subjectList.find(s => s.id === el.dataset.subkey);
-                        if (sub) shareProfileSubject(user.id, sub.id, sub.name);
-                    });
-                    shareBtn.addEventListener('mouseenter', () => {
-                        shareBtn.style.background = 'rgba(233, 30, 140, 0.08)';
-                    });
-                    shareBtn.addEventListener('mouseleave', () => {
-                        shareBtn.style.background = 'transparent';
-                    });
-                }
-            });
-        }
-
-        function renderSubjectReviewers(sub) {
-            if (profileH2) profileH2.textContent = sub.name;
-            container.innerHTML = `<div style="grid-column:1/-1;margin-bottom:8px;">
-                <button id="profileBackBtn" class="btn btn-outline btn-sm"><i class="bi bi-arrow-left"></i> Back to Subjects</button>
-            </div>` + sub.reviewers.map(rv => {
-                const u = rv._displayUser;
-                const av = escapeHtml((u && u.profile_picture_url) ? u.profile_picture_url : '/images/default-avatar.svg');
-                const un = escapeHtml(u && u.username ? u.username : '');
-                return `<div class="reviewer-card" data-rid="${rv.id}" style="cursor:pointer;">
-                    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-                        <img src="${av}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:40px;height:40px;border-radius:50%;object-fit:cover;">
-                        <div>
-                            <div style="font-weight:600;">${escapeHtml(rv.title)}</div>
-                            <div style="font-size:0.85rem;color:var(--dark-gray);">@${un}</div>
-                        </div>
-                    </div>
-                    <div style="color:var(--dark-gray);font-size:0.9rem;">${escapeHtml(stripHtml(rv.content).substring(0,160))}...</div>
-                </div>`;
-            }).join('');
-            document.getElementById('profileBackBtn')?.addEventListener('click', renderSubjectCards);
-            container.querySelectorAll('[data-rid]').forEach(el => {
-                el.addEventListener('click', () => window.location.href = `/reviewer.html?id=${el.dataset.rid}`);
-            });
-        }
-
-        renderSubjectCards();
-
-        // Share profile subject function
-        function shareProfileSubject(userId, subjectId, subjectName) {
-            const shareUrl = `${window.location.origin}/profile.html?user=@${encodeURIComponent(profileUname)}&subject=${encodeURIComponent(subjectId)}`;
-            
-            // Try Web Share API first
-            if (navigator.share) {
-                navigator.share({
-                    title: 'Thinky - ' + subjectName,
-                    text: `Check out ${profileUname}'s ${subjectName} reviewers`,
-                    url: shareUrl
-                }).catch(err => console.log('Error sharing:', err));
-            } else {
-                // Fallback: copy to clipboard and show alert
-                const textarea = document.createElement('textarea');
-                textarea.value = shareUrl;
-                document.body.appendChild(textarea);
-                textarea.select();
-                try {
-                    document.execCommand('copy');
-                    window.showAlert && window.showAlert('success', 'Link copied to clipboard!', 3000);
-                } catch (err) {
-                    window.showAlert && window.showAlert('error', 'Failed to copy link', 3000);
-                }
-                document.body.removeChild(textarea);
+        async function loadProfilePosts() {
+            try {
+                const resp = await fetch(`/api/posts?user=${encodeURIComponent(user.id)}&limit=50`, { credentials: 'include' });
+                if (!resp.ok) throw new Error('Failed to load posts');
+                const data = await resp.json();
+                posts = data.posts || data.items || [];
+                renderPosts();
+            } catch (e) {
+                console.error('Failed to load posts', e);
+                if (container) container.innerHTML = '<div class="empty-state" style="padding:20px;color:var(--dark-gray);">Failed to load posts</div>';
             }
         }
-        
-        // Check URL for subject parameter and auto-select it
-        (function() {
-            const params = new URLSearchParams(window.location.search);
-            const subjectId = params.get('subject');
-            if (subjectId && subjectList && subjectList.length > 0) {
-                const subject = subjectList.find(s => s.id === subjectId);
-                if (subject) {
-                    setTimeout(() => renderSubjectReviewers(subject), 200);
-                }
+
+        function makePostCard(post) {
+            const d = document.createElement('div');
+            d.className = 'reviewer-card';
+            const title = escapeHtml(post.title || 'Untitled');
+            const preview = escapeHtml(stripHtml(post.content || '').substring(0, 220));
+            const author = escapeHtml(post.users?.username || post.users?.display_name || '');
+            const date = post.created_at ? new Date(post.created_at).toLocaleDateString() : '';
+            d.innerHTML = `
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                        <div style="min-width:0;">
+                            <div style="font-weight:700;font-size:1.05rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${title}</div>
+                            <div style="font-size:0.85rem;color:var(--dark-gray);">by ${author} · ${date}</div>
+                        </div>
+                        <div style="flex-shrink:0;display:flex;gap:8px;align-items:center;">
+                            <button class="btn btn-sm btn-light" onclick="event.stopPropagation(); window.location.href='/post.html?id=${encodeURIComponent(post.id)}';">View</button>
+                        </div>
+                    </div>
+                    <div style="color:var(--text-dark);line-height:1.6;">${preview}${(preview.length? '...' : '')}</div>
+                </div>
+            `;
+            d.addEventListener('click', () => { window.location.href = `/post.html?id=${encodeURIComponent(post.id)}`; });
+            return d;
+        }
+
+        function renderPosts(filter = '') {
+            if (!container) return;
+            const term = (filter || '').toLowerCase().trim();
+            const list = term ? posts.filter(p => ((p.title||'') + ' ' + (stripHtml(p.content)||'')).toLowerCase().includes(term)) : posts;
+            if (!list || list.length === 0) {
+                container.innerHTML = '<div class="empty-state" style="padding:20px;color:var(--dark-gray);">No posts yet.</div>';
+                return;
             }
-        })();
+            container.innerHTML = '';
+            list.forEach(p => container.appendChild(makePostCard(p)));
+        }
+
+        // Wire search
+        if (searchInput) searchInput.addEventListener('input', debounce((e) => renderPosts(e.target.value), 300));
+
+        // initial load posts
+        await loadProfilePosts();
 
     } catch (e) {
         console.error('Failed to load profile or reviewers', e);
@@ -277,15 +203,18 @@ function _makeFollowListRow(u) {
     const btnHtml = (!isMe && window._flLoggedInId)
         ? `<button class="btn btn-sm ${u.is_following ? 'btn-outline' : 'btn-primary'}" style="margin-left:auto;flex-shrink:0;min-width:80px;" data-following="${u.is_following ? '1' : '0'}" onclick="toggleFollowInModal(this,'${escapeHtml(String(u.id))}')">${u.is_following ? 'Unfollow' : 'Follow'}</button>`
         : '';
+    const verifiedBadge = (u.role === 'admin' || u.is_admin) ? '<i class="bi bi-check-circle-fill" style="font-size:0.65rem;margin-left:4px;color:var(--primary-pink);vertical-align:middle;" title="Verified Admin"></i>' : '';
     row.innerHTML = `
         <a href="/user.html?user=${escapeHtml(String(u.id))}" style="display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit;flex:1;min-width:0;">
             <img src="${escapeHtml(u.profile_picture_url || '/images/default-avatar.svg')}" onerror="this.onerror=null;this.src='/images/default-avatar.svg'" style="width:42px;height:42px;border-radius:50%;object-fit:cover;flex-shrink:0;">
             <div style="min-width:0;">
-                <div style="font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(u.display_name || u.username)}</div>
+                <div style="font-weight:600;font-size:0.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:4px;">${escapeHtml(u.display_name || u.username)}${verifiedBadge}</div>
                 <div style="font-size:0.8rem;color:var(--dark-gray);">@${escapeHtml(u.username)}</div>
             </div>
         </a>
         ${btnHtml}`;
+    return row;
+}
     return row;
 }
 

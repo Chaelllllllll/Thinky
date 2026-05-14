@@ -317,6 +317,13 @@
             padding: 60px 20px;
         }
 
+        .thinky-mbid-slot {
+            max-width: 100%;
+        }
+        .thinky-mbid-slot > [data-banner-id] {
+            min-height: 50px;
+        }
+
         /* Mobile: show only school icon (logo) and hide full school name */
         @media (max-width: 600px) {
             #modalSchool .school-name { display: none; }
@@ -810,6 +817,10 @@
         data-ad-format="auto"
         data-full-width-responsive="true"></ins>
 
+    <div id="mbidHomeBanner" class="thinky-mbid-slot container" style="margin-top:20px;margin-bottom:8px;text-align:center;" aria-label="Advertisement">
+        <div data-banner-id="2021348"></div>
+    </div>
+
     <!-- Main Content -->
     <div class="container" style="margin-top: -40px; position: relative; z-index: 2;">
         <!-- Search Bar -->
@@ -841,6 +852,10 @@
 
         <!-- Subject Cards Grid (default view) -->
         <div id="subjectsGrid" class="reviewers-grid" style="display:none;"></div>
+
+        <div id="mbidBetweenSubjectReviewer" class="thinky-mbid-slot" style="display:none;margin:20px 0;text-align:center;" aria-label="Advertisement">
+            <div data-banner-id="2021349"></div>
+        </div>
 
         <!-- Reviewer view header (back button + subject label) -->
         <div id="reviewerViewHeader" style="display:none;margin-bottom:16px;align-items:center;gap:12px;">
@@ -896,6 +911,14 @@
         // Track current view mode and all subjects for client-side filtering
         window._currentView = 'subjects'; // 'subjects' | 'subject-detail' | 'reviewers'
         window._allSubjectsData = [];
+
+        function syncMbidBetweenStrip() {
+            const el = document.getElementById('mbidBetweenSubjectReviewer');
+            if (!el) return;
+            const v = window._currentView;
+            const show = v === 'subject-detail' || v === 'reviewers';
+            el.style.display = show ? 'block' : 'none';
+        }
 
         // Load reviewers on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -954,6 +977,7 @@
                     btn.disabled = false;
                 }
             });
+            syncMbidBetweenStrip();
         });
 
         async function loadReviewersInitial() {
@@ -1054,6 +1078,7 @@
                     grid.appendChild(card);
                 });
                 grid.style.display = 'grid';
+                syncMbidBetweenStrip();
 
                 // Check URL for subject parameter and auto-select it AFTER subjects are loaded
                 (function() {
@@ -1101,6 +1126,7 @@
                 grid.style.display = 'none';
                 document.getElementById('loadingState').style.display = 'block';
                 document.getElementById('emptyState').style.display = 'none';
+                syncMbidBetweenStrip();
                 loadMorePublicReviewers().then(() => {
                     window.removeEventListener('scroll', _publicReviewersScrollHandler);
                     window.addEventListener('scroll', _publicReviewersScrollHandler);
@@ -1126,6 +1152,7 @@
             grid.style.display = 'none';
             document.getElementById('loadingState').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
+            syncMbidBetweenStrip();
             loadMorePublicReviewers().then(() => {
                 window.removeEventListener('scroll', _publicReviewersScrollHandler);
                 window.addEventListener('scroll', _publicReviewersScrollHandler);
@@ -1147,6 +1174,7 @@
             const grid = document.getElementById('subjectsGrid');
             Array.from(grid.children).forEach(c => c.style.display = '');
             grid.style.display = 'grid';
+            syncMbidBetweenStrip();
         }
 
         function filterSubjectCards(term) {
@@ -1162,6 +1190,7 @@
             });
             grid.style.display = 'grid';
             document.getElementById('emptyState').style.display = visible === 0 ? 'block' : 'none';
+            syncMbidBetweenStrip();
         }
 
         function _publicReviewersScrollHandler() {
@@ -1205,6 +1234,9 @@
             if (window._currentView !== 'subject-detail') {
                 window._publicReviewersPaging.subjectId = '';
             }
+            if (window._currentView === 'subjects') {
+                window._currentView = 'reviewers';
+            }
             document.getElementById('subjectsGrid').style.display = 'none';
             document.getElementById('reviewerViewHeader').style.display = 'flex';
             document.getElementById('currentSubjectLabel').textContent = `Search: "${term}"`;
@@ -1215,6 +1247,7 @@
             document.getElementById('reviewersGrid').innerHTML = '';
             document.getElementById('loadingState').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
+            syncMbidBetweenStrip();
             await loadMorePublicReviewers();
         }
 
@@ -1237,6 +1270,7 @@
                         document.getElementById('loadingState').style.display = 'none';
                         document.getElementById('emptyState').style.display = 'block';
                         paging.finished = true;
+                        syncMbidBetweenStrip();
                         return;
                     }
                     throw new Error('Failed to load reviewers');
@@ -1253,6 +1287,7 @@
                     document.getElementById('emptyState').style.display = 'block';
                     document.getElementById('reviewersGrid').style.display = 'none';
                     paging.finished = true;
+                    syncMbidBetweenStrip();
                     return;
                 }
 
@@ -1268,6 +1303,7 @@
                 if (paging.offset === 0) {
                     document.getElementById('loadingState').style.display = 'none';
                     document.getElementById('emptyState').style.display = 'block';
+                    syncMbidBetweenStrip();
                 }
             } finally {
                 paging.loading = false;
@@ -1439,11 +1475,13 @@
                 if (append) return;
                 grid.style.display = 'none';
                 document.getElementById('emptyState').style.display = 'block';
+                syncMbidBetweenStrip();
                 return;
             }
 
             grid.style.display = 'grid';
             document.getElementById('emptyState').style.display = 'none';
+            syncMbidBetweenStrip();
 
                 reviewers.forEach(reviewer => {
                 const card = document.createElement('div');
