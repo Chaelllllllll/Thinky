@@ -123,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
     loadCurrentUser();
     loadSchools();
     loadSubjects();
+    loadMonetizationSummary();
 
     // If redirected after verification, show a success toast and clean the URL
     try {
@@ -1220,10 +1221,41 @@ async function toggleReviewerPrivacy(reviewerId, subjectId) {
     }
 }
 
+function formatPhpFromApi(n) {
+    return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 }).format(Number(n) || 0);
+}
+
+async function loadMonetizationSummary() {
+    const card = document.getElementById('monetizationSummaryCard');
+    if (!card) return;
+    try {
+        const resp = await fetch('/api/me/monetization', { credentials: 'include' });
+        const schemaMsg = document.getElementById('monSchemaMsg');
+        if (schemaMsg) schemaMsg.style.display = 'none';
+        if (!resp.ok) {
+            if (resp.status === 503) {
+                card.style.display = 'block';
+                if (schemaMsg) schemaMsg.style.display = 'block';
+            }
+            return;
+        }
+        const data = await resp.json();
+        card.style.display = 'block';
+        const balPhp = document.getElementById('monBalancePhp');
+        const lifePhp = document.getElementById('monLifetimePhp');
+        const cnt = document.getElementById('monReadCount');
+        if (balPhp) balPhp.textContent = formatPhpFromApi(data.balance_php);
+        if (lifePhp) lifePhp.textContent = formatPhpFromApi(data.lifetime_credited_php);
+        if (cnt) cnt.textContent = String(data.total_qualified_reads ?? 0);
+    } catch (e) {
+        console.warn('loadMonetizationSummary', e);
+    }
+}
+
 async function viewReviewer(reviewerId) {
     try {
         if (typeof window.showAdThenProceed === 'function') {
-            await window.showAdThenProceed(() => {}, window.adsConfig?.interstitialSlot || window.adsConfig?.displaySlot || '2516960734');
+            await window.showAdThenProceed(() => {});
         }
 
         // Find reviewer in subjects

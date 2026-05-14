@@ -852,7 +852,7 @@ if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
 const mbidWorkerSrc = [
     "'self'",
-    'blob:',
+    "'blob:'",
     'https://*.mbidadm.com',
     'https://*.mbidinp.com',
     'https://*.cabnnr.com',
@@ -1021,6 +1021,26 @@ const messageLimiter = rateLimit({
     legacyHeaders: false,
     handler: (req, res) => {
         res.status(429).json({ error: 'You are sending messages too quickly. Please slow down.' });
+    }
+});
+
+const monetizationEngageLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({ error: 'Too many monetization events. Please try again later.' });
+    }
+});
+
+const monetizationCashoutLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 8,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (req, res) => {
+        res.status(429).json({ error: 'Too many cashout requests. Please try again later.' });
     }
 });
 
@@ -4230,6 +4250,349 @@ app.get('/api/reviewers/:id', requireAuth, cacheResponse({ namespace: 'reviewers
         res.json({ reviewer: reviewers });
     } catch (error) {
         console.error('Get reviewer by id error:', error);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+// ── Reviewer monetization: qualified reads → author balance (platform credits, micro-USD) ──
+
+function monetizationVisitorKey(req, clientVisitorId) {
+    const salt = process.env.MONETIZATION_VISITOR_SALT || 'thinky-monetization-salt-change-in-production';
+    const ip = (req.ip || req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '0').toString().split(',')[0].trim();
+    const vid = String(clientVisitorId || 'anon').slice(0, 80);
+    return crypto.createHash('sha256').update(`${ip}|${vid}|${salt}`).digest('hex');
+}
+
+function readMonetizationConfig() {
+    return {
+        minDwellMs: Math.max(3000, parseInt(process.env.MONETIZATION_MIN_DWELL_MS || '12000', 10)),
+        minScrollPct: Math.min(100, Math.max(5, parseInt(process.env.MONETIZATION_MIN_SCROLL_PCT || '38', 10))),
+        baseQualifiedMicro: Math.max(0, parseInt(process.env.MONETIZATION_QUALIFIED_READ_MICRO || '5000', 10)),
+        adSurfaceBonusMicro: Math.max(0, parseInt(process.env.MONETIZATION_AD_SURFACE_BONUS_MICRO || '2500', 10)),
+        longDwellThresholdMs: Math.max(60000, parseInt(process.env.MONETIZATION_LONG_DWELL_MS || '120000', 10)),
+        longDwellMultiplier: Math.max(1, Math.min(3, parseFloat(process.env.MONETIZATION_LONG_DWELL_MULT || '1.25')))
+    };
+}
+
+function readMonetizationUsdToPhpRate() {
+    const r = parseFloat(String(process.env.MONETIZATION_USD_TO_PHP_RATE || '58.5').trim());
+    return Number.isFinite(r) && r > 0 ? r : 58.5;
+}
+
+function readMonetizationMinCashoutPhp() {
+    const m = parseFloat(String(process.env.MONETIZATION_MIN_CASHOUT_PHP || '500').trim());
+    return Number.isFinite(m) && m > 0 ? m : 500;
+}
+
+function microUsdToPhp(micro, rate = readMonetizationUsdToPhpRate()) {
+    return ((Number(micro) || 0) / 1e6) * rate;
+}
+
+function computeMonetizationCreditMicro(cfg, { dwellMs, scrollPct, mbidSurfaces }) {
+    let amount = cfg.baseQualifiedMicro;
+    if (mbidSurfaces >= 1 && cfg.adSurfaceBonusMicro > 0) {
+        amount += cfg.adSurfaceBonusMicro;
+    }
+    if (dwellMs >= cfg.longDwellThresholdMs && cfg.longDwellMultiplier > 1) {
+        amount = Math.floor(amount * cfg.longDwellMultiplier);
+    }
+    // Light quality multiplier from scroll depth (1.0 – 1.15)
+    const scrollBoost = 1 + Math.min(0.15, Math.max(0, (scrollPct - cfg.minScrollPct) / 200));
+    amount = Math.floor(amount * scrollBoost);
+    return Math.max(0, amount);
+}
+
+app.get('/api/me/monetization', requireAuth, async (req, res) => {
+    try {
+        const uid = req.session.userId;
+        const rate = readMonetizationUsdToPhpRate();
+
+        const { count: qualifiedReadCount, error: cErr } = await supabaseAdmin
+            .from('reviewer_earnings_ledger')
+            .select('*', { count: 'exact', head: true })
+            .eq('beneficiary_user_id', uid)
+            .eq('event_type', 'qualified_read');
+
+        if (cErr && !String(cErr.message || '').includes('does not exist')) {
+            console.warn('monetization count read:', cErr);
+        }
+
+        const { data: bal, error: bErr } = await supabaseAdmin
+            .from('user_monetization_balance')
+            .select('balance_micro, lifetime_credited_micro, updated_at')
+            .eq('user_id', uid)
+            .maybeSingle();
+
+        if (bErr && !String(bErr.message || '').includes('does not exist')) {
+            console.warn('monetization balance read:', bErr);
+        }
+
+        const { data: ledger, error: lErr } = await supabaseAdmin
+            .from('reviewer_earnings_ledger')
+            .select('id, reviewer_id, viewer_user_id, event_type, amount_micro, meta, created_at')
+            .eq('beneficiary_user_id', uid)
+            .order('created_at', { ascending: false })
+            .limit(30);
+
+        if (lErr && !String(lErr.message || '').includes('does not exist')) {
+            console.warn('monetization ledger read:', lErr);
+            return res.status(503).json({
+                error: 'Earnings storage is not ready. Apply db/migrations for monetization in Supabase.',
+                code: 'MONETIZATION_SCHEMA'
+            });
+        }
+
+        const balanceMicro = bal?.balance_micro ?? 0;
+        const lifetimeMicro = bal?.lifetime_credited_micro ?? 0;
+
+        res.json({
+            balance_micro: balanceMicro,
+            lifetime_credited_micro: lifetimeMicro,
+            balance_php: microUsdToPhp(balanceMicro, rate),
+            lifetime_credited_php: microUsdToPhp(lifetimeMicro, rate),
+            total_qualified_reads: typeof qualifiedReadCount === 'number' ? qualifiedReadCount : 0,
+            usd_to_php_rate: rate,
+            min_cashout_php: readMonetizationMinCashoutPhp(),
+            updated_at: bal?.updated_at ?? null,
+            ledger: ledger || [],
+            config: readMonetizationConfig()
+        });
+    } catch (e) {
+        console.error('GET /api/me/monetization', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/me/monetization/analytics', requireAuth, async (req, res) => {
+    try {
+        const uid = req.session.userId;
+        const rate = readMonetizationUsdToPhpRate();
+
+        const { data: rows, error } = await supabaseAdmin
+            .from('reviewer_earnings_ledger')
+            .select('reviewer_id, amount_micro, created_at')
+            .eq('beneficiary_user_id', uid)
+            .eq('event_type', 'qualified_read')
+            .order('created_at', { ascending: false })
+            .limit(8000);
+
+        if (error && !String(error.message || '').includes('does not exist')) {
+            console.warn('monetization analytics:', error);
+            return res.status(503).json({ error: 'Analytics unavailable', code: 'MONETIZATION_SCHEMA' });
+        }
+
+        const list = rows || [];
+        const byReviewer = new Map();
+        const byDay = new Map();
+
+        for (const r of list) {
+            const rid = r.reviewer_id || 'unknown';
+            const cur = byReviewer.get(rid) || { reviewer_id: rid === 'unknown' ? null : rid, total_micro: 0, reads: 0, total_php: 0 };
+            cur.total_micro += Number(r.amount_micro) || 0;
+            cur.reads += 1;
+            cur.total_php = microUsdToPhp(cur.total_micro, rate);
+            byReviewer.set(rid, cur);
+
+            if (r.created_at) {
+                const d = String(r.created_at).slice(0, 10);
+                byDay.set(d, (byDay.get(d) || 0) + (Number(r.amount_micro) || 0));
+            }
+        }
+
+        const ids = [...byReviewer.keys()].filter((k) => k && k !== 'unknown');
+        const titles = {};
+        if (ids.length) {
+            const { data: revs } = await supabaseAdmin.from('reviewers').select('id, title').in('id', ids);
+            (revs || []).forEach((rv) => { titles[rv.id] = rv.title || 'Reviewer'; });
+        }
+
+        const by_reviewer = [...byReviewer.values()]
+            .filter((x) => x.reviewer_id)
+            .map((x) => ({
+                reviewer_id: x.reviewer_id,
+                title: titles[x.reviewer_id] || 'Reviewer',
+                qualified_reads: x.reads,
+                total_micro: x.total_micro,
+                total_php: x.total_php
+            }))
+            .sort((a, b) => b.total_micro - a.total_micro);
+
+        const last_30_days = [...byDay.entries()]
+            .sort((a, b) => a[0].localeCompare(b[0]))
+            .slice(-30)
+            .map(([date, micro]) => ({
+                date,
+                credits_micro: micro,
+                credits_php: microUsdToPhp(micro, rate)
+            }));
+
+        const total_micro = list.reduce((s, r) => s + (Number(r.amount_micro) || 0), 0);
+
+        res.json({
+            usd_to_php_rate: rate,
+            totals: {
+                qualified_reads: list.length,
+                total_credited_micro: total_micro,
+                total_credited_php: microUsdToPhp(total_micro, rate)
+            },
+            by_reviewer,
+            last_30_days
+        });
+    } catch (e) {
+        console.error('GET /api/me/monetization/analytics', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.get('/api/me/monetization/cashouts', requireAuth, async (req, res) => {
+    try {
+        const uid = req.session.userId;
+        const { data, error } = await supabaseAdmin
+            .from('monetization_cashout_requests')
+            .select('id, amount_php, amount_micro, usd_to_php_rate, status, admin_note, created_at')
+            .eq('user_id', uid)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error && !String(error.message || '').includes('does not exist')) {
+            console.warn('cashouts list:', error);
+            return res.status(503).json({ error: 'Cashout storage not ready', code: 'MONETIZATION_CASHOUT_SCHEMA' });
+        }
+
+        res.json({ cashouts: data || [] });
+    } catch (e) {
+        console.error('GET cashouts', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/me/monetization/cashout', requireAuth, monetizationCashoutLimiter, async (req, res) => {
+    try {
+        const uid = req.session.userId;
+        const amountPhp = parseFloat(String((req.body && req.body.amount_php) ?? '').trim());
+        const minPhp = readMonetizationMinCashoutPhp();
+        const rate = readMonetizationUsdToPhpRate();
+
+        if (!Number.isFinite(amountPhp) || amountPhp < minPhp) {
+            return res.status(400).json({ error: `Minimum cashout is ₱${minPhp.toFixed(2)}`, min_cashout_php: minPhp });
+        }
+
+        const { data: bal } = await supabaseAdmin
+            .from('user_monetization_balance')
+            .select('balance_micro')
+            .eq('user_id', uid)
+            .maybeSingle();
+        const balanceMicro = bal?.balance_micro ?? 0;
+        const balancePhp = microUsdToPhp(balanceMicro, rate);
+        if (amountPhp > balancePhp + 0.01) {
+            return res.status(400).json({ error: 'Amount exceeds available balance', balance_php: balancePhp });
+        }
+
+        const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc('request_monetization_cashout', {
+            p_user_id: uid,
+            p_amount_php: amountPhp,
+            p_usd_to_php: rate
+        });
+
+        if (rpcErr) {
+            const msg = String(rpcErr.message || rpcErr);
+            if (msg.includes('does not exist') || msg.includes('function')) {
+                return res.status(503).json({
+                    error: 'Cashout RPC missing. Run db/migrations/20260515_monetization_v2_no_daily_cashout.sql in Supabase.',
+                    code: 'MONETIZATION_CASHOUT_RPC'
+                });
+            }
+            console.error('request_monetization_cashout', rpcErr);
+            return res.status(500).json({ error: 'Cashout failed' });
+        }
+
+        const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        const payload = typeof row === 'object' && row !== null ? row : {};
+        if (payload.ok === false) {
+            const reason = payload.reason || 'unknown';
+            const status = reason === 'insufficient_balance' ? 400 : 400;
+            return res.status(status).json({ ok: false, ...payload, min_cashout_php: minPhp });
+        }
+
+        res.json({ ok: true, ...payload });
+    } catch (e) {
+        console.error('POST cashout', e);
+        res.status(500).json({ error: 'Server error' });
+    }
+});
+
+app.post('/api/reviewers/:id/monetization/engage', requireAuth, monetizationEngageLimiter, async (req, res) => {
+    try {
+        const reviewerId = req.params.id;
+        const viewerId = req.session.userId;
+        const body = req.body || {};
+        const dwellMs = Math.max(0, parseInt(body.dwellMs, 10) || 0);
+        const scrollPct = Math.min(100, Math.max(0, parseInt(body.scrollPct, 10) || 0));
+        const mbidSurfaces = Math.min(20, Math.max(0, parseInt(body.mbidSurfaces, 10) || 0));
+        const clientVisitorId = String(body.clientVisitorId || '').trim() || String(viewerId);
+
+        const cfg = readMonetizationConfig();
+        if (dwellMs < cfg.minDwellMs || scrollPct < cfg.minScrollPct) {
+            return res.status(400).json({
+                ok: false,
+                credited: false,
+                reason: 'threshold_not_met',
+                required: { minDwellMs: cfg.minDwellMs, minScrollPct: cfg.minScrollPct }
+            });
+        }
+
+        const { data: rev, error: rErr } = await supabaseAdmin
+            .from('reviewers')
+            .select('id, user_id, is_public, title')
+            .eq('id', reviewerId)
+            .maybeSingle();
+
+        if (rErr || !rev) {
+            return res.status(404).json({ error: 'Reviewer not found' });
+        }
+        if (!rev.is_public) {
+            return res.status(403).json({ error: 'Private reviewers are not monetized' });
+        }
+
+        const ownerId = rev.user_id;
+        const amountMicro = computeMonetizationCreditMicro(cfg, { dwellMs, scrollPct, mbidSurfaces });
+        if (amountMicro <= 0) {
+            return res.json({ ok: true, credited: false, reason: 'zero_amount' });
+        }
+
+        const visitorKey = monetizationVisitorKey(req, clientVisitorId);
+
+        const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc('credit_reviewer_read_reward', {
+            p_reviewer_id: reviewerId,
+            p_owner_id: ownerId,
+            p_viewer_id: viewerId,
+            p_amount_micro: amountMicro,
+            p_meta: {
+                dwell_ms: dwellMs,
+                scroll_pct: scrollPct,
+                mbid_surfaces: mbidSurfaces,
+                reviewer_title: rev.title || null,
+                visitor_key: visitorKey
+            }
+        });
+
+        if (rpcErr) {
+            const msg = String(rpcErr.message || rpcErr);
+            if (msg.includes('does not exist') || msg.includes('schema cache') || msg.includes('function')) {
+                return res.status(503).json({
+                    error: 'Monetization RPC missing. Run db/migrations (20260514 + 20260515) in Supabase.',
+                    code: 'MONETIZATION_RPC'
+                });
+            }
+            console.error('credit_reviewer_read_reward RPC error:', rpcErr);
+            return res.status(500).json({ error: 'Failed to record earnings' });
+        }
+
+        const row = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+        const payload = typeof row === 'object' && row !== null ? row : {};
+        return res.json({ ok: true, ...payload, amount_micro: amountMicro });
+    } catch (e) {
+        console.error('POST monetization/engage', e);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -9245,6 +9608,20 @@ app.get('/dashboard', (req, res) => {
         return res.redirect('/login');
     }
     res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+});
+
+app.get('/earnings', (req, res) => {
+    if (!req.session.userId) {
+        return res.redirect('/login');
+    }
+    res.sendFile(path.join(__dirname, 'public', 'earnings.html'));
+});
+
+app.get('/earnings.html', (req, res) => {
+    if (!req.session.userId) {
+        return res.redirect('/login');
+    }
+    res.sendFile(path.join(__dirname, 'public', 'earnings.html'));
 });
 
 app.get('/chat', (req, res) => {

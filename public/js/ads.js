@@ -1,9 +1,6 @@
-// public/js/ads.js - shared AdSense + MBID helpers for Thinky pages
+// public/js/ads.js — MyBid (MBID) only: loader, interstitial modal, slot helpers (no AdSense).
 
 window.adsConfig = window.adsConfig || {
-    clientId: 'ca-pub-2635010933890624',
-    interstitialSlot: '2516960734',
-    displaySlot: '2516960734',
     mbidPublisherId: '440759',
     mbidInlineBannerId: '2021348',
     mbidSecondaryBannerId: '2021349'
@@ -12,7 +9,6 @@ window.adsConfig = window.adsConfig || {
 let adModal = null;
 let adResolve = null;
 let pendingOnClose = null;
-let adObserver = null;
 let _modalHintTimer = null;
 
 function ensureMbidScript() {
@@ -96,65 +92,7 @@ function wireThinkyMbidCollapseIfNeeded(rootEl) {
     }, 3200);
 }
 
-function _pushAdUnit(insEl) {
-    if (!insEl) return;
-    const st = insEl.dataset.adInit;
-    if (st === '1' || st === 'error') return;
-    if (typeof window.adsbygoogle === 'undefined') {
-        delete insEl.dataset.adInit;
-        return;
-    }
-    try {
-        (window.adsbygoogle = window.adsbygoogle || []).push({});
-        insEl.dataset.adInit = '1';
-    } catch (err) {
-        insEl.dataset.adInit = 'error';
-        const msg = err && err.message ? err.message : String(err);
-        if (!msg.includes('already have ads')) {
-            console.warn('AdSense push failed:', err);
-        }
-    }
-}
-
-function initExistingAds(root = document) {
-    const adUnits = root.querySelectorAll('ins.adsbygoogle:not([data-ad-init])');
-    adUnits.forEach((unit, idx) => {
-        if (unit.dataset.adInit) return;
-        unit.dataset.adInit = 'pending';
-        setTimeout(() => _pushAdUnit(unit), idx * 120);
-    });
-}
-
-function scheduleAdInit(root = document) {
-    const run = () => initExistingAds(root);
-    if (typeof window.requestIdleCallback === 'function') {
-        window.requestIdleCallback(run, { timeout: 1000 });
-    } else {
-        setTimeout(run, 100);
-    }
-}
-
-function observeAdSlots(root = document) {
-    if (adObserver || typeof MutationObserver === 'undefined') return;
-    const target = root.documentElement || root;
-    adObserver = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            for (const node of mutation.addedNodes || []) {
-                if (!node || node.nodeType !== 1) continue;
-                if (node.matches && node.matches('ins.adsbygoogle')) {
-                    scheduleAdInit(node.parentNode || document);
-                    continue;
-                }
-                if (node.querySelector && node.querySelector('ins.adsbygoogle')) {
-                    scheduleAdInit(node);
-                }
-            }
-        }
-    });
-    adObserver.observe(target, { childList: true, subtree: true });
-}
-
-function _renderModalAd(slotId) {
+function _renderModalAd() {
     const modal = _getAdModal();
     if (!modal) return null;
     const slotWrap = modal.querySelector('.thinky-ad-modal-slot') || modal.querySelector('.ad-slot');
@@ -165,62 +103,36 @@ function _renderModalAd(slotId) {
     const asHost = modal.querySelector('#adModalAdsenseMount');
     const bannerEl = modal.querySelector('#adModalMbidBanner');
 
-    const mbidSecondary = window.adsConfig && window.adsConfig.mbidSecondaryBannerId;
-    if (mbidSecondary) {
-        ensureMbidScript();
-        const id = String(mbidSecondary).replace(/[^0-9]/g, '');
-        if (bannerEl) bannerEl.setAttribute('data-banner-id', id);
-        if (ph) ph.style.display = 'none';
-        if (asHost) {
-            asHost.style.display = 'none';
-            asHost.innerHTML = '';
-        }
-        if (mbHost) mbHost.style.display = 'block';
-        return bannerEl;
-    }
+    const mbidId =
+        (window.adsConfig && window.adsConfig.mbidSecondaryBannerId) ||
+        (window.adsConfig && window.adsConfig.mbidInlineBannerId);
+    if (!mbidId) return null;
 
+    ensureMbidScript();
+    const id = String(mbidId).replace(/[^0-9]/g, '');
+    if (bannerEl) bannerEl.setAttribute('data-banner-id', id);
     if (ph) ph.style.display = 'none';
-    if (mbHost) mbHost.style.display = 'none';
     if (asHost) {
-        asHost.style.display = 'block';
-        asHost.innerHTML = [
-            '<ins class="adsbygoogle"',
-            'style="display:block"',
-            `data-ad-client="${window.adsConfig.clientId}"`,
-            `data-ad-slot="${slotId || window.adsConfig.interstitialSlot || window.adsConfig.displaySlot}"`,
-            'data-ad-format="auto"',
-            'data-full-width-responsive="true"></ins>'
-        ].join(' ');
-        return asHost.querySelector('ins.adsbygoogle');
+        asHost.style.display = 'none';
+        asHost.innerHTML = '';
     }
-
-    slotWrap.innerHTML = [
-        '<ins class="adsbygoogle"',
-        'style="display:block"',
-        `data-ad-client="${window.adsConfig.clientId}"`,
-        `data-ad-slot="${slotId || window.adsConfig.interstitialSlot || window.adsConfig.displaySlot}"`,
-        'data-ad-format="auto"',
-        'data-full-width-responsive="true"></ins>'
-    ].join(' ');
-
-    return slotWrap.querySelector('ins.adsbygoogle');
+    if (mbHost) mbHost.style.display = 'block';
+    return bannerEl;
 }
 
-function showAdModal(slotId, onClose) {
+function showAdModal(_slotIdIgnored, onClose) {
     const modal = _getAdModal();
     if (!modal) return false;
 
     pendingOnClose = typeof onClose === 'function' ? onClose : null;
     const slot = modal.querySelector('.thinky-ad-modal-slot');
-    if (slot) {
-        slot.classList.remove('thinky-mbid-modal--show-hint');
-    }
+    if (slot) slot.classList.remove('thinky-mbid-modal--show-hint');
     if (_modalHintTimer) {
         clearTimeout(_modalHintTimer);
         _modalHintTimer = null;
     }
 
-    const adUnit = _renderModalAd(slotId || window.adsConfig.interstitialSlot);
+    const adUnit = _renderModalAd();
 
     modal.style.display = 'flex';
     modal.setAttribute('aria-hidden', 'false');
@@ -228,21 +140,17 @@ function showAdModal(slotId, onClose) {
         if (e.target === modal) closeAdModal();
     };
 
-    if (adUnit && adUnit.matches && adUnit.matches('ins.adsbygoogle')) {
-        setTimeout(() => _pushAdUnit(adUnit), 220);
-    }
-
     _nudgeMbidDelayedChain();
 
     const mbidInner = modal.querySelector('#adModalMbidBanner');
-    if (mbidInner && window.adsConfig && window.adsConfig.mbidSecondaryBannerId) {
+    if (mbidInner) {
         _modalHintTimer = setTimeout(() => {
             if (_mbidInnerHasCreative(mbidInner)) return;
             slot && slot.classList.add('thinky-mbid-modal--show-hint');
         }, 2400);
     }
 
-    return true;
+    return !!adUnit;
 }
 
 function closeAdModal(callback) {
@@ -267,10 +175,10 @@ function closeAdModal(callback) {
     adResolve = null;
 }
 
-function showAdThenProceed(callback, slotId = window.adsConfig.interstitialSlot || window.adsConfig.displaySlot) {
+function showAdThenProceed(callback) {
     return new Promise((resolve) => {
         adResolve = resolve;
-        if (!showAdModal(slotId, () => {
+        if (!showAdModal(null, () => {
             setTimeout(() => {
                 if (typeof callback === 'function') callback();
             }, 180);
@@ -285,8 +193,6 @@ function showAdThenProceed(callback, slotId = window.adsConfig.interstitialSlot 
 
 document.addEventListener('DOMContentLoaded', () => {
     ensureMbidScript();
-    observeAdSlots(document);
-    scheduleAdInit(document);
     document.querySelectorAll('.thinky-mbid-collapse-root').forEach((el) => {
         if (el.closest('#adModal')) return;
         const cs = getComputedStyle(el);
@@ -294,17 +200,17 @@ document.addEventListener('DOMContentLoaded', () => {
         wireThinkyMbidCollapseIfNeeded(el);
     });
     window.addEventListener('load', () => {
-        scheduleAdInit(document);
         _nudgeMbidDelayedChain();
     }, { once: true });
 });
 
-window.initExistingAds = initExistingAds;
-window.scheduleAdInit = scheduleAdInit;
-window.observeAdSlots = observeAdSlots;
 window.showAdModal = showAdModal;
 window.closeAdModal = closeAdModal;
 window.showAdThenProceed = showAdThenProceed;
 window.ensureMbidScript = ensureMbidScript;
 window.wireThinkyMbidCollapseIfNeeded = wireThinkyMbidCollapseIfNeeded;
 window.nudgeThinkyMbid = _nudgeMbidDelayedChain;
+// Back-compat no-ops (older pages)
+window.initExistingAds = function () {};
+window.scheduleAdInit = function () {};
+window.observeAdSlots = function () {};

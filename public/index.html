@@ -60,7 +60,6 @@
     </script>
 
     <meta name="google-site-verification" content="tPxMAW9M74WrbFD4seu52Wmrf5IyAw8oApIZTqqjnkE">
-    <meta name="google-adsense-account" content="ca-pub-2635010933890624">
 
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#e91e8c" media="(prefers-color-scheme: light)">
@@ -104,15 +103,12 @@
     
     <link rel="stylesheet" href="/css/style.css">
 
-    <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-2635010933890624" crossorigin="anonymous"></script>
     <script async src="https://js.mbidadm.com/static/scripts.js" data-admpid="440759"></script>
     <script src="/js/alerts.js"></script>
     <script src="/js/chatNotifier.js"></script>
     <script src="/js/flashcards.js"></script>
     <script src="/js/notifications.js"></script>
 
-    <script async src="https://fundingchoicesmessages.google.com/i/pub-2635010933890624?ers=1"></script><script>(function() {function signalGooglefcPresent() {if (!window.frames['googlefcPresent']) {if (document.body) {const iframe = document.createElement('iframe'); iframe.style = 'width: 0; height: 0; border: none; z-index: -1000; left: -1000px; top: -1000px;'; iframe.style.display = 'none'; iframe.name = 'googlefcPresent'; document.body.appendChild(iframe);} else {setTimeout(signalGooglefcPresent, 0);}}}signalGooglefcPresent();})();</script>
-    
     <style>
         .hero {
             background: linear-gradient(135deg, #ff9eb4 0%, #ffd4e0 100%);
@@ -815,14 +811,6 @@
             </div>
         </div>
     </div>
-
-    <!-- Ad1 -->
-    <ins class="adsbygoogle"
-        style="display:block"
-        data-ad-client="ca-pub-2635010933890624"
-        data-ad-slot="2516960734"
-        data-ad-format="auto"
-        data-full-width-responsive="true"></ins>
 
     <div id="mbidHomeBanner" class="thinky-mbid-slot thinky-mbid-collapse-root container" style="margin-top:20px;margin-bottom:8px;text-align:center;" aria-label="Advertisement">
         <div data-banner-id="2021348"></div>
@@ -1612,14 +1600,11 @@
 
             // Show interstitial ad before opening reviewer when ad helper is available.
             if (typeof window.showAdThenProceed === 'function') {
-                await window.showAdThenProceed(
-                    openReviewer,
-                    (window.adsConfig && window.adsConfig.interstitialSlot) || undefined
-                );
+                await window.showAdThenProceed(openReviewer);
                 return;
             }
 
-            // Fallback navigation when AdSense helper is unavailable.
+            // Fallback when MBID modal helper is unavailable.
             openReviewer();
         }
 
@@ -1755,7 +1740,7 @@
         <div id="msgBtnBadge"></div>
     </button>
 
-    <!-- AdSense Modal -->
+    <!-- MyBid interstitial modal (before opening a reviewer from the home grid) -->
     <div id="adModal" class="ad-modal-backdrop" style="display:none;position:fixed;inset:0;z-index:1001;background:rgba(0,0,0,0.8);align-items:center;justify-content:center;padding:20px;">
         <div style="background:var(--white);border-radius:20px;max-width:400px;width:100%;max-height:90vh;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
             <div style="padding:20px;text-align:center;border-bottom:1px solid var(--medium-gray);">
