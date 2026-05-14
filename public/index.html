@@ -1611,11 +1611,16 @@
             };
 
             // Show interstitial ad before opening reviewer when ad helper is available.
+            if (typeof window.showTimedAdThenProceed === 'function') {
+                await window.showTimedAdThenProceed(openReviewer, {
+                    slotId: (window.adsConfig && window.adsConfig.interstitialSlot) || undefined,
+                    autoCloseMs: 5000
+                });
+                return;
+            }
+
             if (typeof window.showAdThenProceed === 'function') {
-                await window.showAdThenProceed(
-                    openReviewer,
-                    (window.adsConfig && window.adsConfig.interstitialSlot) || undefined
-                );
+                await window.showAdThenProceed(openReviewer, (window.adsConfig && window.adsConfig.interstitialSlot) || undefined);
                 return;
             }
 

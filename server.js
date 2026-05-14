@@ -11142,11 +11142,80 @@ async function cleanupOldNotifications() {
     }
 }
 
-// Run cleanup every 24 hours
-setInterval(cleanupOldNotifications, 24 * 60 * 60 * 1000);
+function readRetentionCleanupDays() {
+    const u = parseInt(process.env.RETENTION_UNVERIFIED_USER_DAYS || '10', 10);
+    const s = parseInt(process.env.RETENTION_EMPTY_SUBJECT_DAYS || '10', 10);
+    return {
+        unverifiedUserDays: Number.isFinite(u) && u > 0 ? u : 10,
+        emptySubjectDays: Number.isFinite(s) && s > 0 ? s : 10
+    };
+}
 
-// Run cleanup on startup
-cleanupOldNotifications();
+/** Unverified email-registered users past grace period, and subjects empty (no reviewers) past grace period. */
+async function retentionCleanupStaleAccountsAndSubjects() {
+    try {
+        const { unverifiedUserDays, emptySubjectDays } = readRetentionCleanupDays();
+        const userCut = new Date(Date.now() - unverifiedUserDays * 24 * 60 * 60 * 1000).toISOString();
+        const subjectCut = new Date(Date.now() - emptySubjectDays * 24 * 60 * 60 * 1000).toISOString();
+
+        const { data: deletedUsers, error: userDelErr } = await supabaseAdmin
+            .from('users')
+            .delete()
+            .eq('is_verified', false)
+            .neq('role', 'admin')
+            .lt('created_at', userCut)
+            .select('id');
+
+        if (userDelErr) {
+            console.error('Retention: delete unverified users failed:', userDelErr.message || userDelErr);
+        } else if (deletedUsers && deletedUsers.length) {
+            console.log(`✓ Retention: removed ${deletedUsers.length} unverified account(s) (created before ${userCut}, threshold ${unverifiedUserDays}d)`);
+        }
+
+        const { data: deletedSubjects, error: subDelErr } = await supabaseAdmin
+            .from('subjects')
+            .delete()
+            .lt('empty_since', subjectCut)
+            .select('id');
+
+        if (subDelErr) {
+            const msg = String(subDelErr.message || subDelErr);
+            if (msg.includes('empty_since') || msg.includes('column')) {
+                console.warn(
+                    'Retention: empty-subject cleanup skipped — apply db/migrations/20260516_retention_unverified_users_empty_subjects.sql (subjects.empty_since + triggers).'
+                );
+            } else {
+                console.error('Retention: delete empty subjects failed:', subDelErr.message || subDelErr);
+            }
+        } else if (deletedSubjects && deletedSubjects.length) {
+            console.log(`✓ Retention: removed ${deletedSubjects.length} empty subject(s) (empty_since before ${subjectCut}, threshold ${emptySubjectDays}d)`);
+        }
+
+        if ((deletedUsers && deletedUsers.length) || (deletedSubjects && deletedSubjects.length)) {
+            await invalidateCacheNamespaces(['subjects:user', 'subjects:public', 'reviewers:subject', 'reviewers:public-auth', 'reviewers:public-guest']);
+        }
+    } catch (err) {
+        console.error('Retention cleanup error:', err);
+    }
+}
+
+let _dailyMaintenanceRunning = false;
+async function runDailyMaintenance() {
+    if (_dailyMaintenanceRunning) return;
+    _dailyMaintenanceRunning = true;
+    try {
+        await cleanupOldNotifications();
+        await retentionCleanupStaleAccountsAndSubjects();
+    } finally {
+        _dailyMaintenanceRunning = false;
+    }
+}
+
+// Run maintenance every 24 hours
+setInterval(runDailyMaintenance, 24 * 60 * 60 * 1000);
+
+// Run on startup (notifications + retention)
+runDailyMaintenance();
 
 // =====================================================
 // STARTUP MIGRATIONS

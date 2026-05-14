@@ -686,8 +686,26 @@
             window.location.href = '/login';
             return;
         }
+
+        const openReviewer = () => {
+            window.location.href = `/reviewer.html?id=${rv.id}`;
+        };
+
+        if (typeof window.showTimedAdThenProceed === 'function') {
+            await window.showTimedAdThenProceed(openReviewer, {
+                slotId: (window.adsConfig && window.adsConfig.interstitialSlot) || undefined,
+                autoCloseMs: 5000
+            });
+            return;
+        }
+
+        if (typeof window.showAdThenProceed === 'function') {
+            await window.showAdThenProceed(openReviewer, (window.adsConfig && window.adsConfig.interstitialSlot) || undefined);
+            return;
+        }
+
         // Navigate to reviewer detail page
-        window.location.href = `/reviewer.html?id=${rv.id}`;
+        openReviewer();
     }
 
     // Close modal (exposed globally for onclick handlers)

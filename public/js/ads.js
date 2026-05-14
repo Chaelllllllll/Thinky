@@ -14,6 +14,7 @@ let adResolve = null;
 let pendingOnClose = null;
 let adObserver = null;
 let _modalHintTimer = null;
+let _adAutoCloseTimer = null;
 
 function ensureMbidScript() {
     const pid = window.adsConfig && window.adsConfig.mbidPublisherId;
@@ -169,14 +170,18 @@ function _renderModalAd(slotId) {
     if (mbidSecondary) {
         ensureMbidScript();
         const id = String(mbidSecondary).replace(/[^0-9]/g, '');
-        if (bannerEl) bannerEl.setAttribute('data-banner-id', id);
+        if (bannerEl) {
+            bannerEl.setAttribute('data-banner-id', id);
+        } else if (slotWrap) {
+            slotWrap.innerHTML = `<div class="thinky-ad-modal-slot" style="padding:20px;text-align:center;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;"><div data-banner-id="${id}"></div></div>`;
+        }
         if (ph) ph.style.display = 'none';
         if (asHost) {
             asHost.style.display = 'none';
             asHost.innerHTML = '';
         }
         if (mbHost) mbHost.style.display = 'block';
-        return bannerEl;
+        return bannerEl || (slotWrap ? slotWrap.querySelector('[data-banner-id]') : null);
     }
 
     if (ph) ph.style.display = 'none';
@@ -245,15 +250,29 @@ function showAdModal(slotId, onClose) {
     return true;
 }
 
-function closeAdModal(callback) {
+function closeAdModal(callback, options = {}) {
+    const force = !!(options && options.force);
     const modal = _getAdModal();
+    if (modal && modal.dataset.adLocked === '1' && !force) {
+        return;
+    }
+
+    if (_adAutoCloseTimer) {
+        clearTimeout(_adAutoCloseTimer);
+        _adAutoCloseTimer = null;
+    }
     if (_modalHintTimer) {
         clearTimeout(_modalHintTimer);
         _modalHintTimer = null;
     }
     if (modal) {
+        modal.dataset.adLocked = '0';
         const slot = modal.querySelector('.thinky-ad-modal-slot');
         if (slot) slot.classList.remove('thinky-mbid-modal--show-hint');
+        modal.querySelectorAll('button[onclick*="closeAdModal"]').forEach((btn) => {
+            btn.style.display = '';
+            btn.disabled = false;
+        });
         modal.style.display = 'none';
         modal.setAttribute('aria-hidden', 'true');
         modal.onclick = null;
@@ -283,6 +302,36 @@ function showAdThenProceed(callback, slotId = window.adsConfig.interstitialSlot 
     });
 }
 
+function showTimedAdThenProceed(callback, {
+    slotId = (window.adsConfig && (window.adsConfig.interstitialSlot || window.adsConfig.displaySlot)),
+    autoCloseMs = 5000
+} = {}) {
+    return new Promise((resolve) => {
+        adResolve = resolve;
+        if (!showAdModal(slotId, () => {
+            if (typeof callback === 'function') callback();
+        })) {
+            if (typeof callback === 'function') callback();
+            resolve();
+            return;
+        }
+
+        const modal = _getAdModal();
+        if (modal) {
+            modal.dataset.adLocked = '1';
+            modal.onclick = null;
+            modal.querySelectorAll('button[onclick*="closeAdModal"]').forEach((btn) => {
+                btn.style.display = 'none';
+                btn.disabled = true;
+            });
+        }
+
+        _adAutoCloseTimer = setTimeout(() => {
+            closeAdModal(null, { force: true });
+        }, Math.max(1000, Number(autoCloseMs) || 5000));
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     ensureMbidScript();
     observeAdSlots(document);
@@ -305,6 +354,7 @@ window.observeAdSlots = observeAdSlots;
 window.showAdModal = showAdModal;
 window.closeAdModal = closeAdModal;
 window.showAdThenProceed = showAdThenProceed;
+window.showTimedAdThenProceed = showTimedAdThenProceed;
 window.ensureMbidScript = ensureMbidScript;
 window.wireThinkyMbidCollapseIfNeeded = wireThinkyMbidCollapseIfNeeded;
 window.nudgeThinkyMbid = _nudgeMbidDelayedChain;
