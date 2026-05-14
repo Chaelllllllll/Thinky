@@ -1554,46 +1554,52 @@ const upload = multer({ storage: memoryStorage, limits: { fileSize: 2 * 1024 * 1
 // =====================================================
 // Configure nodemailer transporter using SMTP env vars
 let mailTransporter = null;
-if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
-    // Allow opt-in for self-signed certificates in development via SMTP_ALLOW_SELF_SIGNED=true
-    const tlsOptions = {
-        minVersion: 'TLSv1.2',
-        ciphers: 'HIGH:!aNULL:!MD5',
-    };
-    
-    if (process.env.SMTP_ALLOW_SELF_SIGNED === 'true') {
-        tlsOptions.rejectUnauthorized = false;
-        console.warn('SMTP_ALLOW_SELF_SIGNED is enabled — the transporter will accept self-signed certificates (INSECURE, for testing only)');
+try {
+    if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+        // Allow opt-in for self-signed certificates in development via SMTP_ALLOW_SELF_SIGNED=true
+        const tlsOptions = {
+            minVersion: 'TLSv1.2',
+            ciphers: 'HIGH:!aNULL:!MD5',
+        };
+        
+        if (process.env.SMTP_ALLOW_SELF_SIGNED === 'true') {
+            tlsOptions.rejectUnauthorized = false;
+            console.warn('SMTP_ALLOW_SELF_SIGNED is enabled — the transporter will accept self-signed certificates (INSECURE, for testing only)');
+        }
+
+        mailTransporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST,
+            port: parseInt(process.env.SMTP_PORT || '587', 10),
+            secure: process.env.SMTP_SECURE === 'true',
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS
+            },
+            tls: tlsOptions,
+            connectionTimeout: 10000, // 10 seconds
+            greetingTimeout: 10000,
+            socketTimeout: 10000,
+            requireTLS: true,
+            logger: false, // Set to true for debugging
+            debug: false   // Set to true for detailed debugging
+        });
+    } else {
+        console.warn('SMTP not configured. Verification emails will fail until SMTP env vars are set.');
     }
 
-    mailTransporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587', 10),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS
-        },
-        tls: tlsOptions,
-        connectionTimeout: 10000, // 10 seconds
-        greetingTimeout: 10000,
-        socketTimeout: 10000,
-        requireTLS: true,
-        logger: false, // Set to true for debugging
-        debug: false   // Set to true for detailed debugging
-    });
-} else {
-    console.warn('SMTP not configured. Verification emails will fail until SMTP env vars are set.');
-}
-
-// Verify transporter early to provide clearer diagnostics
-if (mailTransporter) {
-    mailTransporter.verify().then(() => {
-        console.info('SMTP transporter verified and ready to send messages');
-    }).catch(err => {
-        console.warn('SMTP transporter verification failed:', err && err.message ? err.message : err);
-        console.debug(err && err.stack ? err.stack : err);
-    });
+    // Verify transporter early to provide clearer diagnostics
+    if (mailTransporter) {
+        mailTransporter.verify().then(() => {
+            console.info('SMTP transporter verified and ready to send messages');
+        }).catch(err => {
+            console.warn('SMTP transporter verification failed:', err && err.message ? err.message : err);
+            console.debug(err && err.stack ? err.stack : err);
+        });
+    }
+} catch (err) {
+    console.error('Failed to initialize nodemailer transporter:', err && err.message ? err.message : err);
+    console.warn('Email functionality will be disabled until nodemailer is properly configured');
+    mailTransporter = null;
 }
 
 // Reusable email sender and templates
