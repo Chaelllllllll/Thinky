@@ -852,7 +852,7 @@ if (!isProd) scriptSrcArray.push("'unsafe-eval'");
 
 const mbidWorkerSrc = [
     "'self'",
-    "'blob:'",
+    'blob:',
     'https://*.mbidadm.com',
     'https://*.mbidinp.com',
     'https://*.cabnnr.com',
